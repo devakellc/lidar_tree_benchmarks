@@ -45,6 +45,7 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `detect_lasr_aoi.R` / `detect_lidr_aoi.R` | Full approach on the real 3DEP AOI. |
 | `shared_chm_aoi.R` | Same-CHM controlled test on the AOI. |
 | `pc_vs_chm.R` | CHM-lmf vs point-cloud lmf vs Li 2012 on a sub-clip. |
+| `density_cost.R` | The three detectors vs density: counts + runtime scaling. |
 
 ## Reproduce
 

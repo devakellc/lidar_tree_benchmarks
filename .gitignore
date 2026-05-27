@@ -1,0 +1,8 @@
+# Data and derived outputs (regenerate via scripts/extract.json + the R scripts)
+*.laz
+*.las
+*.tif
+*.csv
+*.log
+*.output
+ept.json

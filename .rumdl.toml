@@ -1,0 +1,7 @@
+# rumdl configuration for this project
+[MD013]
+# Enforce an 80-character line limit on prose.
+line-length = 80
+# Tables and fenced code blocks cannot wrap without breaking, so exempt them.
+tables = false
+code-blocks = false

@@ -180,6 +180,22 @@ rasterization + pit-fill smooth the surface.
 | point-cloud lmf | >= 8/m² | trivial cost, but over-detects when sparse; ~= CHM for dominant tops |
 | Li 2012 | >= 8/m² only | needs density for real sub-dominant trees; cost explodes, impractical wall-to-wall |
 
+#### Measured 16-core Li 2012 throughput (real EPT data)
+
+A 56.2 ha block (13.0M pts, ~14 first-ret/m²) was pulled from the EPT,
+reprojected to UTM, retiled to 36 x 150 m tiles, and segmented **end-to-end**
+(read -> drop noise -> normalize -> Li 2012) across **16 cores**:
+
+- **40.1 s for 56.2 ha -> 0.71 s/ha** (19,462 trees, 346/ha).
+- Extrapolated to **10,000 acres (4,047 ha): ~48 min on 16 cores.**
+
+Note this is **~2.4x** the naive Li-2012-only estimate (~20 min): normalization
+(`tin()`), disk I/O, and fork overhead roughly triple the segmentation cost
+(~11 s/ha single-core end-to-end vs ~4 s/ha for the segmentation alone). It also
+excludes inter-tile buffers (add ~10–40% for buffered processing) and assumes
+this density — QL1 (~8/m²) would be ~0.4x (~18 min); at QL2 Li 2012 is the wrong
+tool. CHM-lmf over the same 10,000 acres is ~a few minutes.
+
 ## Caveats
 
 - **Runtime is not an engine benchmark.** On the 8,090 m² toy tile lidR's

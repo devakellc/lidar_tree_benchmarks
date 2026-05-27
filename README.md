@@ -46,6 +46,8 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `shared_chm_aoi.R` | Same-CHM controlled test on the AOI. |
 | `pc_vs_chm.R` | CHM-lmf vs point-cloud lmf vs Li 2012 on a sub-clip. |
 | `density_cost.R` | The three detectors vs density: counts + runtime scaling. |
+| `extract_big.json` | PDAL: pull a larger ~56 ha block from the EPT (reprojected). |
+| `li2012_16core.R` | Retile + 16-core Li 2012 throughput; extrapolates to 10k acres. |
 
 ## Reproduce
 

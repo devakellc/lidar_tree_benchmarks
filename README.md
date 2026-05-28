@@ -42,13 +42,14 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `shared_chm.R` | Controlled test: both detectors on one shared CHM. |
 | `sweep.R` | Parameter sweep vs the bundled `treeID` reference. |
 | `extract.json` | PDAL pipeline: clip the AOI from the public EPT, reproject 3857 -> UTM 10N, write `aoi.laz`. |
-| `detect_lasr_aoi.R` / `detect_lidr_aoi.R` | Full approach on the real 3DEP AOI. |
+| `detect_lasr_ept_aoi.R` | lasR-native remote EPT AOI pipeline (acquire + process directly in lasR). |
+| `detect_lasr_aoi.R` / `detect_lidr_aoi.R` | Full approach on the real 3DEP AOI after PDAL extraction. |
 | `shared_chm_aoi.R` | Same-CHM controlled test on the AOI. |
 | `pc_vs_chm.R` | CHM-lmf vs point-cloud lmf vs Li 2012 on a sub-clip. |
 
 ## Reproduce
 
-Requirements: R with `lasR` (>= 0.21, dev build with variable-window `ws`) and
+Requirements: R with `lasR` (>= 0.21, dev/`pre-devel` build with EPT parallel acquisition and variable-window `ws`) and
 `lidR`; PDAL (>= 2.9) for the EPT extraction.
 
 ```sh
@@ -59,7 +60,10 @@ Rscript scripts/detect_lasr.R
 Rscript scripts/detect_lidr.R
 Rscript scripts/compare.R "$CLAUDE_JOB_DIR/tops_lasr.csv" "$CLAUDE_JOB_DIR/tops_lidr.csv"
 
-# Real AOI: fetch + reproject ~25 ha, then run the full pipeline
+# Real AOI with lasR-only EPT acquisition (pre-devel; auto-partitions into ~32 chunks)
+Rscript scripts/detect_lasr_ept_aoi.R
+
+# Real AOI: fetch + reproject ~25 ha with PDAL, then run the full pipeline
 (cd "$CLAUDE_JOB_DIR" && pdal pipeline "$OLDPWD/scripts/extract.json")
 Rscript scripts/detect_lasr_aoi.R
 Rscript scripts/detect_lidr_aoi.R
@@ -72,8 +76,9 @@ above.
 ## Notes
 
 - The EPT is in EPSG:3857 (Web Mercator); distances there are inflated ~1.32x at
-  this latitude, which corrupts density and window sizes — hence the reprojection
-  to UTM before processing.
+  this latitude. The lasR-only EPT script keeps processing in 3857 for a fully
+  native acquisition path; for metric-faithful parameterization, prefer the PDAL
+  reproject-to-UTM path before detection.
 - Runtimes in the comparison are **not** an engine benchmark (single small
   tiles, and EPT reads from a non-AWS machine are network-bound). lasR's real
   advantage is large-area (>= 100 km²) streaming throughput and low memory.

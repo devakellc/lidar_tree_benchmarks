@@ -2,7 +2,15 @@ suppressMessages(library(lasR))
 d   <- Sys.getenv("CLAUDE_JOB_DIR")
 tif <- file.path(d, "chm_aoi.tif")
 laz <- file.path(d, "aoi.laz")
-ws  <- function(h){y<-0.1*h+3;y[h<2]<-2;y[h>20]<-5;y}
+
+# Same density-derived wfloor as detect_*_aoi.R so "same ws" is literal.
+ans0 <- exec(reader_las(filter = "-drop_class 7 18 -drop_withheld") +
+               rasterize(1, "count", filter = keep_first()), on = laz)
+v    <- terra::values(ans0); dens <- mean(v[!is.na(v) & v > 0])
+spacing <- 1 / sqrt(dens); wfloor <- max(2, round(2.5 * spacing, 1))
+ws  <- function(h){y<-0.1*h+3;y[h<2]<-wfloor;y[h>20]<-5;y}
+cat(sprintf("shared_chm_aoi: density=%.2f -> wfloor=%.1f m\n", dens, wfloor))
+
 r   <- load_raster(tif)
 ans <- exec(r + local_maximum_raster(r, ws, min_height=2), on=laz)
 tops<- ans[[length(ans)]]; cc<-sf::st_coordinates(tops)

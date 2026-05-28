@@ -52,6 +52,7 @@ if (is.null(dens) || is.na(dens) || dens <= 0) {
 if (is.null(dens) || is.na(dens) || dens <= 0) {
   stop("Could not compute density from summarise() on EPT AOI")
 }
+if (dens < 1) stop("density < 1 pts/m²: metrics collapse; do not proceed")
 
 res     <- if (dens >= 8) 0.25 else if (dens >= 4) 0.50 else 1.0
 spacing <- 1 / sqrt(dens)
@@ -61,14 +62,23 @@ cat(sprintf("lasR EPT Step 0: density=%.2f -> res=%.2f m, window floor=%.1f m\n"
             dens, res, wfloor))
 
 ## Steps 1-5 -- normalize -> pit-free CHM -> variable-window local maximum
+# NOTE: lasR's `pit_fill` is not the Khosravipour pit-free algorithm used by
+# lidR::pitfree(); it is TIN + post-hoc pit filling (see comparison doc).
+# Step 5 smoothing branch: QL2 (dens < 8) gets a 3x3 mean pre-LM smooth.
 t0   <- Sys.time()
 norm <- normalize()
 del  <- triangulate(filter = keep_first())
 chm  <- rasterize(res, del)
 chm2 <- pit_fill(chm)
-seed <- local_maximum_raster(chm2, ws, min_height = 2)
-ans  <- exec(read + norm + del + chm + chm2 + seed, on = url, ncores = ncores)
-dt   <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
+if (dens < 8) {
+  smooth <- focal(chm2, size = 3, fun = "mean")
+  seed   <- local_maximum_raster(smooth, ws, min_height = 2)
+  ans    <- exec(read + norm + del + chm + chm2 + smooth + seed, on = url, ncores = ncores)
+} else {
+  seed <- local_maximum_raster(chm2, ws, min_height = 2)
+  ans  <- exec(read + norm + del + chm + chm2 + seed, on = url, ncores = ncores)
+}
+dt <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
 
 tops <- ans[[length(ans)]]
 xy   <- sf::st_coordinates(tops)

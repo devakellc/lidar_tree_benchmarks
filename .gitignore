@@ -3,6 +3,11 @@
 *.las
 *.tif
 *.csv
+*.gpkg
 *.log
 *.output
 ept.json
+tiles/
+tiles_norm/
+work/
+Rplots.pdf

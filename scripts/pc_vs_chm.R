@@ -1,5 +1,6 @@
 suppressMessages(library(lidR))
-las <- readLAS("aoi.laz",
+d <- Sys.getenv("CLAUDE_JOB_DIR")
+las <- readLAS(file.path(d, "aoi.laz"),
   filter="-drop_class 7 18 -drop_withheld -keep_xy 586418 4521371 586568 4521521")
 las <- normalize_height(las, tin())
 ws  <- function(h){y<-0.1*h+3; y[h<2]<-2; y[h>20]<-5; y}

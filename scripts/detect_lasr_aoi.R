@@ -8,6 +8,7 @@ read <- reader_las(filter = "-drop_class 7 18 -drop_withheld")
 ## Step 0 -- first-return density (1 m cells), drives res + window floor
 ans0 <- exec(read + rasterize(1, "count", filter = keep_first()), on = f)
 v    <- terra::values(ans0); dens <- mean(v[!is.na(v) & v > 0])
+if (dens < 1) stop("density < 1 pts/m²: metrics collapse; do not proceed")
 res     <- if (dens >= 8) 0.25 else if (dens >= 4) 0.50 else 1.0
 spacing <- 1 / sqrt(dens); wfloor <- max(2, round(2.5 * spacing, 1))
 ws <- function(h) { y <- 0.1 * h + 3; y[h < 2] <- wfloor; y[h > 20] <- 5; y }
@@ -15,14 +16,23 @@ cat(sprintf("lasR Step 0: density=%.2f -> res=%.2f m, window floor=%.1f m\n",
             dens, res, wfloor))
 
 ## Steps 1-5 (ground already classified) -> normalize -> pit-free CHM -> VWF
+# NOTE: lasR's `pit_fill` is not the Khosravipour pit-free algorithm used by
+# lidR::pitfree(); it is TIN + post-hoc pit filling (see comparison doc).
+# Step 5 smoothing branch: QL2 (dens < 8) gets a 3x3 mean pre-LM smooth.
 t0   <- Sys.time()
 norm <- normalize()
 del  <- triangulate(filter = keep_first())
 chm  <- rasterize(res, del)
 chm2 <- pit_fill(chm)
-seed <- local_maximum_raster(chm2, ws, min_height = 2)
-ans  <- exec(read + norm + del + chm + chm2 + seed, on = f)
-dt   <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
+if (dens < 8) {
+  smooth <- focal(chm2, size = 3, fun = "mean")
+  seed   <- local_maximum_raster(smooth, ws, min_height = 2)
+  ans    <- exec(read + norm + del + chm + chm2 + smooth + seed, on = f)
+} else {
+  seed <- local_maximum_raster(chm2, ws, min_height = 2)
+  ans  <- exec(read + norm + del + chm + chm2 + seed, on = f)
+}
+dt <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
 
 tops <- ans[[length(ans)]]
 xy   <- sf::st_coordinates(tops)

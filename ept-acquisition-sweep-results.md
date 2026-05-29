@@ -135,10 +135,78 @@ Rscript scripts/detect_lasr_ept_aoi.R   # uses concurrent_files via LASR_EPT_PAR
 # Older lasR or explicit override:
 export LASR_EPT_PARTITIONS=32
 # concurrent_files(16) on large AOIs; concurrent_files(8) is a safe fallback
+# For very large AOIs (≳0.5B pts), fewer partitions win: set
+# LASR_EPT_PARTITIONS≈workers (~1 chunk/worker). See the billion-point section.
 ```
 
 For AOIs ≲30M points, **sequential** or **concurrent_files(8)** is often enough;
 parallel overhead can exceed benefit below ~25–30M points on this network path.
+
+---
+
+## Billion-point AOI (10k acres): concurrency crash + partition knee at scale
+
+A 10,000-acre AOI (`aoi_10k_acres.geojson`; EPSG:3857 bbox
+`-13549926.53,4944632.44,-13541563.99,4953027.51`) over the same dataset is
+**1,150,704,902 points** (~28 pts/m², ~10× the full-sweep AOI). It exposed both
+a bug and a clearer picture of the partition knee.
+
+### A concurrency bug in lasR (found + fixed)
+
+`concurrent_files(16)` on this AOI **crashed** — segfault / double free /
+`malloc(): unaligned tcache chunk`, nondeterministically. Root cause: a data
+race in `thread_safe_print` (`src/LASRcore/print.cpp`). The message-queue
+`push_back` and the drain (`print_queue()`: iterate + `clear()`) used two
+*different* OpenMP `critical` locks over one global `std::vector`, so a worker
+push could run concurrently with the main thread's `clear()`/iterate and corrupt
+the heap. It only bit at high concurrency × large chunks (frequent verbose
+per-chunk logging accumulating between drains); `cf4`/`cf8` and the 112M AOI
+masked it.
+
+Fixed in r-lidar/lasR (`parallel-ept-acquisition`, `pre-devel`; PR #328 →
+`devel`): one lock for both push and drain, and gate the drain on the real
+main-thread id (`std::this_thread::get_id()` at load) instead of
+`omp_get_thread_num()`, which returns 0 for the `std::async` prefetch threads.
+Clean-build A/B at 1.15B pts: pre-fix crashed 2/2, post-fix ran 3/3 clean; the
+partition sweep below then ran 10 consecutive `cf16` reads with no crash.
+
+### Partition knee at `concurrent_files(16)` (2 reps each, fixed lib)
+
+| `LASR_EPT_PARTITIONS` | Chunks | Median (s) | Mpts/s | vs best |
+|----------------------|--------|------------|--------|---------|
+| **16** | 16 | **300.5** | 3.83 | — |
+| 32 (current default) | 49 | 328.9 | 3.50 | +9% |
+| 64 | 169 | 414.0 | 2.78 | +38% |
+| 96 | 169 | 413.0 | 2.79 | +37% |
+| 128 | 169 | 413.4 | 2.78 | +38% |
+
+**Fewer partitions are faster at scale.** The optimum is `target ≈ workers`
+(16 → ≈one ~72M-point chunk per worker: minimal per-chunk request overhead,
+all workers engaged). Raising the target just splits the same data into more,
+smaller chunks (target ≥64 saturates at the octree's natural 169) and adds
+overhead. So:
+
+- The default-target change from `4×workers` (→169 chunks here, 414 s) to **32**
+  (→49 chunks, 329 s) is a **~20% win** at this scale — directionally correct.
+- But **32 over-partitions large AOIs**: `target=16` (≈workers) is another ~9%
+  faster. The true optimum tracks the **worker count (≈1 chunk/worker)**, not a
+  fixed 32 and not the point count. This is the *opposite* direction from
+  "more cores → more chunks" — at scale you want **fewer** chunks, which also
+  argues against any `clamp(2·ncpu, …)`-style upward scaling.
+
+### Throughput by worker count (`LASR_EPT_PARTITIONS=32`, 1.15B pts)
+
+| Mode | Median (s) | Mpts/s | vs seq |
+|------|------------|--------|--------|
+| sequential | 1382 | 0.83 | — |
+| concurrent_files(4) | 523 | 2.20 | 2.6× |
+| concurrent_files(8) | 360 | 3.19 | 3.8× |
+| concurrent_files(16) | 329 | 3.50 | 4.2× |
+
+Unlike the 112M AOI (where `cf4 ≈ cf16` — remote saturated at ~4 fetches), at
+1.15B points throughput **keeps scaling to 16 workers**: a larger AOI sustains
+more parallel transfer before the endpoint saturates. Best overall config here:
+`concurrent_files(16)` + `LASR_EPT_PARTITIONS=16` → 300 s, 3.83 Mpts/s.
 
 ---
 

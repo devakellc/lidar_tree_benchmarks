@@ -61,6 +61,9 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `pc_vs_chm.R` | CHM-lmf vs point-cloud lmf vs Li 2012 on a sub-clip. |
 | `tile_aoi.R` | Retile `aoi.laz` into a tile grid under `tiles/` for the catalog demo. |
 | `detect_lasr_catalog.R` / `detect_lidr_catalog.R` | Multi-tile streaming demo (lasR auto-buffering vs `opt_chunk_buffer`). |
+| `density_cost.R` | The three detectors vs density: counts + runtime scaling. |
+| `extract_big.json` | PDAL: pull a larger ~56 ha block from the EPT (reprojected). |
+| `li2012_16core.R` | Retile + 16-core Li 2012 throughput; extrapolates to 10k acres. |
 
 ## Reproduce
 

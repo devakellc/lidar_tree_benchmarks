@@ -246,6 +246,52 @@ cleanly as lasR's streaming pipeline. Practical implication: for wall-to-wall
 detection on tiled data, prefer the lasR streaming path; if you must use
 lidR, validate the catalog result against a single-file baseline on a
 representative tile.
+### Density and computational cost (three detectors)
+
+Same 2.25 ha sub-clip, decimated to a range of first-return densities; each
+method timed (elapsed, multithreaded where applicable).
+
+| first-ret/m² | CHM res | k pts | CHM-lmf n / s | pc-lmf n / s | Li 2012 n / s |
+|--------------|---------|-------|---------------|--------------|---------------|
+| 0.7 | 1.00 | 23 | 491 / 0.2 | 997 / 0.0 | 1191 / 0.1 |
+| 1.4 | 1.00 | 46 | 530 / 0.2 | 869 / 0.0 | 1063 / 0.3 |
+| 2.8 | 1.00 | 91 | 507 / 0.2 | 781 / 0.0 | 897 / 0.7 |
+| 5.7 | 0.50 | 182 | 542 / 0.6 | 712 / 0.0 | 822 / 2.1 |
+| 11.4 | 0.25 | 365 | 631 / 1.2 | 708 / 0.1 | 795 / 7.5 |
+| 12.5 | 0.25 | 399 | 635 / 1.3 | 706 / 0.1 | 784 / 8.9 |
+
+**Cost:** point-cloud lmf is ~free (<0.1 s); CHM-lmf is cheap and roughly
+linear (~19 s extrapolated to the full 25 ha, matching the AOI run); **Li 2012
+scales ~O(n^1.7)** — 0.1 s at 23k pts but 8.9 s at 399k, i.e. ~10–15 min for the
+full 25 ha and worse per km². It is the expensive method, and density makes it
+explode.
+
+**Reliability:** below ~3/m² the point-cloud methods **over-detect** (sparse
+returns become spurious local maxima — ~2x the CHM count, mostly noise); their
+counts settle as density rises. CHM-lmf is stable throughout because
+rasterization + pit-fill smooth the surface.
+
+| Method | Best density | Why |
+|--------|--------------|-----|
+| CHM-lmf | any, esp. <= 4/m² | robust to sparsity, cheap, linear — wall-to-wall workhorse |
+| point-cloud lmf | >= 8/m² | trivial cost, but over-detects when sparse; ~= CHM for dominant tops |
+| Li 2012 | >= 8/m² only | needs density for real sub-dominant trees; cost explodes, impractical wall-to-wall |
+
+#### Measured 16-core Li 2012 throughput (real EPT data)
+
+A 56.2 ha block (13.0M pts, ~14 first-ret/m²) was pulled from the EPT,
+reprojected to UTM, retiled to 36 x 150 m tiles, and segmented **end-to-end**
+(read -> drop noise -> normalize -> Li 2012) across **16 cores**:
+
+- **40.1 s for 56.2 ha -> 0.71 s/ha** (19,462 trees, 346/ha).
+- Extrapolated to **10,000 acres (4,047 ha): ~48 min on 16 cores.**
+
+Note this is **~2.4x** the naive Li-2012-only estimate (~20 min): normalization
+(`tin()`), disk I/O, and fork overhead roughly triple the segmentation cost
+(~11 s/ha single-core end-to-end vs ~4 s/ha for the segmentation alone). It also
+excludes inter-tile buffers (add ~10–40% for buffered processing) and assumes
+this density — QL1 (~8/m²) would be ~0.4x (~18 min); at QL2 Li 2012 is the wrong
+tool. CHM-lmf over the same 10,000 acres is ~a few minutes.
 
 ## Caveats
 

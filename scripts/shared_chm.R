@@ -2,16 +2,24 @@
 # Controlled test: run BOTH local-maximum implementations on ONE shared CHM
 # (the lidR pit-free CHM written to chm_shared.tif). Isolates the
 # detection algorithm from CHM-construction differences.
+#
+# Window function uses the SAME density-derived wfloor as the detect scripts,
+# so "same ws" between lasR and lidR is literally true.
 d   <- Sys.getenv("CLAUDE_JOB_DIR")
 tif <- file.path(d, "chm_shared.tif")
-ws  <- function(h) { y <- 0.1 * h + 3; y[h < 2] <- 3; y[h > 20] <- 5; y }
+las_f <- system.file("extdata", "MixedConifer.las", package = "lasR")
+
+suppressMessages(library(lasR))
+ans0 <- exec(rasterize(1, "count", filter = keep_first()), on = las_f)
+v    <- terra::values(ans0); dens <- mean(v[!is.na(v) & v > 0])
+spacing <- 1 / sqrt(dens); wfloor <- max(2, round(2.5 * spacing, 1))
+ws <- function(h) { y <- 0.1 * h + 3; y[h < 2] <- wfloor; y[h > 20] <- 5; y }
+cat(sprintf("shared_chm: density=%.2f -> wfloor=%.1f m\n", dens, wfloor))
 
 ## lasR LM on the shared CHM
-suppressMessages(library(lasR))
-lasf <- system.file("extdata", "MixedConifer.las", package = "lasR")
 r    <- load_raster(tif)
 seed <- local_maximum_raster(r, ws, min_height = 2)
-ans  <- exec(r + seed, on = lasf)   # LAS defines the region; CHM is loaded
+ans  <- exec(r + seed, on = las_f)  # LAS defines the region; CHM is loaded
 tops <- ans[[length(ans)]]
 cc   <- sf::st_coordinates(tops)
 A    <- data.frame(x = cc[, 1], y = cc[, 2], z = cc[, 3])

@@ -121,8 +121,12 @@ best_per_rung <- function(r, plots) {
     pg <- do.call(rbind, lapply(seq_len(nrow(grid)), function(i) {
       ss <- s[s$chm_res == grid$chm_res[i] & s$vwf_a == grid$vwf_a[i], ]
       cbind(chm_res = grid$chm_res[i], vwf_a = grid$vwf_a[i], pool(ss)) }))
-    # tie-break: highest F1, then chm_res closest to 0.5, then lower vwf_a
-    pg <- pg[order(-pg$F1, abs(pg$chm_res - 0.5), pg$vwf_a), ][1, ]
+    # tie-break (hypothesis-NEUTRAL, deterministic): on equal F1 prefer the
+    # FINEST chm_res (ascending chm_res), then the lower vwf_a. This does not
+    # privilege any particular resolution -- it simply favours the finer CHM and
+    # gentler window, so the selection cannot be accused of steering toward the
+    # value the doc claims is optimal.
+    pg <- pg[order(-pg$F1, pg$chm_res, pg$vwf_a), ][1, ]
     cbind(rung = rl, pg[, c("chm_res","vwf_a","F1")]) }))
 }
 
@@ -136,18 +140,25 @@ apply_params <- function(r, plots, sel) {
     cbind(rung = rl, chm_res = p$chm_res, vwf_a = p$vwf_a, pool(ss)) }))
 }
 
-## ---- VWF-slope spread at the calib-optimal chm_res, calib plots ----------
-# At each rung, fix chm_res to the calibration optimum and pool F1 across the
-# three vwf_a values; the spread (max-min) quantifies the VWF main effect.
+## ---- VWF-slope spread at the calib-optimal chm_res, on a held-out subset --
+# At each rung, fix chm_res to the CALIBRATION optimum (chm_res comes from the
+# calibration plots), then pool F1 across the three vwf_a values on the supplied
+# `plots` subset; the spread (max-min) quantifies the VWF main effect. To make
+# the VWF claim genuinely OUT-OF-SAMPLE this is called on the VALIDATION plots.
+# If a rung's validation subset has no rows (too thin to pool), n_pool is 0 and
+# the spread is NA -- reported honestly rather than falling back to calibration.
 vwf_spread <- function(r, plots, sel) {
   s0 <- r[r$plot %in% plots, ]
   do.call(rbind, lapply(rung_lab, function(rl) {
     p  <- sel[sel$rung == rl, ]
     s  <- s0[s0$rung == rl & s0$chm_res == p$chm_res, ]
-    if (!nrow(s)) return(NULL)
+    if (!nrow(s)) return(data.frame(rung = rl, chm_res = p$chm_res,
+               f1_min = NA_real_, f1_max = NA_real_, spread = NA_real_,
+               n_pool = 0L))
     f1 <- sapply(sort(unique(s$vwf_a)), function(av) pool(s[s$vwf_a == av, ])$F1)
     data.frame(rung = rl, chm_res = p$chm_res,
-               f1_min = min(f1), f1_max = max(f1), spread = max(f1) - min(f1)) }))
+               f1_min = min(f1), f1_max = max(f1), spread = max(f1) - min(f1),
+               n_pool = length(unique(s$plot))) }))
 }
 
 fmt <- function(x, k = 3) formatC(x, format = "f", digits = k)
@@ -209,16 +220,26 @@ for (SITE in SITES) {
         rl, f1$chm_res, f1$vwf_a, fmt(f1$recall,2), fmt(f1$precision,2), fmt(f1$F1,2))) }
 
   ## ---- verdict on the headline finding (single seed) ----
-  vs <- vwf_spread(r, cal, selC)
+  # VWF-slope spread is computed OUT-OF-SAMPLE on the held-out validation plots
+  # (chm_res still comes from the calibration optimum). If no validation plots
+  # exist for a rung the spread is NA and flagged, not silently filled in.
+  vs <- if (length(val)) vwf_spread(r, val, selC) else NULL
   cat("\n=== does the finding survive (SEED single split)? ===\n")
   n05 <- sum(selC$chm_res == 0.5); ntot <- nrow(selC)
   cat(sprintf("  calib-optimal chm_res == 0.5 in %d/%d rungs\n", n05, ntot))
-  for (rl in rung_lab) { z <- selC[selC$rung==rl,]; w <- vs[vs$rung==rl,]
+  cat("  VWF-slope F1 spread is pooled on HELD-OUT validation plots (out-of-sample)\n")
+  for (rl in rung_lab) { z <- selC[selC$rung==rl,]
+    w <- if (!is.null(vs)) vs[vs$rung==rl,] else NULL
     if (!nrow(z)) next
-    cat(sprintf("    rung %-6s: chm_res=%.2f vwf_a=%.2f | VWF-slope F1 spread=%s (min %s, max %s)\n",
-        rl, z$chm_res, z$vwf_a, fmt(w$spread,3), fmt(w$f1_min,3), fmt(w$f1_max,3))) }
-  max_spread <- max(vs$spread, na.rm = TRUE)
-  cat(sprintf("  max VWF-slope F1 spread across rungs = %s\n", fmt(max_spread,3)))
+    if (is.null(w) || !nrow(w) || is.na(w$spread)) {
+      cat(sprintf("    rung %-6s: chm_res=%.2f vwf_a=%.2f | VWF-slope F1 spread=  -- (no/thin valid subset, n_pool=%d)\n",
+          rl, z$chm_res, z$vwf_a, if (is.null(w) || !nrow(w)) 0L else w$n_pool))
+    } else {
+      cat(sprintf("    rung %-6s: chm_res=%.2f vwf_a=%.2f | VWF-slope F1 spread=%s (min %s, max %s, n_pool=%d)\n",
+          rl, z$chm_res, z$vwf_a, fmt(w$spread,3), fmt(w$f1_min,3), fmt(w$f1_max,3), w$n_pool)) }
+  }
+  max_spread <- if (!is.null(vs)) max(vs$spread, na.rm = TRUE) else NA_real_
+  cat(sprintf("  max VWF-slope F1 spread across rungs (held-out) = %s\n", fmt(max_spread,3)))
 
   ## ---- collect long-form rows for the CSV (this SEED) ----
   mk <- function(df, split) if (is.null(df) || !nrow(df)) NULL else

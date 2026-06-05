@@ -49,8 +49,12 @@ All numbers below are real console output from that command on the cached
 4. Apply those calibration-selected parameters to the **validation** plots and
    report held-out pooled recall / precision / F1 per rung, alongside the
    calibration (in-sample) metrics and the full-pooled in-sample optimum.
-5. Quantify the VWF-slope effect as the F1 spread across `vwf_a` at the
-   calibration-optimal `chm_res` (small spread => second-order).
+5. Quantify the VWF-slope effect as the F1 spread across `vwf_a`, fixing
+   `chm_res` to the calibration optimum but pooling F1 on the **held-out
+   validation** plots, so the second-order claim is itself out-of-sample (small
+   spread => second-order). When the F1-optimal `(chm_res, vwf_a)` per rung is
+   tied, the tie is broken hypothesis-neutrally: finest `chm_res` first
+   (ascending), then lower `vwf_a` -- never toward any particular resolution.
 6. Because per-site plot counts are small, repeat the split for `SEEDS=1..5`
    and report the held-out F1 distribution and the modal calibration-optimal
    `chm_res` per rung, so the verdict is not a single-split artifact.
@@ -154,21 +158,38 @@ distribution (median, then min..max).
 | 2      | 0.50      | 1.00         | 0.294         | 0.266 .. 0.309  |
 | 1      | 0.50      | 1.00         | 0.316         | 0.281 .. 0.325  |
 
-## VWF-slope effect (second-order check)
+## VWF-slope effect (second-order check), out-of-sample
 
-At the calibration-optimal `chm_res`, pooled F1 across the three `vwf_a` values
-spans a very small range. Maximum F1 spread across all rungs (SEED=1):
+The `chm_res` is fixed to the **calibration** optimum, but pooled F1 across the
+three `vwf_a` values is computed on the **held-out validation** plots, so this
+is a genuinely out-of-sample test of the VWF main effect. Maximum F1 spread
+across all rungs (SEED=1, validation plots):
 
-| Site | max VWF-slope F1 spread | where |
-|------|-------------------------|-------|
-| SJER | 0.025                   | native rung |
-| SOAP | 0.021                   | rung 2 |
-| TEAK | 0.038                   | native rung |
+| Site | max VWF-slope F1 spread (held-out) | where |
+|------|------------------------------------|-------|
+| SJER | 0.021                              | rung 8 |
+| SOAP | 0.039                              | native rung |
+| TEAK | 0.031                              | native rung |
 
-At every decimated rung the spread is <= 0.012 (often < 0.01). Changing
-`vwf_a` over its full sweep range (0.05 -> 0.15) moves F1 by at most ~0.04
-even in the worst case, versus the 0.1 -> 0.5 m `chm_res` differences that move
-F1 by far more. The VWF slope is confirmed **second-order**.
+Per-rung held-out spread at the calibration-optimal `chm_res` (SEED=1):
+
+| rung   | SJER  | SOAP  | TEAK  |
+|--------|-------|-------|-------|
+| native | 0.008 | 0.039 | 0.031 |
+| 8      | 0.021 | 0.015 | 0.010 |
+| 4      | 0.006 | 0.001 | 0.014 |
+| 2      | 0.018 | 0.024 | 0.004 |
+| 1      | 0.000 | 0.000 | 0.000 |
+
+At every decimated rung (8/4/2/1) the held-out spread is <= 0.024, and at the
+finest rung (1 pt/m^2) it is 0.000 at all three sites. Changing `vwf_a` over
+its full sweep range (0.05 -> 0.15) moves held-out F1 by at most ~0.04 even in
+the worst case (SOAP native), versus the 0.1 -> 0.5 m `chm_res` differences
+that move F1 by far more. The VWF slope is confirmed **second-order**
+out-of-sample. Every validation subset is poolable here (n_pool = 2-9 plots
+per rung), so no rung falls back to calibration; the one thin case is SJER
+rung 8, where only 2 of the 3 validation plots carry the 0.5 m slice
+(n_pool = 2).
 
 ## Verdict: does the finding survive out-of-sample?
 
@@ -190,9 +211,10 @@ F1 by far more. The VWF slope is confirmed **second-order**.
   density supports it) and does **not** contradict the headline, which is
   about the operating regime of decimated / typical-acquisition densities.
 
-- **The VWF slope is second-order**, confirmed out-of-sample: F1 spread
-  across `vwf_a` at the optimal `chm_res` is <= 0.038 in the worst rung and
-  <= 0.012 at every decimated rung.
+- **The VWF slope is second-order**, confirmed out-of-sample: pooled on the
+  held-out validation plots, F1 spread across `vwf_a` at the calibration
+  `chm_res` is <= 0.039 in the worst rung (SOAP native) and <= 0.024 at every
+  decimated rung (0.000 at the 1 pt/m^2 rung at all three sites).
 
 In short: the sweep's headline "**0.5 m CHM resolution is F1-optimal; VWF
 slope is a second-order effect**" **survives the calibration/validation

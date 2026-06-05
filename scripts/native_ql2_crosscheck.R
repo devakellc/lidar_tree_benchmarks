@@ -22,9 +22,10 @@
 #
 # Pipeline per plot:
 #   centroid (UTM 11N) -> +/-PAD m box -> reproject box to EPT native SRS ->
-#   PDAL readers.ept(bounds) -> drop noise (class 7/18 + withheld) ->
-#   filters.reprojection out_srs=EPSG:32611 -> writers.las -> per-plot laz.
-#   Then Step-0 density -> detect_lasr(res-by-density, a=A) -> score_plot.
+#   PDAL readers.ept(bounds) -> drop noise (class 7/18) + withheld points ->
+#   filters.reprojection out_srs=OUTCRS -> writers.las -> per-plot laz.
+#   Then Step-0 density -> detect_lasr(res-by-density, a=A) -> score_plot
+#   (stems reprojected 32611 -> OUTCRS so they share the detection CRS).
 # Pool per site exactly like the sweep: recall = sum(TP)/sum(n_ref); per-class
 # TP recovered as round(rec_class * n_class).
 #
@@ -129,6 +130,19 @@ cache_valid <- function(out_laz, ept_url, pad, outcrs) {
     identical(as.character(m$outcrs), as.character(outcrs))
 }
 
+# Reproject a set of NEON-native points (E,N in EPSG:32611, the woody-veg stem
+# CRS) into OUTCRS for scoring (fix 2). Detections come out of detect_lasr in
+# OUTCRS (the laz is reprojected by filters.reprojection out_srs=OUTCRS), so the
+# field stems MUST be moved into the SAME CRS before matching -- otherwise any
+# non-default OUTCRS silently mismatches stems against detections. When OUTCRS is
+# the native EPSG:32611 this is an identity transform. Returns a 2-col matrix.
+to_outcrs <- function(e, n) {
+  if (OUT_EPSG == NEON_EPSG) return(cbind(x = e, y = n))   # identity fast-path
+  p <- st_as_sf(data.frame(x = e, y = n), coords = c("x", "y"), crs = NEON_EPSG)
+  xy <- st_coordinates(st_transform(p, OUT_EPSG))
+  cbind(x = xy[, 1], y = xy[, 2])
+}
+
 # Pull a single plot's native cloud via PDAL readers.ept, reproject to OUTCRS.
 # box (UTM) -> EPT SRS bounds -> ept reader -> drop noise -> reproject -> laz.
 pull_plot <- function(cx, cy, pad, ept_url, ept_epsg, out_laz) {
@@ -140,10 +154,16 @@ pull_plot <- function(cx, cy, pad, ept_url, ept_epsg, out_laz) {
   bb <- st_bbox(box_ept)
   bounds <- sprintf("([%f, %f], [%f, %f])",
                     bb["xmin"], bb["xmax"], bb["ymin"], bb["ymax"])
+  # Drop noise classes (7 low noise, 18 high noise) AND any point flagged
+  # Withheld (fix 3): a genuine withheld exclusion so the code matches the
+  # documented "drop class 7/18 + withheld". `Withheld![1:1]` keeps points whose
+  # Withheld flag is NOT 1 (i.e. removes withheld). Multiple range conditions in
+  # one limits string are ANDed by filters.range.
   pipe <- list(
     list(type = "readers.ept", filename = ept_url, bounds = bounds),
-    list(type = "filters.range",                       # drop classified noise
-         limits = "Classification![7:7],Classification![18:18]"),
+    list(type = "filters.range",                       # drop noise + withheld
+         limits = paste0("Classification![7:7],",
+                         "Classification![18:18],Withheld![1:1]")),
     list(type = "filters.reprojection", out_srs = OUTCRS),
     list(type = "writers.las", filename = out_laz, compression = "laszip")
   )
@@ -230,20 +250,16 @@ run_site <- function(site) {
     if (nrow(stems) < MINTREES) next
 
     out_laz <- file.path(ql2, sprintf("%s.laz", pid))
-    # Cache reuse is provenance-gated (fix 4): reuse the cached laz only when its
-    # sidecar manifest matches (ept_url, pad, outcrs). A pre-manifest laz from an
-    # earlier run is backfilled with a manifest iff its size/provenance is sound
-    # (same ept_url + pad + outcrs as this run) -- so a pure res change does NOT
-    # trigger a slow EPT re-pull, but a different EPT/PAD/OUTCRS does.
-    if (file.exists(out_laz) && !file.exists(manifest_path(out_laz)) &&
-        file.info(out_laz)$size >= 500) {
-      write_manifest(out_laz, ept_url, PAD, OUTCRS)
-      cat(sprintf("  %s: backfilled cache manifest (ept/pad/outcrs unchanged)\n",
-                  pid))
-    }
+    # Cache reuse is provenance-gated (fix 1): a pre-existing laz is a cache HIT
+    # ONLY when its sidecar manifest exists AND matches (ept_url, pad, outcrs).
+    # Provenance is NEVER inferred from file size -- a manifest-less laz (or one
+    # whose manifest records a different EPT/PAD/OUTCRS) is treated as a cache
+    # MISS and re-pulled, which writes a fresh manifest. This closes the stale-
+    # data hole: a laz from an earlier EPT/pad/reprojection target can never be
+    # silently reused just because it is non-empty on disk.
     if (!cache_valid(out_laz, ept_url, PAD, OUTCRS)) {
       if (file.exists(out_laz))
-        cat(sprintf("  %s: cache provenance mismatch -> re-pull\n", pid))
+        cat(sprintf("  %s: cache miss (no/invalid manifest) -> re-pull\n", pid))
       pr <- pull_plot(cx, cy, PAD, ept_url, ept_epsg, out_laz)
       if (!pr$ok) { cat(sprintf("  %s: PULL FAILED (%s)\n", pid, pr$msg)); next }
     } else {
@@ -260,11 +276,20 @@ run_site <- function(site) {
     pdens_n  <- npoints(las) / area
     frdens_n <- sum(las$ReturnNumber == 1L) / area
 
+    # Move stems + core centre from native EPSG:32611 into OUTCRS so they share
+    # the detection CRS (fix 2). Stem-core SELECTION above stayed native (matches
+    # the AOI pull); SCORING below is done entirely in OUTCRS.
+    stems_o <- stems
+    s_xy <- to_outcrs(stems$E, stems$N)
+    stems_o$E <- s_xy[, "x"]; stems_o$N <- s_xy[, "y"]
+    c_xy <- to_outcrs(cx, cy)
+    cx_o <- c_xy[1, "x"]; cy_o <- c_xy[1, "y"]
+
     # native_full = detection at the survey's native density (its true sparsity);
     #   CHM resolution derived from its (high) native first-return density.
     # native_dec2 = native cloud decimated to ALL-RETURN density 2 (pdens, the
     #   sweep's homogenize unit), CHM resolution PINNED to 0.5 to match the NEON
-    #   dec2 arm (fix 1: resolution-matched equivalence). Each arm carries a
+    #   dec2 arm (round-1 fix: resolution-matched equivalence). Each arm carries a
     #   (rung, res_override) pair.
     variants <- list(native_full = list(rung = NA_real_, res = NA_real_),
                      native_dec2 = list(rung = 2,        res = 0.5))
@@ -273,8 +298,8 @@ run_site <- function(site) {
       v <- detect_on(las, variants[[vn]]$rung, PAD,
                      res_override = variants[[vn]]$res)
       if (is.null(v)) { cat(sprintf("  %s [%s]: skip\n", pid, vn)); next }
-      sc <- score_plot(stems, v$det, tol_xy = TOL, core_cx = cx, core_cy = cy,
-                       core_half = ph)
+      sc <- score_plot(stems_o, v$det, tol_xy = TOL, core_cx = cx_o,
+                       core_cy = cy_o, core_half = ph)
       sc <- cbind(data.frame(site = site, plot = pid, plotType = ci$plotType,
                              variant = vn,
                              native_pdens = round(pdens_n, 2),
@@ -312,8 +337,8 @@ run_site <- function(site) {
 #  * precision = sum(tp_core) / sum(n_det). The PER-ROW precision from score_plot
 #                is already tp_core/n_det (core-only numerator). Pooling
 #                sum(TP)/sum(n_det) would mix a boundary-inclusive numerator with
-#                a core-only denominator and INFLATE precision (fix 2). So we
-#                recover tp_core = round(precision * n_det) per row -- exactly as
+#                a core-only denominator and INFLATE precision (round-1 fix). So
+#                we recover tp_core = round(precision * n_det) per row -- exactly as
 #                analyze_sweep.R:17 does -- and pool that.
 pool_native <- function(df) {
   classes <- c("dominant", "codominant", "intermediate", "suppressed")

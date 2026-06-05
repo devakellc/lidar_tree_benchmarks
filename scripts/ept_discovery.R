@@ -58,10 +58,13 @@ discover_ept <- function(sites, job_dir, index_local = NULL,
     pc_path <- file.path(job_dir, "neon", site, "plot_centroids.csv")
     if (!file.exists(pc_path)) { message("no centroids for ", site); next }
     pc <- read.csv(pc_path)
-    # site footprint = bounding hull of all plot centroids (UTM) -> WGS84 point set
+    # site footprint = all plot centroids (UTM), buffered 1 km then unioned, so a
+    # project covering the plot margins (not just the exact centroid) still
+    # registers as a candidate. Buffer in the metric site CRS (km is meaningless
+    # in degrees), then reproject the buffered hull to the WGS84 index CRS.
     pts <- st_as_sf(pc, coords = c("easting", "northing"), crs = site_epsg)
-    pts4326 <- st_transform(pts, 4326)
-    site_union <- st_union(pts4326)
+    site_union <- st_transform(st_union(st_buffer(pts, 1000)), 4326)
+    pts4326 <- st_transform(pts, 4326)            # raw points for per-project cov
     # candidate projects: those whose footprint intersects the site point cloud
     hit <- bnd[st_intersects(bnd, site_union, sparse = FALSE)[, 1], ]
     if (nrow(hit) == 0) {

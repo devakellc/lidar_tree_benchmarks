@@ -11,8 +11,20 @@
 #   - lidR dalponte2016   (seeded region growing)
 #   - lidR silva2016      (seeded Voronoi-like)
 #   - lidR watershed      (marker-FREE; crowns matched to stems by containment)
-#   - lasR region_growing (seeded from local_maximum_raster, mirrors segment_lasr.R)
+#   - lasR region_growing (Dalponte growing rule; seeded from the SAME shared CHM
+#       and ws as the other segmenters -- see SHARED-SEED note below)
 #   - random_walker       (Grady 2006, seeded; sparse Dirichlet solve via Matrix)
+#
+# SHARED-SEED note (lasR region_growing): lasR's region_growing API takes a seed
+# *stage* (a local_maximum producer), not an external point set, so the shared
+# `ttops` cannot be handed in directly. To still grow from the same seeds, we
+# inject the SAME lidR pit-free CHM into the lasR pipeline via load_raster and
+# run local_maximum_raster with the SAME ws on it. The resulting seed set is
+# near-identical to the shared `locate_trees` ttops (81-94% of seeds within 0.5 m
+# of a shared ttop across SJER/SOAP/TEAK); the small residual is the LM
+# implementation difference (lidR lmf circular vs lasR local_maximum_raster), NOT
+# a different surface. So the lasR/lidR crown differences are a growing-rule
+# effect on a shared seed set + shared CHM, not a seed-set confound.
 #
 # Two diameter estimates per crown, with a geometric caveat:
 #   - d_eq      = 2*sqrt(area/pi)          equivalent-circle  -> ninetyCrownDiameter
@@ -51,7 +63,9 @@ RW_TIMEOUT <- 120          # seconds; random-walker solve is timeboxed per plot
 # weights w_ij = exp(-beta*(chm_i-chm_j)^2) on the normalized CHM, assigns each
 # seed a marker label, and solves the combinatorial Dirichlet problem
 # Lu x = -B^T m for marker probabilities; each pixel is argmax-labelled.
-# eps regularizes the Laplacian so seed-less canopy islands stay solvable.
+# eps regularizes the Laplacian so the solve never fails, but a seed-less canopy
+# island gets ~0 probability for every marker; those pixels are assigned to
+# background (NA), NOT forced into label 1 by argmax (solvable != labelled).
 # Returns a SpatRaster of crown labels (1..L) aligned to `chm`, with the seed
 # order preserved (label k = k-th seed cell), or NULL if it fails.
 random_walker <- function(chm, seeds_xy, beta = 1.0, hmin = 2, eps = 1e-6) {
@@ -102,7 +116,14 @@ random_walker <- function(chm, seeds_xy, beta = 1.0, hmin = 2, eps = 1e-6) {
   rhs <- as(-(B %*% M), "matrix")
   X <- tryCatch(as.matrix(Matrix::solve(Lu, rhs)), error = function(e) NULL)
   if (is.null(X)) return(NULL)
+  # A canopy component with no seed is unreachable from any marker: its rows in
+  # X are all ~0 (no marker probability mass flowed in). max.col() would still
+  # force such pixels to label 1, polluting crown 1's area. Drop them to
+  # background (NA) instead -- "solvable" (eps-regularized Laplacian) does NOT
+  # mean "correctly labelled" for seed-less islands.
+  rmax  <- apply(X, 1, max)
   lab_u <- max.col(X, ties.method = "first")
+  lab_u[rmax <= 1e-8] <- 0L            # unreached pixel -> background
   out_lab <- integer(npix)
   out_lab[vidx[sidx]] <- seed_label_local
   out_lab[vidx[uidx]] <- lab_u
@@ -199,15 +220,25 @@ run_plot <- function(site, pid, ctg, pc, gt, tmpdir) {
   if (!is.null(s_r)) crowns_by_algo[["silva2016"]] <-
       list(geom = crown_geom(s_r), by = "treeID")
 
-  ## lasR region_growing seeded from local_maximum_raster on the lasR CHM
+  ## lasR region_growing on the SAME shared CHM, seeded with the SAME ws.
+  ## We feed the lidR pit-free CHM into the lasR pipeline via load_raster, so the
+  ## seed local_maximum and the growing run on the identical surface that
+  ## produced the shared `ttops` (region_growing's API takes a seed *stage*, not
+  ## the ttops point set, so this CHM-injection is how the seed sets are aligned;
+  ## the residual seed difference is the LM implementation, not the surface).
+  ## load_raster -> pit_fill is required: local_maximum_raster on a bare
+  ## load_raster stage yields no points; the pit_fill pass-through fixes that.
   lasr_g <- tryCatch({
-    del <- lasR::triangulate(filter = lasR::keep_first())
-    chm2 <- lasR::rasterize(RES, del)
-    pf  <- lasR::pit_fill(chm2)
+    chm_path <- file.path(tmpdir, paste0("chm_", pid, "_",
+                                         Sys.getpid(), ".tif"))
+    terra::writeRaster(chm, chm_path, overwrite = TRUE)
+    on.exit(unlink(chm_path), add = TRUE)
+    rr   <- lasR::load_raster(chm_path)
+    pf   <- lasR::pit_fill(rr)
     seed <- lasR::local_maximum_raster(pf, ws, min_height = 2)
-    cr  <- lasR::region_growing(pf, seed, th_tree = 2, th_seed = 0.45,
-                                th_cr = 0.55, max_cr = 10)
-    ans <- lasR::exec(del + chm2 + pf + seed + cr, on = prep$file,
+    cr   <- lasR::region_growing(pf, seed, th_tree = 2, th_seed = 0.45,
+                                 th_cr = 0.55, max_cr = 10)
+    ans <- lasR::exec(rr + pf + seed + cr, on = prep$file,
                       with = list(progress = FALSE, ncores = 1L))
     cr_r <- terra::rast(terra::sources(ans$region_growing))
     seeds_sf <- sf::st_as_sf(ans$local_maximum)
@@ -295,7 +326,14 @@ run_site <- function(site) {
   gt  <- read.csv(file.path(nd, "ground_truth_stems.csv"), stringsAsFactors = FALSE)
   pc  <- read.csv(file.path(nd, "plot_centroids.csv"), stringsAsFactors = FALSE)
   gt  <- gt[gt$live & gt$is_tree & !is.na(gt$E), ]
-  ## join field crown diameter from the rds; keep stems with non-NA field CD
+  ## join field crown diameter from the rds; keep stems with non-NA field CD.
+  ## neon_ground_truth.R now also writes maxCrownDiameter/ninetyCrownDiameter, so
+  ## a freshly regenerated ground_truth_stems.csv may already carry them. Drop any
+  ## such pre-existing columns first so the rds join is authoritative and the
+  ## merge cannot produce .x/.y duplicates (which would silently break the
+  ## downstream !is.na() filter and the column select).
+  gt  <- gt[, setdiff(names(gt),
+                      c("maxCrownDiameter", "ninetyCrownDiameter")), drop = FALSE]
   fc  <- field_crowns(site)
   gt  <- merge(gt, fc, by = "individualID", all.x = TRUE)
   gt  <- gt[!is.na(gt$maxCrownDiameter) | !is.na(gt$ninetyCrownDiameter), ]

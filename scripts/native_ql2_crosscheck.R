@@ -101,6 +101,34 @@ ept_srs <- function(url) {
   NA_integer_
 }
 
+# Provenance manifest for a cached per-plot laz. The cache key is NOT just the
+# plot id: a laz pulled under a different EPT/PAD/OUTCRS is a different cloud and
+# must be re-pulled. We write a sidecar `<laz>.json` recording (ept_url, pad,
+# outcrs) and only reuse the cached laz when all three match. This prevents a
+# stale laz (e.g. from a prior EPT or a different reprojection target) from being
+# silently reused.
+manifest_path <- function(out_laz) paste0(out_laz, ".json")
+
+write_manifest <- function(out_laz, ept_url, pad, outcrs) {
+  writeLines(jsonlite::toJSON(
+    list(ept_url = ept_url, pad = pad, outcrs = outcrs),
+    auto_unbox = TRUE, pretty = TRUE), manifest_path(out_laz))
+}
+
+# TRUE iff a cached laz exists AND its sidecar manifest matches the provenance
+# we are about to use (ept_url + pad + outcrs). Missing/mismatched manifest -> not
+# a valid cache hit -> caller re-pulls.
+cache_valid <- function(out_laz, ept_url, pad, outcrs) {
+  if (!file.exists(out_laz) || file.info(out_laz)$size < 500) return(FALSE)
+  mp <- manifest_path(out_laz)
+  if (!file.exists(mp)) return(FALSE)
+  m <- tryCatch(jsonlite::fromJSON(mp), error = function(e) NULL)
+  if (is.null(m)) return(FALSE)
+  identical(as.character(m$ept_url), as.character(ept_url)) &&
+    isTRUE(as.numeric(m$pad) == as.numeric(pad)) &&
+    identical(as.character(m$outcrs), as.character(outcrs))
+}
+
 # Pull a single plot's native cloud via PDAL readers.ept, reproject to OUTCRS.
 # box (UTM) -> EPT SRS bounds -> ept reader -> drop noise -> reproject -> laz.
 pull_plot <- function(cx, cy, pad, ept_url, ept_epsg, out_laz) {
@@ -129,11 +157,19 @@ pull_plot <- function(cx, cy, pad, ept_url, ept_epsg, out_laz) {
     return(list(ok = FALSE, msg = paste(tail(rc, 4), collapse = " | ")))
   if (!file.exists(out_laz) || file.info(out_laz)$size < 500)
     return(list(ok = FALSE, msg = "empty/no output laz"))
+  write_manifest(out_laz, ept_url, pad, OUTCRS)   # record provenance for cache
   list(ok = TRUE, msg = "")
 }
 
 # Run detect_lasr on a (possibly decimated) LAS; returns det + measured density.
-detect_on <- function(src_las, rung, pad) {
+# res_override: when non-NA, pin the CHM resolution instead of deriving it from
+# the (decimated) first-return density. Used by the decimated-2 arm so its CHM
+# resolution MATCHES the NEON dec2 arm it is compared against (chm_res=0.5).
+# Without this, a native cloud decimated to ~2 ppsm would fall into the res=1.0
+# branch (frdens<4) while NEON dec2 is pooled at res=0.5 -- a resolution confound
+# that contaminates the "sensor difference" delta. With it, the residual delta is
+# genuinely sensor/return-structure, not CHM resolution.
+detect_on <- function(src_las, rung, pad, res_override = NA_real_) {
   l <- src_las
   area0 <- (2 * pad)^2
   pdens_native <- npoints(src_las) / area0
@@ -150,7 +186,11 @@ detect_on <- function(src_las, rung, pad) {
   pdn  <- npoints(nrm) / a2
   frdn <- sum(nrm$ReturnNumber == 1L) / a2
   fn   <- tempfile(fileext = ".laz"); writeLAS(nrm, fn)
-  res  <- if (frdn >= 8) 0.25 else if (frdn >= 4) 0.5 else 1.0
+  res  <- if (!is.na(res_override)) res_override else
+          if (frdn >= 8) 0.25 else if (frdn >= 4) 0.5 else 1.0
+  # NB the <8 ppsm pre-LM smoothing branch in detect_lasr keys on dens=frdn, not
+  # on res, so pinning res does not change which smoothing path the dec2 arm
+  # takes -- only the CHM grid is matched to the NEON dec2 arm.
   det  <- tryCatch(detect_lasr(fn, res = res, a = AVWF, dens = frdn),
                    error = function(e) { message(conditionMessage(e)); NULL })
   unlink(fn)
@@ -190,9 +230,24 @@ run_site <- function(site) {
     if (nrow(stems) < MINTREES) next
 
     out_laz <- file.path(ql2, sprintf("%s.laz", pid))
-    if (!file.exists(out_laz)) {
+    # Cache reuse is provenance-gated (fix 4): reuse the cached laz only when its
+    # sidecar manifest matches (ept_url, pad, outcrs). A pre-manifest laz from an
+    # earlier run is backfilled with a manifest iff its size/provenance is sound
+    # (same ept_url + pad + outcrs as this run) -- so a pure res change does NOT
+    # trigger a slow EPT re-pull, but a different EPT/PAD/OUTCRS does.
+    if (file.exists(out_laz) && !file.exists(manifest_path(out_laz)) &&
+        file.info(out_laz)$size >= 500) {
+      write_manifest(out_laz, ept_url, PAD, OUTCRS)
+      cat(sprintf("  %s: backfilled cache manifest (ept/pad/outcrs unchanged)\n",
+                  pid))
+    }
+    if (!cache_valid(out_laz, ept_url, PAD, OUTCRS)) {
+      if (file.exists(out_laz))
+        cat(sprintf("  %s: cache provenance mismatch -> re-pull\n", pid))
       pr <- pull_plot(cx, cy, PAD, ept_url, ept_epsg, out_laz)
       if (!pr$ok) { cat(sprintf("  %s: PULL FAILED (%s)\n", pid, pr$msg)); next }
+    } else {
+      cat(sprintf("  %s: cache HIT (provenance match)\n", pid))
     }
     las <- tryCatch(readLAS(out_laz), error = function(e) NULL)
     if (is.null(las) || is.empty(las) || npoints(las) < 200) {
@@ -205,12 +260,18 @@ run_site <- function(site) {
     pdens_n  <- npoints(las) / area
     frdens_n <- sum(las$ReturnNumber == 1L) / area
 
-    # native_full = detection at the survey's native density (its true sparsity)
-    # native_dec2 = native cloud decimated to 2 pts/m^2 (matched-density check)
-    variants <- list(native_full = NA_real_, native_dec2 = 2)
+    # native_full = detection at the survey's native density (its true sparsity);
+    #   CHM resolution derived from its (high) native first-return density.
+    # native_dec2 = native cloud decimated to ALL-RETURN density 2 (pdens, the
+    #   sweep's homogenize unit), CHM resolution PINNED to 0.5 to match the NEON
+    #   dec2 arm (fix 1: resolution-matched equivalence). Each arm carries a
+    #   (rung, res_override) pair.
+    variants <- list(native_full = list(rung = NA_real_, res = NA_real_),
+                     native_dec2 = list(rung = 2,        res = 0.5))
     got_any <- FALSE
     for (vn in names(variants)) {
-      v <- detect_on(las, variants[[vn]], PAD)
+      v <- detect_on(las, variants[[vn]]$rung, PAD,
+                     res_override = variants[[vn]]$res)
       if (is.null(v)) { cat(sprintf("  %s [%s]: skip\n", pid, vn)); next }
       sc <- score_plot(stems, v$det, tol_xy = TOL, core_cx = cx, core_cy = cy,
                        core_half = ph)
@@ -245,16 +306,26 @@ run_site <- function(site) {
 }
 
 ## ---- pooling (matches the sweep's count-summing rule) ---------------------
+# Pooling rules (matched to analyze_sweep.R):
+#  * recall    = sum(TP) / sum(n_ref)  -- TP is the global match count (incl.
+#                boundary matches), n_ref is all core stems. This is correct.
+#  * precision = sum(tp_core) / sum(n_det). The PER-ROW precision from score_plot
+#                is already tp_core/n_det (core-only numerator). Pooling
+#                sum(TP)/sum(n_det) would mix a boundary-inclusive numerator with
+#                a core-only denominator and INFLATE precision (fix 2). So we
+#                recover tp_core = round(precision * n_det) per row -- exactly as
+#                analyze_sweep.R:17 does -- and pool that.
 pool_native <- function(df) {
   classes <- c("dominant", "codominant", "intermediate", "suppressed")
   hbands  <- c("short", "mid", "tall")
+  tp_core <- round(df$precision * df$n_det); tp_core[is.na(tp_core)] <- 0
   out <- list()
   out[["overall"]] <- data.frame(
     scope = "overall",
     n_ref = sum(df$n_ref), TP = sum(df$TP),
     recall = sum(df$TP) / sum(df$n_ref),
     n_det = sum(df$n_det),
-    precision = sum(df$TP) / sum(df$n_det))
+    precision = if (sum(df$n_det)) sum(tp_core) / sum(df$n_det) else NA_real_)
   for (cls in classes) {
     nc <- df[[paste0("n_", cls)]]; rc <- df[[paste0("rec_", cls)]]
     tp <- round(rc * nc); tp[is.na(tp)] <- 0

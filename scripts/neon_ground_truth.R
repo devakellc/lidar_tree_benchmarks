@@ -100,6 +100,7 @@ ai$dist21 <- abs(ai$year - 2021)
 ai <- ai[order(ai$individualID, ai$dist21), ]
 ai1 <- ai[!duplicated(ai$individualID),
           c("individualID", "year", "dist21", "height", "stemDiameter",
+            "maxCrownDiameter", "ninetyCrownDiameter",
             "plantStatus", "canopyPosition", "growthForm")]
 g <- merge(map, ai1, by = "individualID", all.x = TRUE)
 
@@ -133,6 +134,7 @@ g$tile   <- sprintf("%d_%d", g$tile_e, g$tile_n)
 
 out <- g[, c("individualID", "plotID", "tile", "tile_e", "tile_n", "E", "N",
              "pos_unc", "taxonID", "scientificName", "height", "stemDiameter",
+             "maxCrownDiameter", "ninetyCrownDiameter",
              "plantStatus", "canopyPosition", "crown_class", "live", "is_tree",
              "year", "dist21")]
 names(out)[names(out) == "year"] <- "meas_year"

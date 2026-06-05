@@ -351,6 +351,42 @@ Rscript scripts/validate_heights.R SITES=SJER,SOAP,TEAK    # apex-vs-field heigh
 `summary_by_rung.csv`, `summary_best_params.csv`, `figs/*.png`, and
 `work/neon/cross_site_summary.csv` + `figs/structure_gradient.png`.
 
+## 10. Conclusion
+
+The documented lasR `pre-devel` pipeline — pit-filled CHM → variable-window
+local maximum — **works as written and detects the trees it physically can, but
+no parameter sweep moves the ceiling that forest structure and occlusion
+impose.** Tuning shifts *which* error you make, not how many trees exist in the
+canopy surface. Four conclusions the sweep supports:
+
+1. **Density sets the canopy-surface ceiling, not the tree list.** Over a 10–20×
+   density range (~12 → 0.8 first-returns/m²), detection **F1 stayed flat
+   (~0.30–0.42)**; sparser data slightly thinned overstory recall and cleaned
+   commission, but never changed *which* trees were findable — confirmed on
+   native, not just decimated, data.
+2. **Structure beats species and density** (the headline). Overstory recall
+   ordered **open oak 0.71 > mixed conifer 0.57 > dense fir 0.40** — the
+   *opposite* of crown-shape prediction. The driver is **canopy packing**:
+   TEAK's interlocked codominant firs merge in the CHM. The biggest lever is the
+   stand, not a setting.
+3. **The understory is a hard floor, not a tuning target.** Intermediate/
+   suppressed recall sat at ~0.10–0.20 everywhere and suppressed → ~0 below 8
+   pts/m², unmoved by any CHM-resolution or VWF setting. Occlusion physics, not
+   a parameter.
+4. **Among the knobs, only CHM resolution matters** (0.5 m F1-optimal here; VWF
+   slope ΔF1 ≤ 0.02; density-tiered smoothing trades recall↔precision as
+   designed). And **heights are trustworthy for detected trees**: dominant-tree
+   apex vs field height R² 0.85, slope ~1.0, bias +1 m.
+
+**Operational recommendation.** At QL1-class density (~8 pulses/m²), expect
+**~0.4–0.7 overstory detection depending on stand openness, near-zero understory,
+and reliable dominant-tree heights.** Set CHM resolution from measured density,
+do not fine-tune the window allometry, and **always report stratified by crown
+class** — a single detection rate averages a detectable overstory with an
+invisible understory. A full individual-tree inventory including sub-dominants is
+out of reach for airborne-CHM tuning alone; it needs higher density *and* a
+point-cloud method.
+
 ---
 
 *All numbers are real runs on NEON 2021 airborne LiDAR + field stems, scored

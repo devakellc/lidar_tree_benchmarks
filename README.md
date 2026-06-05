@@ -64,11 +64,13 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `density_cost.R` | The three detectors vs density: counts + runtime scaling. |
 | `extract_big.json` | PDAL: pull a larger ~56 ha block from the EPT (reprojected). |
 | `li2012_16core.R` | Retile + 16-core Li 2012 throughput; extrapolates to 10k acres. |
+| `calval_split.R` | Calibration/validation split (issue #3): tune `(chm_res, vwf_a)` per density rung on a stratified calibration subset, report held-out F1; multi-seed robustness. |
 
 ## Reproduce
 
-Requirements: R with `lasR` (>= 0.21, dev/`pre-devel` build with EPT parallel acquisition and variable-window `ws`) and
-`lidR`; PDAL (>= 2.9) for the EPT extraction.
+Requirements: R with `lasR` (>= 0.21, dev/`pre-devel` build with EPT parallel
+acquisition and variable-window `ws`) and `lidR`; PDAL (>= 2.9) for the EPT
+extraction.
 
 ```sh
 export CLAUDE_JOB_DIR=$(pwd)/work && mkdir -p "$CLAUDE_JOB_DIR"

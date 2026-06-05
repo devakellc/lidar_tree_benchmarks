@@ -118,3 +118,18 @@ dev.off()
 write.csv(by_rung, file.path(nd, "summary_by_rung.csv"), row.names = FALSE)
 write.csv(best,    file.path(nd, "summary_best_params.csv"), row.names = FALSE)
 cat(sprintf("\nfigures -> %s ; summaries -> %s\n", fig, nd))
+
+## ---- 5. calibration/validation split (issue #3) ---------------------------
+# Section 2 above picks "best (chm_res, vwf_a) per rung" IN-SAMPLE: parameters
+# are tuned and scored on the SAME pooled plots. To test whether that choice
+# (and the headline "chm_res=0.5 m is F1-optimal; VWF slope second-order")
+# survives out-of-sample, run the standalone calibration/validation split, which
+# tunes on a calibration subset of plots and reports held-out F1 on the rest:
+#
+#   Rscript scripts/calval_split.R SITES=SJER,SOAP,TEAK SEED=1 FRAC=0.5 \
+#           SEEDS=1,2,3,4,5
+#
+# It reuses this exact pool() rule (sum TP / sum n_ref; tp_core=round(prec*n_det)),
+# stratifies the split by plotType x crown-class mix, writes long-form
+# calval_metrics.csv per site, and renders calibration-validation-results.md.
+# The pooling logic is kept self-contained there; it is NOT duplicated here.

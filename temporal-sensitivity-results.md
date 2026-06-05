@@ -56,15 +56,15 @@ against the +/-4 yr baseline.
 - **Height bias** = `apex_z - field_h` (positive = LiDAR apex taller than the
   field tape), position-only match within 3 m at native density.
 
-Commands (baseline CSVs are **never** overwritten — exact-year runs go to new
-`*_2021.csv` filenames):
+Commands (baseline CSVs are **never** overwritten — when `MEAS_YEAR` is set both
+`run_sweep.R` and `validate_heights.R` auto-default their output to a distinct
+`*_<YEAR>.csv` filename, so the explicit `OUT=` below is optional):
 
 ```sh
 export CLAUDE_JOB_DIR=/path/to/work
-Rscript scripts/run_sweep.R SITE=TEAK PLOTS=ALL CORES=6 TOL=4 \
-  MEAS_YEAR=2021 OUT=$CLAUDE_JOB_DIR/neon/TEAK/sweep_results_2021.csv
-Rscript scripts/run_sweep.R SITE=SOAP PLOTS=ALL CORES=6 TOL=4 \
-  MEAS_YEAR=2021 OUT=$CLAUDE_JOB_DIR/neon/SOAP/sweep_results_2021.csv
+# OUT= omitted -> auto-defaults to neon/<SITE>/sweep_results_2021.csv
+Rscript scripts/run_sweep.R SITE=TEAK PLOTS=ALL CORES=6 TOL=4 MEAS_YEAR=2021
+Rscript scripts/run_sweep.R SITE=SOAP PLOTS=ALL CORES=6 TOL=4 MEAS_YEAR=2021
 Rscript scripts/validate_heights.R SITES=TEAK,SOAP TOL=3 MEAS_YEAR=2021
 Rscript scripts/temporal_sensitivity.R SITES=TEAK,SOAP
 ```

@@ -12,9 +12,13 @@
 # falls in that exact calendar year (the gt `meas_year` column). This drives the
 # temporal-sensitivity cut (issue #5): re-score using ONLY stems measured in the
 # LiDAR-acquisition year vs. the default +/-4 yr nearest-measurement baseline.
-# When unset, behaviour is IDENTICAL to the baseline. Write exact-year runs to a
-# distinct OUT path (e.g. sweep_results_2021.csv); never overwrite the baseline
-# sweep_results.csv.
+# When unset, behaviour is IDENTICAL to the baseline.
+#
+# OUT defaulting: when MEAS_YEAR is set AND OUT is omitted, OUT defaults to a
+# distinct sweep_results_<YEAR>.csv under the site dir, so the exact-year subset
+# never overwrites the canonical +/-4 yr baseline sweep_results.csv. When
+# MEAS_YEAR is unset, OUT defaults to the canonical sweep_results.csv (byte-for-
+# byte the prior behaviour). Pass OUT= explicitly to override either default.
 suppressMessages({ library(lidR); library(parallel) })
 options(lidR.progress = FALSE)
 d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
@@ -26,10 +30,20 @@ A <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
 SITE  <- if (is.null(A$SITE)) "SOAP" else A$SITE
 PLOTS <- if (is.null(A$PLOTS) || A$PLOTS == "ALL") NULL else strsplit(A$PLOTS, ",")[[1]]
 nd    <- file.path(d, "neon", SITE)
-OUT   <- if (is.null(A$OUT))   file.path(nd, "sweep_results.csv") else A$OUT
 CORES <- as.integer(if (is.null(A$CORES)) 8 else A$CORES)
 TOL   <- as.numeric(if (is.null(A$TOL)) 4.0 else A$TOL)
 MEAS_YEAR <- if (is.null(A$MEAS_YEAR)) NA_integer_ else as.integer(A$MEAS_YEAR)
+## OUT path: when MEAS_YEAR is set but OUT is omitted, default to a distinct
+## sweep_results_<YEAR>.csv under the site dir so the exact-year subset never
+## clobbers the canonical +/-4 yr baseline sweep_results.csv. When MEAS_YEAR is
+## unset, the default stays byte-identical to the baseline (sweep_results.csv).
+OUT   <- if (!is.null(A$OUT)) {
+  A$OUT
+} else if (is.na(MEAS_YEAR)) {
+  file.path(nd, "sweep_results.csv")
+} else {
+  file.path(nd, sprintf("sweep_results_%d.csv", MEAS_YEAR))
+}
 
 ## ---- data ----------------------------------------------------------------
 gt  <- read.csv(file.path(nd, "ground_truth_stems.csv"))

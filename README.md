@@ -64,11 +64,13 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `density_cost.R` | The three detectors vs density: counts + runtime scaling. |
 | `extract_big.json` | PDAL: pull a larger ~56 ha block from the EPT (reprojected). |
 | `li2012_16core.R` | Retile + 16-core Li 2012 throughput; extrapolates to 10k acres. |
+| `detect_pc_sweep.R` | Issue #6: point-cloud detectors (lidR lmf-on-points, Li 2012, lasR point `local_maximum`) vs the CHM-VWF baseline at native density, scored on field stems by crown class; quantifies understory-recall deltas and the occlusion floor. Writes `neon/<SITE>/pc_detect_results.csv`. |
 
 ## Reproduce
 
-Requirements: R with `lasR` (>= 0.21, dev/`pre-devel` build with EPT parallel acquisition and variable-window `ws`) and
-`lidR`; PDAL (>= 2.9) for the EPT extraction.
+Requirements: R with `lasR` (>= 0.21, dev/`pre-devel` build with EPT parallel
+acquisition and variable-window `ws`) and `lidR`; PDAL (>= 2.9) for the EPT
+extraction.
 
 ```sh
 export CLAUDE_JOB_DIR=$(pwd)/work && mkdir -p "$CLAUDE_JOB_DIR"

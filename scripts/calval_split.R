@@ -10,6 +10,16 @@
 # validation plots with those calibration-selected parameters. The full pooled
 # in-sample optimum is shown alongside for reference.
 #
+# It ALSO runs the genuine out-of-sample optimality test issue #3 asks for: for
+# each site x rung it pools held-out F1 for EACH candidate chm_res on the
+# VALIDATION plots (holding vwf_a at the calibration-selected value for that
+# rung -- documented choice; the VWF slope is second-order so the chm_res argmax
+# is insensitive to it) and reports the held-out-F1-OPTIMAL chm_res (argmax),
+# then compares it to 0.5. This is reported per single-seed split AND aggregated
+# across SEEDS (modal held-out optimum + fraction of seeds where it equals 0.5),
+# so the "does 0.5 m survive out-of-sample" question is answered on HELD-OUT
+# data rather than read off the calibration selection.
+#
 # The split is deterministic (set.seed(SEED)) and STRATIFIED by
 #   (a) plotType  : tower vs distributed (different mapped extent / structure)
 #   (b) crown-class mix : overstory-dominated vs understory-present, from
@@ -161,6 +171,47 @@ vwf_spread <- function(r, plots, sel) {
                n_pool = length(unique(s$plot))) }))
 }
 
+## ---- held-out F1 across chm_res (genuine out-of-sample optimality test) ----
+# For each rung, on the VALIDATION plots, pool held-out F1 for EACH candidate
+# chm_res, HOLDING vwf_a at the calibration-selected value for that rung (so the
+# only thing that varies is chm_res). Report the held-out-F1-OPTIMAL chm_res
+# (argmax) and whether it equals 0.5. This directly answers issue #3 -- "does
+# the 0.5 m finding survive out-of-sample" -- because the chm_res argmax is now
+# computed on HELD-OUT data, not just read off the calibration-selected param.
+#
+# Design choice (documented): vwf_a is FIXED to the calibration optimum rather
+# than marginalized. Rationale: (a) the VWF slope is shown to be second-order
+# (small held-out F1 spread across vwf_a), so the chm_res argmax is insensitive
+# to this choice; (b) fixing vwf_a keeps the comparison a clean one-factor
+# (chm_res-only) contrast at the operating point the calibration would deploy.
+# Ties in held-out F1 are broken hypothesis-neutrally: finest chm_res first
+# (ascending), so a tie never resolves toward 0.5 by construction.
+heldout_res_opt <- function(r, plots, sel) {
+  s0 <- r[r$plot %in% plots, ]
+  do.call(rbind, lapply(rung_lab, function(rl) {
+    p <- sel[sel$rung == rl, ]
+    s <- s0[s0$rung == rl & s0$vwf_a == p$vwf_a, ]
+    if (!nrow(s)) return(data.frame(rung = rl, vwf_a = p$vwf_a,
+        cal_res = p$chm_res, ho_res = NA_real_, ho_F1 = NA_real_,
+        F1_at_05 = NA_real_, res_is_05 = NA, n_pool = 0L))
+    res_vals <- sort(unique(s$chm_res))
+    f1 <- sapply(res_vals, function(rv) {
+      ss <- s[s$chm_res == rv, ]; if (!nrow(ss)) NA_real_ else pool(ss)$F1 })
+    ok <- !is.na(f1)
+    if (!any(ok)) return(data.frame(rung = rl, vwf_a = p$vwf_a,
+        cal_res = p$chm_res, ho_res = NA_real_, ho_F1 = NA_real_,
+        F1_at_05 = NA_real_, res_is_05 = NA, n_pool = 0L))
+    # argmax with finest-res (ascending) tie-break: order by -F1 then +res
+    ord    <- order(-f1[ok], res_vals[ok])
+    ho_res <- res_vals[ok][ord][1]
+    ho_F1  <- f1[ok][ord][1]
+    f1_05  <- if (any(abs(res_vals - 0.5) < 1e-9)) f1[abs(res_vals - 0.5) < 1e-9] else NA_real_
+    data.frame(rung = rl, vwf_a = p$vwf_a, cal_res = p$chm_res,
+               ho_res = ho_res, ho_F1 = ho_F1, F1_at_05 = f1_05,
+               res_is_05 = isTRUE(abs(ho_res - 0.5) < 1e-9),
+               n_pool = length(unique(s$plot))) }))
+}
+
 fmt <- function(x, k = 3) formatC(x, format = "f", digits = k)
 
 ## ==========================================================================
@@ -241,6 +292,28 @@ for (SITE in SITES) {
   max_spread <- if (!is.null(vs)) max(vs$spread, na.rm = TRUE) else NA_real_
   cat(sprintf("  max VWF-slope F1 spread across rungs (held-out) = %s\n", fmt(max_spread,3)))
 
+  ## ---- held-out F1 across chm_res: the genuine out-of-sample optimality test --
+  # vwf_a fixed to the calibration optimum; chm_res argmax computed on the
+  # HELD-OUT validation plots. This is the test the doc's out-of-sample claim
+  # actually requires (calibration selection alone never compares chm_res on
+  # held-out data).
+  ho <- if (length(val)) heldout_res_opt(r, val, selC) else NULL
+  cat("\n=== HELD-OUT F1-optimal chm_res (argmax on validation plots; vwf_a fixed to calib opt) ===\n")
+  cat(sprintf("%-7s %6s | %-9s %-7s | %-7s | %s\n",
+              "rung","vwf_a","ho_opt_res","ho_F1","F1@0.5","is 0.5 the held-out opt?"))
+  for (rl in rung_lab) { w <- if (!is.null(ho)) ho[ho$rung==rl,] else NULL
+    if (is.null(w) || !nrow(w) || is.na(w$ho_res)) {
+      cat(sprintf("%-7s %6s | %-9s %-7s | %-7s | -- (no/thin valid subset)\n",
+                  rl, "--", "--", "--", "--")); next }
+    cat(sprintf("%-7s %6.2f | %-9.2f %-7s | %-7s | %s\n",
+        rl, w$vwf_a, w$ho_res, fmt(w$ho_F1,3),
+        if (is.na(w$F1_at_05)) "--" else fmt(w$F1_at_05,3),
+        if (isTRUE(w$res_is_05)) "YES" else sprintf("NO (opt=%.2f)", w$ho_res))) }
+  if (!is.null(ho)) {
+    hov <- ho[!is.na(ho$ho_res), ]
+    cat(sprintf("  held-out optimum == 0.5 in %d/%d rungs (vs in-sample claim of 0.5)\n",
+                sum(hov$res_is_05, na.rm=TRUE), nrow(hov))) }
+
   ## ---- collect long-form rows for the CSV (this SEED) ----
   mk <- function(df, split) if (is.null(df) || !nrow(df)) NULL else
     data.frame(site=SITE, rung=df$rung, split=split, chm_res=df$chm_res,
@@ -260,20 +333,27 @@ for (SITE in SITES) {
     ca  <- pts$plot[pts$split=="calib"]; va <- pts$plot[pts$split=="valid"]
     sc  <- best_per_rung(r, ca)
     mv  <- if (length(va)) apply_params(r, va, sc) else NULL
+    hr  <- if (length(va)) heldout_res_opt(r, va, sc) else NULL  # held-out res argmax
     do.call(rbind, lapply(rung_lab, function(rl) {
       z <- sc[sc$rung==rl,]; if (!nrow(z)) return(NULL)
       v <- if (!is.null(mv)) mv[mv$rung==rl,] else NULL
+      h <- if (!is.null(hr)) hr[hr$rung==rl,] else NULL
       data.frame(seed=sd, rung=rl, opt_chm=z$chm_res, opt_vwf=z$vwf_a,
                  val_F1 = if (!is.null(v) && nrow(v)) v$F1 else NA_real_,
                  val_rec= if (!is.null(v) && nrow(v)) v$recall else NA_real_,
-                 val_prec=if (!is.null(v) && nrow(v)) v$precision else NA_real_) })) }))
+                 val_prec=if (!is.null(v) && nrow(v)) v$precision else NA_real_,
+                 ho_res = if (!is.null(h) && nrow(h)) h$ho_res else NA_real_) })) }))
   agg <- do.call(rbind, lapply(rung_lab, function(rl) {
     z <- rb[rb$rung==rl,]; if (!nrow(z)) return(NULL)
     tabchm <- sort(table(z$opt_chm), decreasing = TRUE)
     modal_chm <- as.numeric(names(tabchm)[1])
+    hz <- z$ho_res[!is.na(z$ho_res)]
+    modal_ho <- if (length(hz)) as.numeric(names(sort(table(hz), decreasing=TRUE))[1]) else NA_real_
     data.frame(rung=rl,
                modal_chm = modal_chm,
                chm05_frac = mean(z$opt_chm == 0.5),
+               modal_ho_res = modal_ho,
+               ho05_frac = if (length(hz)) mean(hz == 0.5) else NA_real_,
                valF1_med = median(z$val_F1, na.rm=TRUE),
                valF1_min = min(z$val_F1, na.rm=TRUE),
                valF1_max = max(z$val_F1, na.rm=TRUE),
@@ -284,6 +364,12 @@ for (SITE in SITES) {
     cat(sprintf("%-7s %9.2f %10s %10s [%s .. %s]\n", rl, a$modal_chm,
         fmt(a$chm05_frac,2), fmt(a$valF1_med,3), fmt(a$valF1_min,3),
         fmt(a$valF1_max,3))) }
+  cat("\n  held-out F1-optimal chm_res across seeds (argmax on validation plots):\n")
+  cat(sprintf("  %-7s %12s %14s\n", "rung","modal_ho_res","ho_opt==0.5 frac"))
+  for (rl in rung_lab) { a <- agg[agg$rung==rl,]; if (!nrow(a)) next
+    cat(sprintf("  %-7s %12s %14s\n", rl,
+        if (is.na(a$modal_ho_res)) "--" else fmt(a$modal_ho_res,2),
+        if (is.na(a$ho05_frac)) "--" else fmt(a$ho05_frac,2))) }
   robust[[SITE]] <- list(agg=agg, raw=rb)
 }
 

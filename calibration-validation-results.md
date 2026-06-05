@@ -9,7 +9,10 @@ a calibration subset of plots and reporting recall / precision / F1 on
 **held-out** validation plots.
 
 Headline finding under test (from the sweep doc): *"`chm_res = 0.5 m` is
-F1-optimal; the VWF slope is a second-order effect."*
+F1-optimal; the VWF slope is a second-order effect."* We test it two ways: (a)
+does the *calibration-selected* `chm_res` transfer to held-out plots, and (b)
+the stronger test — is 0.5 m actually the **held-out-F1-optimal** `chm_res`
+when every candidate resolution is scored on the validation plots.
 
 Reproduce:
 
@@ -49,15 +52,28 @@ All numbers below are real console output from that command on the cached
 4. Apply those calibration-selected parameters to the **validation** plots and
    report held-out pooled recall / precision / F1 per rung, alongside the
    calibration (in-sample) metrics and the full-pooled in-sample optimum.
-5. Quantify the VWF-slope effect as the F1 spread across `vwf_a`, fixing
+5. **Held-out optimality across `chm_res` (the direct out-of-sample test).**
+   Calibration selection alone never *compares* `chm_res` on held-out data — it
+   reports the calibration-selected value. To test the headline honestly, for
+   each rung pool **held-out F1 for every candidate `chm_res`** (0.25, 0.5,
+   1.0 m) on the **validation** plots, holding `vwf_a` at the
+   calibration-selected value for that rung, and take the argmax. This yields
+   the held-out-F1-**optimal** `chm_res`, which is then compared to 0.5.
+   *Design choice:* `vwf_a` is fixed (not marginalized) because the VWF slope is
+   second-order (step 6), so the `chm_res` argmax is insensitive to it, and
+   fixing `vwf_a` keeps the contrast a clean one-factor (`chm_res`-only) test at
+   the operating point the calibration would deploy. Ties are broken finest
+   `chm_res` first, so a tie never resolves toward 0.5 by construction.
+6. Quantify the VWF-slope effect as the F1 spread across `vwf_a`, fixing
    `chm_res` to the calibration optimum but pooling F1 on the **held-out
    validation** plots, so the second-order claim is itself out-of-sample (small
    spread => second-order). When the F1-optimal `(chm_res, vwf_a)` per rung is
    tied, the tie is broken hypothesis-neutrally: finest `chm_res` first
    (ascending), then lower `vwf_a` -- never toward any particular resolution.
-6. Because per-site plot counts are small, repeat the split for `SEEDS=1..5`
-   and report the held-out F1 distribution and the modal calibration-optimal
-   `chm_res` per rung, so the verdict is not a single-split artifact.
+7. Because per-site plot counts are small, repeat the split for `SEEDS=1..5`
+   and report the held-out F1 distribution, the modal calibration-optimal
+   `chm_res`, **and the modal held-out-F1-optimal `chm_res`** per rung, so the
+   verdict is not a single-split artifact.
 
 **Honest caveat on sample size.** Per-site plot counts are small — SJER 8,
 SOAP 18, TEAK 20 — and the validation halves are only 3 / 8 / 9 plots. With so
@@ -158,6 +174,76 @@ distribution (median, then min..max).
 | 2      | 0.50      | 1.00         | 0.294         | 0.266 .. 0.309  |
 | 1      | 0.50      | 1.00         | 0.316         | 0.281 .. 0.325  |
 
+## Held-out-F1-optimal `chm_res` (the direct out-of-sample test)
+
+The tables above report the *calibration-selected* `chm_res` and how its F1
+transfers; they do **not** compare resolutions on held-out data. This section
+does: for each rung it pools held-out F1 for **every** candidate `chm_res`
+(0.25, 0.5, 1.0 m) on the validation plots, holding `vwf_a` at the
+calibration-selected value, and takes the argmax. That argmax is the
+held-out-F1-optimal resolution; the question is whether it equals 0.5.
+
+### Single split (SEED=1): held-out-optimal `chm_res` per rung
+
+`ho_F1` is the held-out F1 at the argmax `chm_res`; `F1@0.5` is the held-out F1
+at 0.5 m for comparison.
+
+| Site | rung | calib `chm_res` | held-out opt `chm_res` | ho_F1 | F1@0.5 | 0.5 is held-out opt? |
+|------|------|-----------------|------------------------|-------|--------|----------------------|
+| SJER | native | 1.00 | 1.00 | 0.396 | 0.373 | no (opt 1.00) |
+| SJER | 8      | 0.50 | 0.50 | 0.400 | 0.400 | yes |
+| SJER | 4      | 0.50 | 1.00 | 0.416 | 0.400 | no (opt 1.00) |
+| SJER | 2      | 0.50 | 0.50 | 0.418 | 0.418 | yes |
+| SJER | 1      | 1.00 | 0.50 | 0.404 | 0.404 | yes |
+| SOAP | native | 0.50 | 1.00 | 0.363 | 0.333 | no (opt 1.00) |
+| SOAP | 8      | 0.50 | 0.50 | 0.355 | 0.355 | yes |
+| SOAP | 4      | 0.50 | 0.50 | 0.430 | 0.430 | yes |
+| SOAP | 2      | 0.50 | 0.50 | 0.382 | 0.382 | yes |
+| SOAP | 1      | 0.50 | 0.50 | 0.353 | 0.353 | yes |
+| TEAK | native | 0.25 | 0.50 | 0.410 | 0.410 | yes |
+| TEAK | 8      | 0.50 | 0.50 | 0.343 | 0.343 | yes |
+| TEAK | 4      | 0.50 | 0.50 | 0.316 | 0.316 | yes |
+| TEAK | 2      | 0.50 | 0.50 | 0.296 | 0.296 | yes |
+| TEAK | 1      | 0.50 | 0.50 | 0.294 | 0.294 | yes |
+
+On this single split 0.5 m is the held-out optimum in **3/5** rungs at SJER,
+**4/5** at SOAP, and **5/5** at TEAK. Where it is not (SJER native + rung 4,
+SOAP native) the winning resolution is 1.0 m, but the F1 margin over 0.5 m is
+small (SJER rung 4: 0.416 vs 0.400; SOAP native: 0.363 vs 0.333) — well inside
+the multi-seed F1 spread, so it is not a decisive defeat of 0.5 m.
+
+### Across seeds (SEEDS=1..5): modal held-out-optimal `chm_res`
+
+`ho opt = 0.5 frac` is the fraction of seeds whose held-out argmax was 0.5 m.
+
+| Site | rung | modal held-out opt `chm_res` | ho opt = 0.5 frac |
+|------|------|------------------------------|-------------------|
+| SJER | native | 1.00 | 0.20 |
+| SJER | 8      | 0.50 | 1.00 |
+| SJER | 4      | 1.00 | 0.00 |
+| SJER | 2      | 0.50 | 0.60 |
+| SJER | 1      | 0.50 | 0.60 |
+| SOAP | native | 1.00 | 0.40 |
+| SOAP | 8      | 0.50 | 0.80 |
+| SOAP | 4      | 0.50 | 1.00 |
+| SOAP | 2      | 0.50 | 0.80 |
+| SOAP | 1      | 0.50 | 1.00 |
+| TEAK | native | 0.25 | 0.40 |
+| TEAK | 8      | 0.50 | 1.00 |
+| TEAK | 4      | 0.50 | 1.00 |
+| TEAK | 2      | 0.50 | 1.00 |
+| TEAK | 1      | 0.50 | 1.00 |
+
+Across seeds the held-out optimum is **0.5 m at every decimated rung at TEAK**
+(modal 0.5, frac 1.00) and at SOAP rungs 4/1 (frac 1.00) with rungs 8/2 at 0.80.
+SJER is the weak case: rungs 8 holds (frac 1.00), rungs 2/1 are 0.5 m only as a
+0.60-fraction plurality, and **rung 4 is the clear exception — its held-out
+optimum is 1.0 m in 5/5 seeds (frac 0.00)**. The **native rung is never robustly
+0.5 m** at any site (SJER modal 1.0, SOAP modal 1.0, TEAK modal 0.25). So the
+honest held-out optimum is: 0.5 m at the decimated rungs at SOAP and TEAK, but
+**not universal** — SJER rung 4 prefers 1.0 m, and native always prefers a
+non-0.5 resolution.
+
 ## VWF-slope effect (second-order check), out-of-sample
 
 The `chm_res` is fixed to the **calibration** optimum, but pooled F1 across the
@@ -193,33 +279,58 @@ rung 8, where only 2 of the 3 validation plots carry the 0.5 m slice
 
 ## Verdict: does the finding survive out-of-sample?
 
-**Yes — with one density-dependent qualifier.**
+**Mostly — but not universally, and weakest exactly where the original sweep
+doc claimed it was strongest.** The honest answer separates two questions.
 
-- **`chm_res = 0.5 m` is F1-optimal at every *decimated* rung (8/4/2/1
-  pts/m^2) out-of-sample.** At SOAP and TEAK, 0.5 m is the modal
-  calibration-optimal `chm_res` in **5/5** seeds for every decimated rung
-  (chm=0.5 frac = 1.00). At SJER 0.5 m is modal for rungs 8/4/2 (frac 1.00,
-  1.00, 1.00) but the native and 1 pts/m^2 rungs flip to 1.0 m. The held-out
-  F1 at the 0.5 m selection tracks the in-sample F1 closely, so the choice
-  transfers; it is not an in-sample artifact.
+**Does the *calibration-selected* `chm_res` transfer?** Yes. The
+calibration-selected `chm_res` matches the full-pooled in-sample optimum in
+nearly every decimated rung at SOAP and TEAK, and its held-out F1 tracks the
+in-sample F1 closely (within ~+/-0.05). On the SEED=1 split, the
+calibration-optimal `chm_res` is 0.5 m in 3/5 rungs at SJER, 5/5 at SOAP, and
+4/5 at TEAK; across seeds it is the modal calibration optimum at every decimated
+rung at SOAP and TEAK (and SJER rung 8). At SJER the calibration optimum is
+0.5 m as the modal value at rungs 8/4/2 with `chm=0.5` seed-fractions of
+**1.00, 0.80, 1.00** respectively, while the native and 1 pts/m^2 rungs flip to
+1.0 m.
 
-- **The native (undecimated) rung is the exception.** At TEAK the
-  calibration optimum at native density is `0.25 m` (modal in 3/5 seeds),
-  because the dense native cloud supports a finer CHM; at SJER native flips
-  between 0.5 and 1.0 m across seeds. This is physically consistent with the
-  density-first methodology (finer CHM is justified only when first-return
-  density supports it) and does **not** contradict the headline, which is
-  about the operating regime of decimated / typical-acquisition densities.
+**Is 0.5 m the *held-out-F1-optimal* `chm_res` (the stronger test)?** Not
+everywhere. Scoring every candidate resolution on the validation plots:
 
-- **The VWF slope is second-order**, confirmed out-of-sample: pooled on the
-  held-out validation plots, F1 spread across `vwf_a` at the calibration
-  `chm_res` is <= 0.039 in the worst rung (SOAP native) and <= 0.024 at every
-  decimated rung (0.000 at the 1 pt/m^2 rung at all three sites).
+- **At TEAK 0.5 m is the held-out optimum at every decimated rung (8/4/2/1) in
+  5/5 seeds** — the cleanest confirmation.
+- **At SOAP 0.5 m is the held-out optimum at the decimated rungs** (frac 1.00
+  at rungs 4 and 1; 0.80 at rungs 8 and 2).
+- **At SJER 0.5 m does not robustly win.** It holds at rung 8 (5/5 seeds), is
+  only a plurality at rungs 2/1 (0.5 m in 3/5 seeds each), and at **rung 4 the
+  held-out optimum is 1.0 m in 5/5 seeds** — a genuine exception where 0.5 m is
+  *not* the held-out optimum even at a decimated rung. The F1 margin there is
+  small (SEED=1: 0.416 at 1.0 m vs 0.400 at 0.5 m), so 0.5 m is competitive,
+  not optimal.
+- **The native (undecimated) rung is never robustly 0.5 m** at any site: the
+  modal held-out optimum is 1.0 m at SJER and SOAP and 0.25 m at TEAK. This is
+  physically consistent with the density-first methodology — a finer or coarser
+  CHM than 0.5 m can win when the density differs from the decimated operating
+  regime — but it means the unqualified claim "0.5 m is F1-optimal" is **false
+  at native density**.
 
-In short: the sweep's headline "**0.5 m CHM resolution is F1-optimal; VWF
-slope is a second-order effect**" **survives the calibration/validation
-split** across all three sites for the decimated density rungs that the
-finding targets, with the only deviation being a finer optimum at full native
-density (TEAK 0.25 m), which the density-first approach already predicts. The
-small per-site plot counts mean absolute F1 values carry wide uncertainty
-(see the multi-seed min..max ranges), but the *parameter selection* is stable.
+So the prior statement that "`chm_res = 0.5 m` is F1-optimal out-of-sample" was
+**overstated**: that test was never run (only the calibration-selected param was
+scored). Running it honestly, 0.5 m is the held-out optimum at the decimated
+rungs at SOAP and TEAK but **not** at SJER rung 4 (1.0 m wins 5/5 seeds) and
+**not** at native density at any site.
+
+**The VWF slope is second-order**, confirmed out-of-sample: pooled on the
+held-out validation plots, F1 spread across `vwf_a` at the calibration
+`chm_res` is <= 0.039 in the worst rung (SOAP native) and <= 0.024 at every
+decimated rung (0.000 at the 1 pt/m^2 rung at all three sites). This part of the
+headline survives cleanly.
+
+In short: the sweep's headline "**0.5 m CHM resolution is F1-optimal; VWF slope
+is a second-order effect**" **largely survives** the calibration/validation
+split for the decimated density rungs at SOAP and TEAK, and the VWF
+second-order claim survives everywhere — but it **does not survive
+universally**: at native density the held-out optimum is always a non-0.5
+resolution, and at SJER rung 4 the held-out optimum is 1.0 m, not 0.5 m. The
+small per-site plot counts mean absolute F1 values carry wide uncertainty (see
+the multi-seed min..max ranges); the *decimated-rung* selection is stable at
+SOAP/TEAK, but SJER and the native rung are the honest exceptions.

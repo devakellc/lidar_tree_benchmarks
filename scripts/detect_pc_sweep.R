@@ -10,7 +10,9 @@
 # can be compared apples-to-apples.
 #
 # Detectors (all on the native, normalized clip):
-#   chm_vwf       : detect_lasr(file, res, a, frdens) -- CHM-VWF baseline.
+#   chm_vwf       : detect_lasr(file, res, a, frdens) -- CHM-VWF baseline. The
+#                   res is density-derived per plot (0.25 m if frdens>=8 else
+#                   0.5 m), mirroring run_sweep.R's res_set -- NOT hardcoded.
 #   lidr_lmf_pc   : lidR::locate_trees(las, lmf(ws, hmin, shape="circular")) on
 #                   the POINT CLOUD (not the CHM).
 #   lidr_li2012   : lidR::segment_trees(las, li2012(...)); apex per segment =
@@ -23,7 +25,7 @@
 #
 # Usage:
 #   Rscript scripts/detect_pc_sweep.R [SITES=SJER,SOAP,TEAK] [CORES=6]
-#                                     [TOL=4] [A=0.10] [RES=0.5]
+#                                     [TOL=4] [A=0.10]
 # Output: $CLAUDE_JOB_DIR/neon/<SITE>/pc_detect_results.csv  (one row per
 #         plot x detector, with overall + per-crown-class recall columns).
 suppressMessages({ library(lidR); library(lasR); library(sf)
@@ -40,7 +42,6 @@ SITES <- if (is.null(A$SITES)) c("SJER","SOAP","TEAK") else
 CORES <- as.integer(if (is.null(A$CORES)) 6 else A$CORES)
 TOL   <- as.numeric(if (is.null(A$TOL))  4.0  else A$TOL)
 A_VWF <- as.numeric(if (is.null(A$A))    0.10 else A$A)
-RES   <- as.numeric(if (is.null(A$RES))  0.5  else A$RES)
 MINTREES <- 6
 
 ## ---- per-detector apex extractors ----------------------------------------
@@ -99,11 +100,17 @@ run_plot <- function(pid, gt, pc, ctg, tmpdir) {
   if (is.null(las) || is.empty(las)) return(NULL)
   ws <- ws_factory(A_VWF)
 
+  # CHM-VWF baseline resolution is density-derived, NOT hardcoded (CLAUDE.md
+  # Step 0 / run_sweep.R res_set): finest rung is 0.25 m where first-return
+  # density supports it (>=8 pts/m^2), else 0.5 m. The point-cloud detectors use
+  # the ws window, not a raster res, so they are unaffected by this.
+  res <- if (frdens >= 8) 0.25 else 0.5
+
   # Run each detector, timing the point-cloud ones (cost is part of the answer).
   dets <- list()
   tim  <- c()
   t0 <- Sys.time()
-  dets$chm_vwf <- tryCatch(detect_lasr(prep$file, RES, A_VWF, frdens),
+  dets$chm_vwf <- tryCatch(detect_lasr(prep$file, res, A_VWF, frdens),
                            error = function(e) NULL)
   tim["chm_vwf"] <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
   t0 <- Sys.time()
@@ -130,6 +137,7 @@ run_plot <- function(pid, gt, pc, ctg, tmpdir) {
                            detector = nm,
                            frdens = round(frdens, 2),
                            pdens = round(pdens, 2),
+                           chm_res = if (nm == "chm_vwf") res else NA_real_,
                            n_apex = nrow(det),
                            secs = round(tim[[nm]], 2)),
                 sc)
@@ -185,6 +193,42 @@ all_list <- lapply(SITES, run_site)
 all <- do.call(rbind, Filter(Negate(is.null), all_list))
 if (is.null(all) || !nrow(all)) { cat("no results across any site\n"); quit() }
 
+## ---- equal-plot-set guard ------------------------------------------------
+## A detector arm can fail or return an empty/unscorable result on a plot (the
+## tryCatch -> next in run_plot). If we pooled each detector over whatever plots
+## it happened to score, the deltas would compare detectors over NON-identical
+## plot sets. Restrict every detector to the COMMON set of (site,plot) where all
+## four detectors produced a scored row; drop any plot where any arm failed, and
+## log how many and which were dropped.
+detectors <- c("chm_vwf","lidr_lmf_pc","lidr_li2012","lasr_lmax_pc")
+all$pkey <- paste(all$site, all$plot, sep = "::")
+n_det_per_plot <- tapply(all$detector, all$pkey,
+                         function(v) length(unique(v)))
+common  <- names(n_det_per_plot)[n_det_per_plot == length(detectors)]
+dropped <- setdiff(unique(all$pkey), common)
+cat(sprintf("\n=== Equal-plot-set guard ===\n"))
+cat(sprintf("plots with a scored row from all %d detectors: %d\n",
+            length(detectors), length(common)))
+if (length(dropped)) {
+  cat(sprintf("DROPPED %d plot(s) where >=1 detector arm failed/empty:\n",
+              length(dropped)))
+  for (pk in dropped) {
+    got <- sort(unique(all$detector[all$pkey == pk]))
+    miss <- setdiff(detectors, got)
+    cat(sprintf("  %-18s  missing: %s\n", pk, paste(miss, collapse = ",")))
+  }
+} else {
+  cat("DROPPED 0 plots: every detector scored every plot.\n")
+}
+if (!length(common)) { cat("no common-plot results to pool\n"); quit() }
+all <- all[all$pkey %in% common, , drop = FALSE]
+
+## assert equal n_plots across detectors before any delta is reported
+np <- tapply(all$pkey, all$detector, function(v) length(unique(v)))
+cat("n_plots per detector after restriction: ",
+    paste(sprintf("%s=%d", names(np), np), collapse = "  "), "\n")
+stopifnot(length(unique(as.integer(np))) == 1L)
+
 ## pooling (mirror analyze_sweep.R: sum TP / sum n_ref, never mean-of-rates).
 classes <- c("dominant","codominant","intermediate","suppressed")
 # recover per-plot per-class TP counts for correct pooling
@@ -221,8 +265,7 @@ pool <- function(df) {
   out
 }
 
-detectors <- c("chm_vwf","lidr_lmf_pc","lidr_li2012","lasr_lmax_pc")
-cat("\n=== Pooled across all sites/plots, by detector ===\n")
+cat("\n=== Pooled across all sites/plots (common plot set), by detector ===\n")
 pooled <- do.call(rbind, lapply(detectors, function(dt) {
   s <- all[all$detector == dt, ]; if (!nrow(s)) return(NULL)
   cbind(detector = dt, pool(s)) }))

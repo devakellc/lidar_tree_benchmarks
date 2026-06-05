@@ -2,10 +2,19 @@
 # Driver for the NEON SOAP density-ladder parameter sweep.
 # Usage:
 #   Rscript scripts/run_sweep.R [PLOTS=SOAP_031,SOAP_048|ALL] [OUT=results.csv]
-#                               [CORES=8] [TOL=2.5]
+#                               [CORES=8] [TOL=2.5] [MEAS_YEAR=2021]
 # Reads work/neon/{ground_truth_stems.csv,plot_centroids.csv} and the LiDAR
 # catalog in work/neon/lidar/. Writes a long-form metrics CSV: one row per
 # (plot x density-rung x chm_res x vwf_slope).
+#
+# MEAS_YEAR (optional): when set (e.g. MEAS_YEAR=2021) the ground truth is
+# additionally restricted to stems whose nearest apparentindividual measurement
+# falls in that exact calendar year (the gt `meas_year` column). This drives the
+# temporal-sensitivity cut (issue #5): re-score using ONLY stems measured in the
+# LiDAR-acquisition year vs. the default +/-4 yr nearest-measurement baseline.
+# When unset, behaviour is IDENTICAL to the baseline. Write exact-year runs to a
+# distinct OUT path (e.g. sweep_results_2021.csv); never overwrite the baseline
+# sweep_results.csv.
 suppressMessages({ library(lidR); library(parallel) })
 options(lidR.progress = FALSE)
 d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
@@ -20,11 +29,21 @@ nd    <- file.path(d, "neon", SITE)
 OUT   <- if (is.null(A$OUT))   file.path(nd, "sweep_results.csv") else A$OUT
 CORES <- as.integer(if (is.null(A$CORES)) 8 else A$CORES)
 TOL   <- as.numeric(if (is.null(A$TOL)) 4.0 else A$TOL)
+MEAS_YEAR <- if (is.null(A$MEAS_YEAR)) NA_integer_ else as.integer(A$MEAS_YEAR)
 
 ## ---- data ----------------------------------------------------------------
 gt  <- read.csv(file.path(nd, "ground_truth_stems.csv"))
 pc  <- read.csv(file.path(nd, "plot_centroids.csv"))
 gt  <- gt[gt$live & gt$is_tree & !is.na(gt$E), ]
+## temporal-sensitivity cut (issue #5): keep ONLY exact-measurement-year stems.
+if (!is.na(MEAS_YEAR)) {
+  n_before <- nrow(gt)
+  gt <- gt[!is.na(gt$meas_year) & gt$meas_year == MEAS_YEAR, ]
+  cat(sprintf("MEAS_YEAR filter = %d : kept %d of %d live-tree stems\n",
+              MEAS_YEAR, nrow(gt), n_before))
+} else {
+  cat("MEAS_YEAR filter = none (+/-4 yr nearest-measurement baseline)\n")
+}
 laz <- list.files(file.path(nd, "lidar"), pattern = "\\.laz$",
                   recursive = TRUE, full.names = TRUE)
 ctg <- readLAScatalog(laz, progress = FALSE)

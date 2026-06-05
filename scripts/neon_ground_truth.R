@@ -9,6 +9,15 @@
 # plot; we fetch each unique point's UTM coordinate from the API and apply the
 # polar offset. Output: ground_truth_stems.csv + tiles_needed.csv.
 #
+# Ground truth pairs each stem with the apparentindividual measurement nearest
+# the 2021 LiDAR acquisition (within +/-4 yr). Two columns support the
+# exact-year temporal-sensitivity filter consumed by run_sweep.R /
+# validate_heights.R (issue #5): `meas_year` = calendar year of that chosen
+# measurement, and `dist21` = |meas_year - 2021|. Selecting meas_year==2021
+# re-scores against only stems measured in the LiDAR year. These columns already
+# exist in the cached ground_truth_stems.csv -- do NOT re-run this script for the
+# temporal cut; it would overwrite the shared ground truth.
+#
 # Env: CLAUDE_JOB_DIR (working dir; default ./work)
 suppressMessages({ library(neonUtilities); library(jsonlite) })
 

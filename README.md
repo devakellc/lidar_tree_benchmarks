@@ -64,11 +64,14 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `density_cost.R` | The three detectors vs density: counts + runtime scaling. |
 | `extract_big.json` | PDAL: pull a larger ~56 ha block from the EPT (reprojected). |
 | `li2012_16core.R` | Retile + 16-core Li 2012 throughput; extrapolates to 10k acres. |
+| `ept_discovery.R` | Find public USGS 3DEP EPT projects covering each NEON site (point-in-polygon vs the entwine boundary index); writes `neon/<SITE>/ql2/ept_candidates.csv`. |
+| `native_ql2_crosscheck.R` | Pull the native 3DEP cloud per NEON plot via PDAL (reproject 3857 -> UTM 11N), run the CHM-VWF pipeline, and compare native (+ decimated-to-2) detection to the cached decimated-2 rung by crown class (issue #4). |
 
 ## Reproduce
 
-Requirements: R with `lasR` (>= 0.21, dev/`pre-devel` build with EPT parallel acquisition and variable-window `ws`) and
-`lidR`; PDAL (>= 2.9) for the EPT extraction.
+Requirements: R with `lasR` (>= 0.21, dev/`pre-devel` build with EPT parallel
+acquisition and variable-window `ws`) and `lidR`; PDAL (>= 2.9) for the EPT
+extraction.
 
 ```sh
 export CLAUDE_JOB_DIR=$(pwd)/work && mkdir -p "$CLAUDE_JOB_DIR"

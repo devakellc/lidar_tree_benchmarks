@@ -18,7 +18,7 @@ field-surveyed stem ground truth. Last run: 2026-06-05.*
 - **The sweep ran on the plan's primary recommendation — NEON SOAP 2021
   (~20 pts/m² Optech Galaxy; ~12 first-returns/m²) decimated to a density
   ladder 20→8→4→2→1 pts/m² (all-return target; ~½ that in pulses)**, scored
-  against 246 field-mapped live stems in 19 plots, **stratified by crown class**
+  against 232 field-mapped live stems in 18 plots, **stratified by crown class**
   — plus the structure-gradient sites **SJER (open oak)** and **TEAK (red fir)**.
 - **Headline (SOAP, mixed conifer — the hard, multi-layered case):** detection
   **F1 is essentially flat (~0.35–0.42) across a 15× density range**; what moves
@@ -27,7 +27,7 @@ field-surveyed stem ground truth. Last run: 2026-06-05.*
   ~0.33 / precision ~0.45–0.50). The level matches the literature for mixed
   forest (Eysn 2015 ≈ 0.47 overall).
 - **Crown class is the dominant axis, exactly as the approach doc predicts:**
-  overstory (dominant+codominant) recall **~0.55 at native** vs understory
+  overstory (dominant+codominant) recall **~0.57 at native** vs understory
   (intermediate+suppressed) **~0.10–0.20**, with the **suppressed** sub-class
   falling to ~0 below 8 pts/m². Suppressed-tree omission is the figure that moves
   least with parameters — it is an occlusion floor, not a tuning problem.
@@ -65,8 +65,8 @@ the 1 km tiles overlapping field plots (≈1 GB/site instead of the full
 | Site | Forest type | Acq. | native pts/m² | native first-returns/m² | plots / live stems |
 |---|---|---|---|---|---|
 | SJER | open oak / foothill-pine woodland | 2021-03 | 16.3 | 9.0 | 8 / 71 |
-| **SOAP** | **mixed conifer/deciduous (anchor)** | **2021-07** | **18.2** | **11.9** | 19 / 246 |
-| TEAK | red fir / subalpine conifer | 2021-07 | 19.2 | 11.9 | 21 / 413 |
+| **SOAP** | **mixed conifer/deciduous (anchor)** | **2021-07** | **18.2** | **11.9** | 18 / 232 |
+| TEAK | red fir / subalpine conifer | 2021-07 | 19.2 | 11.9 | 20 / 353 |
 
 **Field stems (manual ground truth).** NEON Woody Plant Vegetation Structure
 `DP1.10098.001`. Each mapped stem records a `(pointID, stemDistance,
@@ -129,31 +129,31 @@ plots (Σ TP / Σ ref), not as a mean of per-plot rates.
 
 ## 4. Results — SOAP (mixed conifer, the anchor)
 
-19 plots, **246 live field stems** in plot-type-correct cores. Pooled, CHM
+18 plots, **232 live field stems** in plot-type-correct cores. Pooled, CHM
 res = 0.5 m, VWF `a` = 0.10:
 
 | rung (pts/m²) | first-ret/m² | recall | precision | F1 | dominant | codominant | intermediate | suppressed |
 |---|---|---|---|---|---|---|---|---|
-| native (~20) | 11.9 | **0.49** | 0.32 | 0.39 | 0.55 | 0.56 | 0.21 | 0.14 |
-| 8 | 5.8 | 0.33 | 0.45 | 0.38 | 0.45 | 0.32 | 0.15 | 0.00 |
-| 4 | 3.0 | 0.35 | 0.50 | 0.41 | 0.46 | 0.34 | 0.15 | 0.00 |
-| 2 | 1.5 | 0.30 | 0.42 | 0.35 | 0.42 | 0.26 | 0.18 | 0.00 |
-| 1 | 0.8 | 0.36 | 0.49 | 0.42 | 0.40 | 0.40 | 0.21 | 0.00 |
+| native (~20) | 11.8 | **0.50** | 0.33 | 0.40 | 0.55 | 0.58 | 0.21 | 0.14 |
+| 8 | 5.8 | 0.31 | 0.43 | 0.36 | 0.38 | 0.34 | 0.13 | 0.00 |
+| 4 | 3.0 | 0.36 | 0.51 | 0.42 | 0.48 | 0.35 | 0.21 | 0.00 |
+| 2 | 1.5 | 0.34 | 0.46 | 0.39 | 0.45 | 0.35 | 0.16 | 0.00 |
+| 1 | 0.8 | 0.34 | 0.49 | 0.40 | 0.44 | 0.35 | 0.13 | 0.00 |
 
 By **absolute height band**:
 
 | rung | first-ret/m² | tall ≥15 m | mid 8–15 m | short <8 m |
 |---|---|---|---|---|
-| native | 11.9 | 0.62 | 0.43 | 0.44 |
-| 8 | 5.8 | 0.47 | 0.28 | 0.26 |
-| 1 | 0.8 | 0.48 | 0.27 | 0.36 |
+| native | 11.8 | 0.65 | 0.43 | 0.44 |
+| 8 | 5.8 | 0.45 | 0.29 | 0.22 |
+| 1 | 0.8 | 0.55 | 0.22 | 0.29 |
 
 **Parameter main effects (pooled over all rungs):**
 
 - **CHM resolution drives the recall/precision trade:** 0.25 m → recall 0.48 /
-  precision 0.29 (over-segments); 0.5 m → 0.37 / 0.41; 1.0 m → 0.30 / 0.41.
+  precision 0.30 (over-segments); 0.5 m → 0.37 / 0.42; 1.0 m → 0.31 / 0.42.
   F1-optimal is **0.5 m** at every rung.
-- **VWF slope barely matters:** `a` ∈ {0.05, 0.10, 0.15} → F1 0.37/0.37/0.36;
+- **VWF slope barely matters:** `a` ∈ {0.05, 0.10, 0.15} → F1 0.38/0.38/0.37;
   smaller `a` (smaller windows) buys a little recall at equal precision.
 
 **Reading SOAP.** SOAP is the multi-layered mixed case the approach doc flags as
@@ -175,16 +175,16 @@ Pooled, CHM res = 0.5 m, `a` = 0.10:
 
 | Site (structure) | rung | first-ret/m² | recall | precision | F1 | **overstory** | **understory** |
 |---|---|---|---|---|---|---|---|
-| **SJER** open oak | native | 8.6 | 0.51 | 0.23 | 0.31 | **0.71** | (n=2) |
-| | 1 | 0.8 | 0.37 | 0.30 | 0.33 | 0.58 | — |
-| **SOAP** mixed conifer | native | 11.9 | 0.49 | 0.32 | 0.39 | **0.55** | 0.20 |
-| | 1 | 0.8 | 0.36 | 0.49 | 0.42 | 0.40 | 0.17 |
-| **TEAK** dense red fir | native | 11.8 | 0.36 | 0.41 | 0.38 | **0.39** | 0.12 |
-| | 1 | 0.7 | 0.22 | 0.45 | 0.30 | 0.24 | 0.09 |
+| **SJER** open oak | native | 8.6 | 0.49 | 0.22 | 0.31 | **0.71** | (n=2) |
+| | 1 | 0.8 | 0.41 | 0.30 | 0.35 | 0.57 | — |
+| **SOAP** mixed conifer | native | 11.8 | 0.50 | 0.33 | 0.40 | **0.57** | 0.20 |
+| | 1 | 0.8 | 0.34 | 0.49 | 0.40 | 0.39 | 0.11 |
+| **TEAK** dense red fir | native | 11.5 | 0.37 | 0.40 | 0.38 | **0.40** | 0.13 |
+| | 1 | 0.7 | 0.23 | 0.45 | 0.31 | 0.25 | 0.07 |
 
 **The headline cross-site result — structure beats species and density.**
-Overstory detection is ordered **open oak (0.71) > mixed conifer (0.55) > dense
-red fir (0.39)** — the *opposite* of what crown shape alone predicts (fir has the
+Overstory detection is ordered **open oak (0.71) > mixed conifer (0.57) > dense
+red fir (0.40)** — the *opposite* of what crown shape alone predicts (fir has the
 "ideal" single sharp apex; oak is broad and multi-domed). The driver is
 **canopy packing**: TEAK's codominant firs are tightly interlocked, so the CHM
 merges adjacent crowns (under-segmentation) and codominant recall collapses to
@@ -214,19 +214,19 @@ density, res 0.5 m, `a` 0.10:
 
 | stratum | n | bias (apex−field) | RMSE | MAE | R² | fit slope |
 |---|---|---|---|---|---|---|
-| **dominant** | 97 | **+1.00 m** | **4.36 m** | 2.66 | **0.85** | **0.97** |
-| codominant | 152 | +5.20 m | 10.94 m | 6.70 | 0.31 | 0.79 |
+| **dominant** | 94 | **+1.03 m** | **4.45 m** | 2.70 | **0.85** | **0.98** |
+| codominant | 149 | +5.17 m | 10.97 m | 6.69 | 0.31 | 0.79 |
 | intermediate | 26 | +8.72 m | 11.49 m | 8.74 | 0.14 | 0.65 |
 | SJER (open oak) | 21 | +1.43 m | 3.32 m | 2.21 | 0.42 | 0.98 |
-| SOAP (mixed) | 110 | +2.71 m | 6.80 m | 4.44 | 0.63 | 0.81 |
-| TEAK (packed fir) | 152 | +5.38 m | 11.04 m | 6.59 | 0.34 | 0.76 |
+| SOAP (mixed) | 107 | +2.72 m | 6.88 m | 4.50 | 0.63 | 0.81 |
+| TEAK (packed fir) | 144 | +5.52 m | 11.26 m | 6.75 | 0.34 | 0.77 |
 
 ![Detected apex height vs NEON field height](results/figures/height_validation.png)
 
 **Height is recovered well for the trees you can actually see, and is
 meaningless for the ones you can't — the same occlusion story as detection, now
 in metres.** For **dominant** trees the CHM apex tracks field height almost 1:1
-(slope 0.97, R² 0.85, bias **+1 m**, RMSE 4.4 m — within NEON's own ±1–2 m
+(slope 0.98, R² 0.85, bias **+1 m**, RMSE 4.4 m — within NEON's own ±1–2 m
 rangefinder error). The small positive bias is expected: the CHM catches the true
 apex while the field rangefinder tends to under-read tall crowns. Down the crown
 classes the bias **balloons (+5 m codominant, +9 m intermediate)** and R²
@@ -239,8 +239,8 @@ approach doc says to **report metrics stratified by crown class**.
 ## 7. What the sweep says about each swept axis
 
 - **Density (the deciding variable).** Across all three sites, **overstory
-  recall degrades gently** from ~16–19 pts/m² down to ~1 pts/m² (SJER 0.71→0.58,
-  SOAP 0.55→0.40, TEAK 0.39→0.24) while **understory stays low at every density**
+  recall degrades gently** from ~16–19 pts/m² down to ~1 pts/m² (SJER 0.71→0.57,
+  SOAP 0.57→0.39, TEAK 0.40→0.25) while **understory stays low at every density**
   (SOAP ~0.13–0.20, TEAK ~0.07–0.12; SJER understory n is too small to read). The
   SOAP **suppressed** sub-class specifically goes to ~0 below 8 pts/m². **Overall
   F1 is essentially flat (~0.30–0.42)** across a 10–20× density range: sparser
@@ -311,8 +311,12 @@ approach doc says to **report metrics stratified by crown class**.
   and re-run: the distributed-plot 40×40 core (→ plot-type-aware), the
   no-upsampling guard comparing against post-decimation density, the VWF window
   not clamped at 5 m, a latent factor→integer crown-class coercion (never
-  triggered), and NaN guards in the pooling. The numbers above are the post-fix
-  run.
+  triggered), and NaN guards in the pooling. A second PR review (Claude + Codex)
+  added three more, also fixed and re-run here: the `Open grown` `canopyPosition`
+  level was missing from the crown-class map (dropped open-grown overstory,
+  notably at SJER), a few `individualID`s carried duplicate mapping records
+  (recall-denominator double-count), and the tile-download buffer was raised to
+  ≥ the per-plot clip reach. The numbers above are the post-fix run.
 
 ## 9. Reproduce
 

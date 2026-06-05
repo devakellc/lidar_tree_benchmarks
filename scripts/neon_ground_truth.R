@@ -47,6 +47,10 @@ write.csv(pp1, file.path(nd, "plot_centroids.csv"), row.names = FALSE)
 
 ## ---- 2. Mappable stems: geolocate via NEON locations API ------------------
 map <- mt[!is.na(mt$stemDistance) & !is.na(mt$stemAzimuth) & !is.na(mt$pointID), ]
+# A few individuals carry >1 mapping/tagging record (re-mapped in a later year);
+# keep one row per stem so the merge below cannot double-count the recall
+# denominator (sibling apparentindividual is already deduped).
+map <- map[!duplicated(map$individualID), ]
 map$ptloc <- paste0(map$namedLocation, ".", map$pointID)
 uniq <- unique(map$ptloc)
 cat(sprintf("mappable stems: %d across %d plots; %d unique point locations\n",
@@ -105,7 +109,8 @@ g$live <- grepl("Live", g$plantStatus) & (is.na(g$dist21) | g$dist21 <= 4)
 g$is_tree <- is.na(g$growthForm) | grepl("tree", g$growthForm, ignore.case = TRUE)
 
 # Crown class from canopyPosition; fall back to within-plot height quantiles.
-cc_map <- c("Full sun" = "dominant", "Partially shaded" = "codominant",
+cc_map <- c("Open grown" = "dominant", "Full sun" = "dominant",
+            "Partially shaded" = "codominant",
             "Mostly shaded" = "intermediate", "Full shade" = "suppressed")
 g$crown_class <- cc_map[g$canopyPosition]
 need_cc <- is.na(g$crown_class) & !is.na(g$height)

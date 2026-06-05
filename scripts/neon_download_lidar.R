@@ -17,8 +17,11 @@ cat(sprintf("[%s] live trees: %d  unique 1km tiles: %d\n",
             site, nrow(lt), length(unique(lt$tile))))
 savep <- file.path(nd, "lidar"); dir.create(savep, showWarnings = FALSE, recursive = TRUE)
 options(timeout = 3600)
+# buffer >= the per-plot clip reach (core_half + BUF = 45 m for tower plots in
+# sweep_lib.R), so a plot whose clip box crosses a 1 km tile boundary always has
+# the neighbouring tile present and the clip is never silently truncated.
 byTileAOP(dpID = "DP1.30003.001", site = site, year = year,
-          easting = lt$E, northing = lt$N, buffer = 30,
+          easting = lt$E, northing = lt$N, buffer = 50,
           check.size = FALSE, savepath = savep, include.provisional = FALSE)
 laz <- list.files(savep, pattern = "\\.laz$", recursive = TRUE)
 cat(sprintf("[%s] downloaded %d laz tiles\n", site, length(laz)))

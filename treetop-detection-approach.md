@@ -54,7 +54,10 @@ per pulse.
   but not stems or understory.
 - **>~ 8 pts/m² (QL1/QL0, UAV/drone) -> point-cloud detection becomes viable**
   (Li 2012, deep-learning instance segmentation), and you can start resolving
-  sub-dominant trees.
+  sub-dominant trees. For *tops* specifically, though, a pit-free CHM still
+  captures the dominant canopy well enough that point-based local maxima rarely
+  beat raster LM until density is much higher — the point-cloud win is in
+  *crowns* and sub-canopy stems, not apex detection.
 
 **Density rules of thumb (from the literature):**
 
@@ -128,7 +131,17 @@ fixed windows (~85% vs ~80% accuracy) and won both benchmarks.
   are the markers so you get one basin per tree.
 - **`silva2016`** (Voronoi/nearest-top) — fast, good for open/plantation
   conifer.
-- **`li2012`** (pure point-cloud, no CHM/seeds) — only worth it at high density.
+- **`li2012`** (pure point-cloud, no CHM/seeds) — only worth it at high
+  density; its region growing scales super-linearly with point count (the lidR
+  implementation is unparallelized, worse than O(N²)), so it gets painful over
+  large tiles at >=8 pts/m².
+- **AMS3D (adaptive mean-shift 3D)** — the one practical point-cloud method
+  that can edge out `dalponte2016` for crowns. It topped the most rigorous ALS
+  broadleaf comparison (Dalponte2016 a close second), avoids CHM interpolation
+  artifacts, and handles leaning/interlocking crowns better — at the cost of
+  speed and no CHM seeds. Reserve it for plots where CHM pits or interlocking
+  broadleaf crowns visibly hurt the raster pipeline; needs ~8+ pts/m² and the
+  compute budget. No CRAN/lidR implementation (see deep-research-report.md).
 
 ### Step 7 — Crown geometry & metrics
 

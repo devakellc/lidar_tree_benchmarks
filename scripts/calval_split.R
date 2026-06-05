@@ -197,8 +197,10 @@ vwf_spread <- function(r, plots, sel) {
 # (small held-out F1 spread across vwf_a), so the chm_res argmax is insensitive
 # to this choice; (b) fixing vwf_a keeps the comparison a clean one-factor
 # (chm_res-only) contrast at the operating point the calibration would deploy.
-# Ties in held-out F1 are broken hypothesis-neutrally: finest chm_res first
-# (ascending), so a tie never resolves toward 0.5 by construction.
+# Ties in held-out F1 are broken deterministically by finest chm_res first
+# (ascending). At decimated rungs the candidate set is {0.5, 1.0}, so finest is
+# 0.5 there; this is moot because no exact held-out F1 ties occur in the cached
+# data, so the reported optima do not depend on the tie rule.
 heldout_res_opt <- function(r, plots, sel) {
   s0 <- r[r$plot %in% plots, ]
   na_row <- function(rl, vwf_a, cal_res) data.frame(rung = rl, vwf_a = vwf_a,

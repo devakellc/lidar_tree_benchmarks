@@ -74,14 +74,17 @@ All numbers below are real console output from that command on the cached
    choice:* `vwf_a` is fixed (not marginalized) because the VWF slope is
    second-order (step 6), so the `chm_res` argmax is insensitive to it, and
    fixing `vwf_a` keeps the contrast a clean one-factor (`chm_res`-only) test at
-   the operating point the calibration would deploy. Ties are broken finest
-   `chm_res` first, so a tie never resolves toward 0.5 by construction.
+   the operating point the calibration would deploy. Ties are broken
+   deterministically by finest `chm_res` first; no exact held-out F1 ties
+   occur in the cached data, so the reported optima do not depend on the tie
+   rule.
 6. Quantify the VWF-slope effect as the F1 spread across `vwf_a`, fixing
    `chm_res` to the calibration optimum but pooling F1 on the **held-out
    validation** plots, so the second-order claim is itself out-of-sample (small
    spread => second-order). When the F1-optimal `(chm_res, vwf_a)` per rung is
-   tied, the tie is broken hypothesis-neutrally: finest `chm_res` first
-   (ascending), then lower `vwf_a` -- never toward any particular resolution.
+   tied, the tie is broken deterministically: finest `chm_res` first
+   (ascending), then lower `vwf_a`. No exact ties occur in the cached data, so
+   this affects no reported optimum.
 7. Because per-site plot counts are small, repeat the split for `SEEDS=1..5`
    and report the held-out F1 distribution, the modal calibration-optimal
    `chm_res`, **and the modal held-out-F1-optimal `chm_res`** per rung, so the

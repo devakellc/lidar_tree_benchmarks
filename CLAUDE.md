@@ -46,7 +46,7 @@ pipelines.
 - **lasR must be the `r-lidar/lasR@pre-devel` build**, not CRAN. The scripts use
   `ws`-as-a-function (variable-window `local_maximum`) and parallel EPT
   acquisition, which CRAN 0.21.0 broke. Installing CRAN lasR will make detection
-  scripts fail at the `local_maximum` call. See `memory/lasr-pre-devel-dependency.md`.
+  scripts fail at the `local_maximum` call.
 - **lidR** (clip/decimate/normalize/segmentation/catalog), **terra**, **sf**,
   **data.table**; **neonUtilities** + **jsonlite** for NEON ground truth;
   **PDAL ≥ 2.9** CLI for EPT extraction (`scripts/extract*.json`).
@@ -103,22 +103,36 @@ Sweep invariants — get these wrong and the metrics are silently misleading:
   gate (`greedy_match`), so a short understory stem can't steal a tall
   neighbour's apex.
 
-## The ML / deep-learning benchmark prep
+## Analyses that branch off the sweep
 
-A separate, **inference-not-yet-run** track that prepares external deep models
-(ForestFormer3D, SegmentAnyTree, ForAINet, …) for evaluation. Driven by two YAML
-registries in [config/](config/) (`ml_benchmark_methods.yml`,
-`ml_benchmark_datasets.yml`), with:
+Five follow-on studies (issues #3–#7) reuse the sweep's ground truth and
+scoring; each is one script + one result doc under [`results/`](results/). The
+README script table stays canonical — these are the non-obvious invariants
+worth knowing before touching them:
 
-- [scripts/check_ml_method_status.R](scripts/check_ml_method_status.R) — probes
-  local deps (docker, nvidia-smi, torch modules) → `work/ml_benchmark/method_status.csv`.
-- [scripts/report_ml_benchmark.R](scripts/report_ml_benchmark.R) — renders
-  [ml-method-benchmark-results.md](ml-method-benchmark-results.md).
-- [scripts/score_point_instance_predictions.R](scripts/score_point_instance_predictions.R)
-  — scores any method's exported predictions. **External prediction contract:**
-  one row per point with `dataset, plot, point_id, x, y, z, pred_instance_id`
-  (+ `ref_instance_id` for per-point instance scoring). Greedy IoU ≥ 0.5
-  matching. This contract is how new models plug in — keep it stable.
+- **Calibration/validation split** ([scripts/calval_split.R](scripts/calval_split.R)
+  → [calibration-validation-results.md](results/calibration-validation-results.md), #3):
+  tune `(chm_res, vwf_a)` per rung on a stratified calibration subset, then
+  report **held-out** F1 — never tune and score on the same plots.
+- **Native QL2 cross-check** ([scripts/native_ql2_crosscheck.R](scripts/native_ql2_crosscheck.R)
+  → [native-ql2-crosscheck-results.md](results/native-ql2-crosscheck-results.md), #4):
+  pulls the *native* 3DEP cloud per plot (PDAL, 3857 → UTM 11N) to test whether
+  decimation-as-simulation holds; [scripts/ept_discovery.R](scripts/ept_discovery.R)
+  finds the covering EPT.
+- **Temporal sensitivity** ([scripts/temporal_sensitivity.R](scripts/temporal_sensitivity.R) +
+  [scripts/validate_heights.R](scripts/validate_heights.R)
+  → [temporal-sensitivity-results.md](results/temporal-sensitivity-results.md), #5):
+  `MEAS_YEAR=2021` restricts ground truth to exact-year stems; run it into a
+  **distinct `OUT=`** so the ±4 yr baseline survives for the delta.
+- **Point-cloud detector arm** ([scripts/detect_pc_sweep.R](scripts/detect_pc_sweep.R)
+  → [pointcloud-detector-results.md](results/pointcloud-detector-results.md), #6):
+  lidR lmf-on-points, Li 2012, and lasR point `local_maximum` vs the CHM-VWF
+  baseline at native density, scored by crown class for understory recall.
+- **Crown-diameter RMSE** ([scripts/crown_metrics_sweep.R](scripts/crown_metrics_sweep.R)
+  → [crown-segmentation-results.md](results/crown-segmentation-results.md), #7):
+  five segmenters seeded from shared tree-tops, scored against NEON field
+  `maxCrownDiameter`/`ninetyCrownDiameter` (both now carried in
+  `ground_truth_stems.csv`).
 
 ## Coordinate-system gotcha
 

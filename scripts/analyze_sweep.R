@@ -131,5 +131,5 @@ cat(sprintf("\nfigures -> %s ; summaries -> %s\n", fig, nd))
 #
 # It reuses this exact pool() rule (sum TP / sum n_ref; tp_core=round(prec*n_det)),
 # stratifies the split by plotType x crown-class mix, writes long-form
-# calval_metrics.csv per site, and renders calibration-validation-results.md.
+# calval_metrics.csv per site, and renders results/calibration-validation-results.md.
 # The pooling logic is kept self-contained there; it is NOT duplicated here.

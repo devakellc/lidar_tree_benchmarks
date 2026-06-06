@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # Library of functions for the NEON SOAP density-ladder parameter sweep.
-# Sourced by run_sweep.R. Implements the treetop-detection-approach.md pipeline
+# Sourced by run_sweep.R. Implements the docs/treetop-detection-approach.md pipeline
 # (decimate -> normalize -> pit-free-ish CHM -> variable-window LM) per plot,
 # per density rung, per parameter set, and scores against field stems by crown
 # class.  Engine: lasR pre-devel (native ws-as-function VWF) for detection;

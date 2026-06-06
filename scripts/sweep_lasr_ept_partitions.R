@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 # Partition-count sweep for lasR EPT acquisition on a LARGE AOI.
 #
-# Motivation: the original sweep (112.5M pts, see ept-acquisition-sweep-results.md)
+# Motivation: the original sweep (112.5M pts, see results/ept-acquisition-sweep-results.md)
 # found a fixed target of 32 partitions (~36 chunks) optimal at
 # concurrent_files(16), beating 64 (~100 chunks) by ~40%. The optimum was a
 # roughly constant *chunk count* across the 31M and 112M AOIs -- not constant

@@ -6,7 +6,7 @@ density-ladder sweep ([density-ladder-sweep-results.md](density-ladder-sweep-res
 is CHM-VWF only. A 2.5-D canopy height model sees only the top surface, so the
 one place high point density **should** pay off is a point-cloud detector able
 to resolve sub-dominant apexes a CHM cannot. This run tests that directly. Code:
-[scripts/detect_pc_sweep.R](scripts/detect_pc_sweep.R). Last run: 2026-06-05.*
+[scripts/detect_pc_sweep.R](../scripts/detect_pc_sweep.R). Last run: 2026-06-05.*
 
 ---
 

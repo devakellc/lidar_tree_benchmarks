@@ -13,7 +13,7 @@ Implements GitHub **issue #5**. Last run: 2026-06-05.*
 The 2021 NEON airborne LiDAR is scored against NEON Woody Plant Vegetation
 Structure (`DP1.10098.001`) field stems. NEON does **not** re-survey every plot
 every year, so the ground-truth builder
-([`neon_ground_truth.R`](scripts/neon_ground_truth.R)) pairs each stem with the
+([`neon_ground_truth.R`](../scripts/neon_ground_truth.R)) pairs each stem with the
 `apparentindividual` measurement **nearest the 2021 acquisition within +/-4 yr**
 and records two columns: `meas_year` (calendar year of that measurement) and
 `dist21` (`|meas_year - 2021|`). A stem measured in 2018 or 2023 has up to four

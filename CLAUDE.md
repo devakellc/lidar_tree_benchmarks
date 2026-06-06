@@ -9,16 +9,16 @@ A **research/benchmark** repository (not an application): R scripts that detect
 tree-tops and delineate crowns from airborne LiDAR, then quantify how detection
 accuracy responds to point density. There is no build system, package, or test
 suite — every script is a standalone `Rscript` run, and the deliverables are the
-markdown result documents at the repo root plus CSVs/figures regenerated under
-the working directory.
+markdown result documents under [`results/`](results/) plus CSVs/figures
+regenerated under the working directory.
 
-The central methodology lives in [treetop-detection-approach.md](treetop-detection-approach.md):
+The central methodology lives in [treetop-detection-approach.md](docs/treetop-detection-approach.md):
 **measure density first, then derive parameters from it** (Step 0). CHM
 resolution, the variable-window-filter (VWF) `ws` function, and the Step-5
 pre-LM smoothing are all functions of measured first-return density — never
 hardcoded. Read that doc before changing any detection parameter; the result
-docs ([treetop-lasr-vs-lidr-comparison.md](treetop-lasr-vs-lidr-comparison.md),
-[density-ladder-sweep-results.md](density-ladder-sweep-results.md)) record the
+docs ([treetop-lasr-vs-lidr-comparison.md](results/treetop-lasr-vs-lidr-comparison.md),
+[density-ladder-sweep-results.md](results/density-ladder-sweep-results.md)) record the
 findings each script produced and must stay consistent with the code.
 
 ## Running scripts

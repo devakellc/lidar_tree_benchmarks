@@ -1,7 +1,7 @@
 # Density-Ladder Parameter Sweep — Results
 
-*Execution of the protocol in [`dataset-research-and-sweep-plan.md`](dataset-research-and-sweep-plan.md)
-against the pipeline in [`treetop-detection-approach.md`](treetop-detection-approach.md),
+*Execution of the protocol in [`dataset-research-and-sweep-plan.md`](../docs/dataset-research-and-sweep-plan.md)
+against the pipeline in [`treetop-detection-approach.md`](../docs/treetop-detection-approach.md),
 using the **lasR `pre-devel`** branch (native variable-window `ws` function +
 `summarise()` density). Run on real NEON 2021 high-density airborne LiDAR with
 field-surveyed stem ground truth. Last run: 2026-06-05.*
@@ -165,7 +165,7 @@ which is why **F1 stays flat** while recall and precision cross over. Understory
 (intermediate/suppressed) is ~0.1–0.2 at native; the **suppressed** sub-class
 specifically falls to ~0 below 8 pts/m² — the occlusion floor.
 
-![SOAP density sensitivity by crown class](results/figures/soap_density_sensitivity.png)
+![SOAP density sensitivity by crown class](figures/soap_density_sensitivity.png)
 
 ## 5. Results — the structure gradient (SJER → SOAP → TEAK)
 
@@ -194,7 +194,7 @@ by forest structure than by algorithm or density."* It also recovers the
 benchmark gradient (open/plantation high; mixed/multi-layered substantially
 lower; closed canopy worst).
 
-![Overstory vs understory recall by site](results/figures/structure_gradient.png)
+![Overstory vs understory recall by site](figures/structure_gradient.png)
 
 *Solid = overstory (dominant+codominant), dashed = understory
 (intermediate+suppressed). SJER understory (n=2) is omitted as uninterpretable.*
@@ -221,7 +221,7 @@ density, res 0.5 m, `a` 0.10:
 | SOAP (mixed) | 107 | +2.72 m | 6.88 m | 4.50 | 0.63 | 0.81 |
 | TEAK (packed fir) | 144 | +5.52 m | 11.26 m | 6.75 | 0.34 | 0.77 |
 
-![Detected apex height vs NEON field height](results/figures/height_validation.png)
+![Detected apex height vs NEON field height](figures/height_validation.png)
 
 **Height is recovered well for the trees you can actually see, and is
 meaningless for the ones you can't — the same occlusion story as detection, now

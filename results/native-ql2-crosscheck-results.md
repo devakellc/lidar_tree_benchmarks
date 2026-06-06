@@ -7,8 +7,8 @@ The density-ladder sweep ([density-ladder-sweep-results.md](density-ladder-sweep
 USGS 3DEP cloud over the same NEON plots through the public entwine EPT catalog,
 runs the **same** CHM-VWF detection pipeline natively, and asks: does decimation
 faithfully predict native-sparse behaviour? Tooling:
-[`scripts/native_ql2_crosscheck.R`](scripts/native_ql2_crosscheck.R) +
-[`scripts/ept_discovery.R`](scripts/ept_discovery.R). Last run: 2026-06-05.*
+[`scripts/native_ql2_crosscheck.R`](../scripts/native_ql2_crosscheck.R) +
+[`scripts/ept_discovery.R`](../scripts/ept_discovery.R). Last run: 2026-06-05.*
 
 ---
 
@@ -69,7 +69,7 @@ faithfully predict native-sparse behaviour? Tooling:
 
 ## 1. EPT discovery (real, reproducible)
 
-[`scripts/ept_discovery.R`](scripts/ept_discovery.R) downloads the public 3DEP
+[`scripts/ept_discovery.R`](../scripts/ept_discovery.R) downloads the public 3DEP
 entwine boundary index (`usgs.entwine.io/data/boundaries.json` is **404** as of
 2026-06; the live mirror is
 `raw.githubusercontent.com/hobuinc/usgs-lidar/master/boundaries/resources.geojson`,
@@ -96,7 +96,7 @@ at this latitude, so the pipeline reprojects to the metric `OUTCRS` (default
 **UTM 11N / EPSG:32611**) before any metric step — the AOI box corners are
 transformed UTM→3857 to form the `readers.ept` `bounds`, and
 `filters.reprojection out_srs=OUTCRS` (mirroring
-[`scripts/extract.json`](scripts/extract.json)) brings the points back to the
+[`scripts/extract.json`](../scripts/extract.json)) brings the points back to the
 metric CRS before detection. **Scoring is CRS-consistent:** detections come out
 of the pipeline in `OUTCRS`, so the field stems (native NEON UTM 11N /
 EPSG:32611) are reprojected into `OUTCRS` before matching. With the default

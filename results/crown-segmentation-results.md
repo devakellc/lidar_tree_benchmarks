@@ -6,7 +6,7 @@ delineates **crowns** from the detected tops and scores their diameter against
 NEON field crown diameter. Five segmenters are seeded from the **same** detected
 tops, run per plot on a native-density pit-free CHM, matched back to field
 stems, and scored RMSE/MAE/bias/R² by crown class. Driver:
-[`scripts/crown_metrics_sweep.R`](scripts/crown_metrics_sweep.R). Sites: NEON
+[`scripts/crown_metrics_sweep.R`](../scripts/crown_metrics_sweep.R). Sites: NEON
 SJER (open oak savanna), SOAP (mixed conifer), TEAK (red-fir). Last run:
 2026-06-05.*
 
@@ -51,10 +51,10 @@ SJER (open oak savanna), SOAP (mixed conifer), TEAK (red-fir). Last run:
 
 For each site, plots with ≥6 live mapped trees carrying a non-NA NEON field
 crown diameter are processed at **native density** (no decimation;
-`prepare_clip(rung=NA)` from [`sweep_lib.R`](scripts/sweep_lib.R)):
+`prepare_clip(rung=NA)` from [`sweep_lib.R`](../scripts/sweep_lib.R)):
 
 1. **Shared seeds.** One pit-free CHM (lidR `pitfree`, mirrors
-   [`segment_lidr.R`](scripts/segment_lidr.R)) at `RES=0.5 m`; detect tops once
+   [`segment_lidr.R`](../scripts/segment_lidr.R)) at `RES=0.5 m`; detect tops once
    via `locate_trees(chm, lmf(ws=ws_factory(0.10), hmin=2, shape="circular"))`.
 2. **Five segmenters**, each producing a per-crown polygon → crown area:
    - lidR `dalponte2016(chm, ttops, th_seed=0.45, th_cr=0.55, max_cr=10/res px)`
@@ -65,7 +65,7 @@ crown diameter are processed at **native density** (no decimation;
      matched to stems by polygon containment of the seed point.
    - lasR `region_growing(pit_fill, seed, th_tree=2, th_seed=0.45, th_cr=0.55,
      max_cr=10)` (Dalponte growing rule, mirroring
-     [`segment_lasr.R`](scripts/segment_lasr.R)). lasR's `region_growing` takes
+     [`segment_lasr.R`](../scripts/segment_lasr.R)). lasR's `region_growing` takes
      a seed *stage*, not the shared `ttops` point set, so to grow from the same
      seeds the **same lidR pit-free CHM** is injected into the lasR pipeline via
      `load_raster` and `local_maximum_raster` is run on it with the **same**
@@ -101,7 +101,7 @@ Field crown diameter is joined from the cached
 `work/neon/<SITE>/vst/<site>_vst_allyears.rds`
 (`vst_apparentindividual` → `maxCrownDiameter`, `ninetyCrownDiameter`), deduped
 to the nearest-to-2021 measurement per `individualID`. The same two columns were
-added to [`scripts/neon_ground_truth.R`](scripts/neon_ground_truth.R) (additive,
+added to [`scripts/neon_ground_truth.R`](../scripts/neon_ground_truth.R) (additive,
 not re-run) so future ground-truth regenerations carry them.
 
 Field crown diameter (225 matched stems across 40 plots): `ninetyCrownDiameter`

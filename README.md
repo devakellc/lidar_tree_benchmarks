@@ -6,19 +6,37 @@ bundled toy tile and a real USGS 3DEP AOI.
 
 ## Documents
 
-- [`treetop-detection-approach.md`](treetop-detection-approach.md) — the
-  recommended, density-driven pipeline (pit-free CHM -> variable-window
+Methodology and planning live in [`docs/`](docs/); every results write-up lives
+in [`results/`](results/).
+
+- [`docs/treetop-detection-approach.md`](docs/treetop-detection-approach.md)
+  — the recommended, density-driven pipeline (pit-free CHM -> variable-window
   local-maximum -> segmentation), tooling, accuracy expectations, and pitfalls.
-- [`treetop-lasr-vs-lidr-comparison.md`](treetop-lasr-vs-lidr-comparison.md) —
-  implementation and head-to-head results: toy tile, real 25 ha 3DEP AOI, a
+- [`results/treetop-lasr-vs-lidr-comparison.md`](results/treetop-lasr-vs-lidr-comparison.md)
+  — implementation and head-to-head results: toy tile, real 25 ha 3DEP AOI, a
   controlled same-CHM test, a CHM-vs-point-cloud test at high density, crown
   segmentation/metrics (Steps 6-7), and a multi-tile streaming demo.
-- [`density-ladder-sweep-results.md`](density-ladder-sweep-results.md) — the
-  NEON density-ladder parameter sweep: detection accuracy vs point density,
-  stratified by crown class, on three structure-gradient sites.
-- [`temporal-sensitivity-results.md`](temporal-sensitivity-results.md) — bounds
-  how much the +/-4 yr field-to-LiDAR temporal slack in the ground truth moves
-  recall/precision and apex-height bias (exact-2021 re-score; issue #5).
+- [`results/density-ladder-sweep-results.md`](results/density-ladder-sweep-results.md)
+  — the NEON density-ladder parameter sweep: detection accuracy vs point
+  density, stratified by crown class, on three structure-gradient sites.
+- [`results/calibration-validation-results.md`](results/calibration-validation-results.md)
+  — held-out calibration/validation split of that sweep: out-of-sample F1 for
+  the per-rung best `(chm_res, vwf_a)` (issue #3).
+- [`results/native-ql2-crosscheck-results.md`](results/native-ql2-crosscheck-results.md)
+  — native USGS 3DEP cross-check of the decimation-as-simulation caveat, by
+  crown class (issue #4).
+- [`results/temporal-sensitivity-results.md`](results/temporal-sensitivity-results.md)
+  — how much the +/-4 yr field-to-LiDAR temporal slack moves recall/precision
+  and apex-height bias (exact-2021 re-score; issue #5).
+- [`results/pointcloud-detector-results.md`](results/pointcloud-detector-results.md)
+  — point-cloud detectors (Li 2012 / lmf) vs CHM-VWF at native density:
+  understory-recall deltas and the occlusion floor (issue #6).
+- [`results/crown-segmentation-results.md`](results/crown-segmentation-results.md)
+  — five crown segmenters scored on crown-diameter RMSE vs NEON field widths,
+  by crown class (issue #7).
+- [`results/ept-acquisition-sweep-results.md`](results/ept-acquisition-sweep-results.md)
+  — lasR remote-EPT acquisition parameter sweep on USGS 3DEP (throughput, not
+  detection accuracy).
 
 ## Headline findings
 
@@ -135,5 +153,5 @@ regenerate it with the steps above.
   crown-width columns from `vst_apparentindividual` —
   `maxCrownDiameter` (widest axis) and `ninetyCrownDiameter` (equivalent width)
   — in `ground_truth_stems.csv`. `crown_metrics_sweep.R` scores delineated crown
-  diameter against these; see [`crown-segmentation-results.md`](crown-segmentation-results.md)
+  diameter against these; see [`crown-segmentation-results.md`](results/crown-segmentation-results.md)
   (issue #7).

@@ -13,6 +13,12 @@ bundled toy tile and a real USGS 3DEP AOI.
   implementation and head-to-head results: toy tile, real 25 ha 3DEP AOI, a
   controlled same-CHM test, a CHM-vs-point-cloud test at high density, crown
   segmentation/metrics (Steps 6-7), and a multi-tile streaming demo.
+- [`density-ladder-sweep-results.md`](density-ladder-sweep-results.md) — the
+  NEON density-ladder parameter sweep: detection accuracy vs point density,
+  stratified by crown class, on three structure-gradient sites.
+- [`temporal-sensitivity-results.md`](temporal-sensitivity-results.md) — bounds
+  how much the +/-4 yr field-to-LiDAR temporal slack in the ground truth moves
+  recall/precision and apex-height bias (exact-2021 re-score; issue #5).
 
 ## Headline findings
 
@@ -67,6 +73,11 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `calval_split.R` | Calibration/validation split (issue #3): tune `(chm_res, vwf_a)` per density rung on a stratified calibration subset, report held-out F1; multi-seed robustness. |
 | `ept_discovery.R` | Find public USGS 3DEP EPT projects covering each NEON site (point-in-polygon vs the entwine boundary index); writes `neon/<SITE>/ql2/ept_candidates.csv`. |
 | `native_ql2_crosscheck.R` | Pull the native 3DEP cloud per NEON plot via PDAL (reproject 3857 -> UTM 11N), run the CHM-VWF pipeline, and compare native (+ decimated-to-2) detection to the cached decimated-2 rung by crown class (issue #4). |
+| `neon_ground_truth.R` | Build NEON field-stem ground truth (`DP1.10098.001`); writes `ground_truth_stems.csv` with `meas_year`/`dist21` for exact-year filtering. |
+| `run_sweep.R` + `sweep_lib.R` | NEON density-ladder sweep: per plot x rung x `chm_res` x `vwf_a`, scored vs stems. `MEAS_YEAR=2021` restricts to exact-year stems (issue #5); use a distinct `OUT=` to keep the +/-4 yr baseline. |
+| `analyze_sweep.R` / `compare_sites.R` | Pool the sweep (sum TP / sum n_ref) + figures; cross-site structure gradient SJER -> SOAP -> TEAK. |
+| `validate_heights.R` | Apex-vs-field height bias/RMSE at native density; `MEAS_YEAR=2021` writes a distinct `height_pairs_2021.csv` for the temporal cut. |
+| `temporal_sensitivity.R` | Pool baseline (+/-4 yr) vs exact-2021 sweeps at modal params per rung; recall/precision/F1/height deltas + height-bias comparison (issue #5). |
 
 ## Reproduce
 

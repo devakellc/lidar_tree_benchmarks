@@ -59,6 +59,7 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `sweep.R` | Parameter sweep vs the bundled `treeID` reference. |
 | `segment_lasr.R` / `segment_lidr.R` | Steps 6-7 on the toy: region-growing / dalponte2016 + crown polygons + metrics. |
 | `compare_crowns.R` | Spatial matching + per-pair IoU between two crown GPKGs. |
+| `crown_metrics_sweep.R` | Issue #7: seed 5 crown segmenters (dalponte2016, silva2016, marker-free watershed, lasR region_growing, random walker) from shared NEON tree-tops; score crown-diameter RMSE vs field `maxCrownDiameter`/`ninetyCrownDiameter` by crown class. |
 | `extract.json` | PDAL pipeline: clip the AOI from the public EPT, reproject 3857 -> UTM 10N, write `aoi.laz`. |
 | `detect_lasr_ept_aoi.R` | lasR-native remote EPT AOI pipeline (acquire + process directly in lasR). |
 | `detect_lasr_aoi.R` / `detect_lidr_aoi.R` | Full approach on the real 3DEP AOI after PDAL extraction. |
@@ -130,3 +131,9 @@ regenerate it with the steps above.
 - Runtimes in the comparison are **not** an engine benchmark (single small
   tiles, and EPT reads from a non-AWS machine are network-bound). lasR's real
   advantage is large-area (>= 100 km²) streaming throughput and low memory.
+- The NEON ground-truth builder (`neon_ground_truth.R`) now carries two field
+  crown-width columns from `vst_apparentindividual` —
+  `maxCrownDiameter` (widest axis) and `ninetyCrownDiameter` (equivalent width)
+  — in `ground_truth_stems.csv`. `crown_metrics_sweep.R` scores delineated crown
+  diameter against these; see [`crown-segmentation-results.md`](crown-segmentation-results.md)
+  (issue #7).

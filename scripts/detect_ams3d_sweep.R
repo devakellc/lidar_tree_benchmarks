@@ -43,7 +43,7 @@ det_ams3d <- function(las, cd_ratio = 0.4, cl_ratio = 0.8, min_above = 2) {
       ground_height                 = NULL,        # input already normalized
       crown_id_column_name          = "crown_id"),
     error = function(e) NULL)
-  if (is.null(seg)) return(empty)
+  if (is.null(seg)) return(NULL)  # crash -> NULL; driver SKIPs cell. 0-row = ran-but-empty = legit recall=0.
   det <- reduce_instances(seg@data, id_col = "crown_id", x = "X", y = "Y", z = "Z")
   assert_detection_contract(det)
   det
@@ -94,16 +94,18 @@ run_main <- function() {
       las <- tryCatch(readLAS(prep$normalized), error = function(e) NULL)
       if (!is.null(las) && !is.empty(las)) {
         det <- det_ams3d(las, cd_ratio = CD, cl_ratio = CL, min_above = 2)
-        sc  <- tryCatch(score_plot(stems, det, tol_xy = TOL, core_cx = cx,
-                                   core_cy = cy, core_half = ph),
-                        error = function(e) NULL)
-        if (!is.null(sc)) {
-          sc <- cbind(data.frame(site = SITE, plot = pid, plotType = ci$plotType,
-                                 detector = "ams3d",
-                                 rung = ifelse(is.na(rung), "native", as.character(rung)),
-                                 pdens = round(pdens, 2), frdens = round(frdens, 2),
-                                 n_apex = nrow(det)), sc)
-          out[[length(out) + 1]] <- sc
+        if (!is.null(det)) {                           # NULL = segmenter crashed -> skip (equal-set guard drops it)
+          sc <- tryCatch(score_plot(stems, det, tol_xy = TOL, core_cx = cx,
+                                    core_cy = cy, core_half = ph),
+                         error = function(e) NULL)
+          if (!is.null(sc)) {
+            sc <- cbind(data.frame(site = SITE, plot = pid, plotType = ci$plotType,
+                                   detector = "ams3d",
+                                   rung = ifelse(is.na(rung), "native", as.character(rung)),
+                                   pdens = round(pdens, 2), frdens = round(frdens, 2),
+                                   n_apex = nrow(det)), sc)
+            out[[length(out) + 1]] <- sc
+          }
         }
       }
     }

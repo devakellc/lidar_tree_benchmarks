@@ -69,3 +69,99 @@ det_ptrees <- function(las, hmin = 2, k = c(30, 15)) {
   assert_detection_contract(det)
   det
 }
+
+## ---- args ----------------------------------------------------------------
+args  <- strsplit(commandArgs(TRUE), "=")
+A     <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
+SITE  <- if (is.null(A$SITE))  "SOAP" else A$SITE
+PLOTS <- if (is.null(A$PLOTS) || A$PLOTS == "ALL") NULL else strsplit(A$PLOTS, ",")[[1]]
+CORES <- as.integer(if (is.null(A$CORES)) 6 else A$CORES)
+TOL   <- as.numeric(if (is.null(A$TOL)) 4.0 else A$TOL)
+A_VWF <- as.numeric(if (is.null(A$A))   0.10 else A$A)
+RUNGS <- c(8, 4, 2, 1)
+MINTREES <- 6
+ARMS  <- c("lmfauto", "multichm", "ptrees", "chm_vwf")
+
+run_main <- function() {
+  nd  <- file.path(d, "neon", SITE)
+  gt  <- read.csv(file.path(nd, "ground_truth_stems.csv"), stringsAsFactors = FALSE)
+  pc  <- read.csv(file.path(nd, "plot_centroids.csv"),     stringsAsFactors = FALSE)
+  gt  <- gt[gt$live & gt$is_tree & !is.na(gt$E), ]
+  laz <- list.files(file.path(nd, "lidar"), pattern = "\\.laz$",
+                    recursive = TRUE, full.names = TRUE)
+  ctg <- readLAScatalog(laz, progress = FALSE)
+  counts <- table(gt$plotID)
+  keep   <- names(counts)[counts >= MINTREES]
+  if (!is.null(PLOTS)) keep <- intersect(keep, PLOTS)
+  keep   <- intersect(keep, pc$plotID)
+  cat(sprintf("[%s] lidRplugins plots: %d (%s)\n", SITE, length(keep),
+              paste(keep, collapse = ",")))
+
+  run_plot <- function(pid) {
+    ci <- pc[pc$plotID == pid, ][1, ]
+    cx <- ci$easting; cy <- ci$northing
+    ph <- plot_half(ci$plotType)
+    stems <- gt[gt$plotID == pid & abs(gt$E - cx) <= ph & abs(gt$N - cy) <= ph, ]
+    if (nrow(stems) < 1) return(NULL)
+    out <- list(); native_pdens <- NA_real_
+    for (rung in c(NA, RUNGS)) {
+      prep <- tryCatch(frozen_clip(ctg, SITE, pid, rung, cx, cy, ph,
+                                   out_root = file.path(nd, "frozen")),
+                       error = function(e) NULL)
+      if (is.null(prep)) next
+      pdens <- prep$pdens; frdens <- prep$frdens
+      if (is.na(rung)) native_pdens <- pdens
+      else if (is.na(native_pdens) || rung >= native_pdens) next
+      las <- tryCatch(readLAS(prep$normalized), error = function(e) NULL)
+      if (is.null(las) || is.empty(las)) next
+      res <- if (frdens >= 8) 0.25 else 0.5     # density-derived, like CHM-VWF
+      dets <- list(
+        lmfauto  = det_lmfauto(las, hmin = 2),
+        multichm = det_multichm(las, res = res, a = A_VWF),
+        ptrees   = det_ptrees(las, hmin = 2),
+        chm_vwf  = tryCatch(detect_lasr(prep$normalized, res, A_VWF, frdens),
+                            error = function(e) NULL))
+      for (nm in names(dets)) {
+        det <- dets[[nm]]
+        if (is.null(det)) next                  # crash -> skip this detector/cell
+        sc <- tryCatch(score_plot(stems, det, tol_xy = TOL, core_cx = cx,
+                                  core_cy = cy, core_half = ph),
+                       error = function(e) NULL)
+        if (is.null(sc)) next
+        sc <- cbind(data.frame(site = SITE, plot = pid, plotType = ci$plotType,
+                               detector = nm,
+                               rung = ifelse(is.na(rung), "native", as.character(rung)),
+                               pdens = round(pdens, 2), frdens = round(frdens, 2),
+                               chm_res = if (nm %in% c("multichm","chm_vwf")) res else NA_real_,
+                               n_apex = nrow(det)), sc)
+        out[[length(out) + 1]] <- sc
+      }
+    }
+    if (!length(out)) return(NULL)
+    do.call(rbind, out)
+  }
+
+  res_list <- mclapply(keep, function(p)
+                tryCatch(run_plot(p), error = function(e) {
+                  message("plot ", p, " failed: ", conditionMessage(e)); NULL }),
+                mc.cores = CORES, mc.preschedule = FALSE)
+  results <- do.call(rbind, Filter(Negate(is.null), res_list))
+  if (is.null(results) || !nrow(results)) { cat("no lidRplugins results\n"); return(invisible()) }
+  results$tp_core <- round(results$precision * results$n_det)
+  write.csv(results, file.path(nd, "lidrplugins_results.csv"), row.names = FALSE)
+  cat(sprintf("[%s] lidRplugins DONE: %d rows -> %s\n", SITE, nrow(results),
+              file.path(nd, "lidrplugins_results.csv")))
+
+  guarded <- equal_set_guard(results, arms = ARMS)
+  if (length(attr(guarded, "dropped")))
+    cat(sprintf("equal-set guard dropped %d (plot,rung) cells\n",
+                length(attr(guarded, "dropped"))))
+  cat("\n=== Pooled recall/precision/F1 by detector (common cells) ===\n")
+  pooled <- do.call(rbind, lapply(ARMS, function(a) {
+    s <- guarded[guarded$detector == a, ]; if (!nrow(s)) return(NULL)
+    cbind(detector = a, pool(s)) }))
+  print(pooled[, c("detector","n_plots","n_ref","recall","precision","F1",
+                   "rec_dominant","rec_understory")], row.names = FALSE, digits = 3)
+}
+
+if (sys.nframe() == 0L) run_main()

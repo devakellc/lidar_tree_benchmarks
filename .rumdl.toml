@@ -1,4 +1,8 @@
 # rumdl configuration for this project
+[global]
+# Local Claude worktrees are scratch space, not repository documentation.
+exclude = [".claude/**"]
+
 [MD013]
 # Enforce an 80-character line limit on prose.
 line-length = 80

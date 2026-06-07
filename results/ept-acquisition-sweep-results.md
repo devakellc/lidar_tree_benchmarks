@@ -4,9 +4,12 @@ Benchmarks of `reader_rectangles(AOI) + summarise()` on remote USGS 3DEP EPT,
 run on an EC2 instance (16 usable OpenMP threads, 40 GB RAM) against
 `CA_CarrHirzDeltaFires_2_2019`.
 
-**lasR:** `0.21.0` pre-devel (commit `366b956a` and earlier for “old default” rows)  
-**Pipeline:** EPT spatial clip + point count (`summarise()`), no CHM/detection  
-**Endpoint:** `https://s3-us-west-2.amazonaws.com/usgs-lidar-public/CA_CarrHirzDeltaFires_2_2019/ept.json`
+- **lasR:** `0.21.0` pre-devel (commit `366b956a` and earlier for “old
+  default” rows)
+- **Pipeline:** EPT spatial clip + point count (`summarise()`), no
+  CHM/detection
+- **Endpoint:**
+  `https://s3-us-west-2.amazonaws.com/usgs-lidar-public/CA_CarrHirzDeltaFires_2_2019/ept.json`
 
 ---
 
@@ -53,9 +56,13 @@ All configs returned **112,519,502 points**.
 
 ### Sweep takeaways
 
-1. **Partition count dominates.** Old default `4 × workers` with 16 threads → target 64 → **100 chunks** and ~67 s. Setting `LASR_EPT_PARTITIONS=32` → **36 chunks** and ~47 s (~30% faster than par16 default, ~10% faster than par8).
-2. **`LASR_EPT_PREFETCH` (8/16/32)** and **`VSI_CACHE_SIZE` (256 MB / 1 GB)** moved results by ≤1 s on this AOI — not material vs partition tuning.
-3. **Best config:** `concurrent_files(16)` + `LASR_EPT_PARTITIONS=32` (or lasR pre-devel default after `366b956a`).
+1. **Partition count dominates.** Old default `4 × workers` with 16 threads →
+   target 64 → **100 chunks** and ~67 s. Setting `LASR_EPT_PARTITIONS=32` → **36
+   chunks** and ~47 s (~30% faster than par16 default, ~10% faster than par8).
+2. **`LASR_EPT_PREFETCH` (8/16/32)** and **`VSI_CACHE_SIZE` (256 MB / 1 GB)**
+   moved results by ≤1 s on this AOI — not material vs partition tuning.
+3. **Best config:** `concurrent_files(16)` + `LASR_EPT_PARTITIONS=32` (or lasR
+   pre-devel default after `366b956a`).
 
 ---
 
@@ -79,7 +86,8 @@ Parallel hurt on this tiny AOI: partition overhead > download/compute gain.
 | concurrent_files(8) | 24–25 | 36 | ~1.7× |
 | concurrent_files(16), old default | 36–68 | 100 | 0.6–1.2× |
 
-With old default, 16 workers often created 100 chunks and could segfault under load.
+With old default, 16 workers often created 100 chunks and could segfault under
+load.
 
 ### 4× 5× AOI (~112.5M points, single rep)
 
@@ -102,13 +110,15 @@ Verification on 112.5M-point AOI, **no env override**:
 |------|----------|--------|-------|
 | concurrent_files(16) | 52.3 | 36 | Matches old manual `PARTITIONS=32`; ~5 s slower than sweep median (network variance) |
 
-Unit test on bundled fixture: auto chunk count matches `cpp_ept_partition_inspect(..., 32)`.
+Unit test on bundled fixture: auto chunk count matches
+`cpp_ept_partition_inspect(..., 32)`.
 
 ---
 
 ## How lasR chooses chunk count (relevant to these results)
 
-When `concurrent_files(N)` runs on EPT with no explicit `chunk`/`LASR_EPT_PARTITIONS`:
+When `concurrent_files(N)` runs on EPT with no explicit
+`chunk`/`LASR_EPT_PARTITIONS`:
 
 | lasR version | Auto target | par8 chunks (typical) | par16 chunks (typical) |
 |--------------|-------------|----------------------|------------------------|

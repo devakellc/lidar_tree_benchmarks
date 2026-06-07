@@ -246,6 +246,7 @@ cleanly as lasR's streaming pipeline. Practical implication: for wall-to-wall
 detection on tiled data, prefer the lasR streaming path; if you must use
 lidR, validate the catalog result against a single-file baseline on a
 representative tile.
+
 ### Density and computational cost (three detectors)
 
 Same 2.25 ha sub-clip, decimated to a range of first-return densities; each

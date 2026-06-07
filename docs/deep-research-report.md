@@ -2,35 +2,173 @@
 
 ## Executive summary
 
-If the question is “what is currently best, in primary-source evidence, for dense 3D forest point clouds?”, the strongest answer is **ForestFormer3D** for accuracy, **SegmentAnyTree** for transferability across sensors and point densities, and **HFC or AMS3D-class adaptive mean shift methods** for label-free production workflows. ForestFormer3D is the clearest current research leader among the methods I reviewed: it leads the challenging FOR-instanceV2 benchmark and also tops the newer FGI-EMIT multispectral ALS benchmark, including substantially better understory performance than the strongest unsupervised baseline and superiority down to 10 pts/m². SegmentAnyTree is the most compelling “one-model-across-many-sensors” option because it was explicitly designed for ULS, MLS, TLS, and sparse-ALS-like conditions via aggressive density augmentation. Among non-deep-learning methods, adaptive mean shift remains a very strong geometric family, and HFC is the best recent point-based classical method I found for mixed-species UAS LiDAR, with high robustness to species mixture and leaf-on/leaf-off changes. citeturn7view1turn31view0turn11view2turn42view1turn26view0turn20view0
+If the question is “what is currently best, in primary-source evidence, for
+dense 3D forest point clouds?”, the strongest answer is **ForestFormer3D** for
+accuracy, **SegmentAnyTree** for transferability across sensors and point
+densities, and **HFC or AMS3D-class adaptive mean shift methods** for label-free
+production workflows. ForestFormer3D is the clearest current research leader
+among the methods I reviewed: it leads the challenging FOR-instanceV2 benchmark
+and also tops the newer FGI-EMIT multispectral ALS benchmark, including
+substantially better understory performance than the strongest unsupervised
+baseline and superiority down to 10 pts/m². SegmentAnyTree is the most
+compelling “one-model-across-many-sensors” option because it was explicitly
+designed for ULS, MLS, TLS, and sparse-ALS-like conditions via aggressive
+density augmentation. Among non-deep-learning methods, adaptive mean shift
+remains a very strong geometric family, and HFC is the best recent point-based
+classical method I found for mixed-species UAS LiDAR, with high robustness to
+species mixture and leaf-on/leaf-off changes.
+citeturn7view1turn31view0turn11view2turn42view1turn26view0turn20view0
 
-Compared with the classic **Li et al. 2012** point-cloud region-growing baseline, the main improvements over the last decade are not just “better clustering.” They are: adaptive bandwidths and multi-stage clustering to reduce over-/under-segmentation; stem-aware graph partitioning to stabilize stopping criteria; density-aware deep models that learn offsets, centers, or masks directly from points; and transformer-based query decoders plus block-merging strategies that scale to large forest scenes. Li2012 remains historically important because it moved individual-tree segmentation directly into 3D point space, but in current practice it is mainly a baseline or a lightweight fallback: the commonly used lidR implementation is reported as **not parallelized** and to have **worse-than-O(N²)** complexity, which is a serious disadvantage on dense point clouds. citeturn51search1turn25view0turn51search5
+Compared with the classic **Li et al. 2012** point-cloud region-growing
+baseline, the main improvements over the last decade are not just “better
+clustering.” They are: adaptive bandwidths and multi-stage clustering to reduce
+over-/under-segmentation; stem-aware graph partitioning to stabilize stopping
+criteria; density-aware deep models that learn offsets, centers, or masks
+directly from points; and transformer-based query decoders plus block-merging
+strategies that scale to large forest scenes. Li2012 remains historically
+important because it moved individual-tree segmentation directly into 3D point
+space, but in current practice it is mainly a baseline or a lightweight
+fallback: the commonly used lidR implementation is reported as **not
+parallelized** and to have **worse-than-O(N²)** complexity, which is a serious
+disadvantage on dense point clouds.
+citeturn51search1turn25view0turn51search5
 
-A second headline finding is that **dense canopy and understory remain the hardest failure mode** even for recent methods. A recent broadleaf benchmark found that all tested algorithms performed reasonably on canopy trees but **failed on understory trees**, although AMS3D had the best overall accuracy among the compared methods. Recent deep models narrow that gap: ForAINet still showed a large difference between dominant-canopy and understory F-score, while ForestFormer3D and SegmentAnyTree improve transfer and understory handling substantially, and FGI-EMIT confirms that modern deep methods remain better than unsupervised ones even at 10 pts/m². Still, no paper I reviewed shows that dense multilayer tropical or temperate broadleaf forests are “solved.” citeturn26view0turn14view1turn31view0turn11view2
+A second headline finding is that **dense canopy and understory remain the
+hardest failure mode** even for recent methods. A recent broadleaf benchmark
+found that all tested algorithms performed reasonably on canopy trees but
+**failed on understory trees**, although AMS3D had the best overall accuracy
+among the compared methods. Recent deep models narrow that gap: ForAINet still
+showed a large difference between dominant-canopy and understory F-score, while
+ForestFormer3D and SegmentAnyTree improve transfer and understory handling
+substantially, and FGI-EMIT confirms that modern deep methods remain better than
+unsupervised ones even at 10 pts/m². Still, no paper I reviewed shows that dense
+multilayer tropical or temperate broadleaf forests are “solved.”
+citeturn26view0turn14view1turn31view0turn11view2
 
-The practical implication is straightforward. For **batch, highest-accuracy, research-grade or production-grade segmentation with labels available**, choose a modern transformer or sparse-3D panoptic model and fine-tune it locally. For **no-label or weak-label workflows**, use a robust 3D clustering method such as HFC or adaptive mean shift, and accept that canopy tops will be easier than suppressed trees. For **conventional ALS around the low end of your threshold**—roughly 8–20 pts/m²—models explicitly tested for density robustness are much safer than methods developed only on ultra-dense ULS. citeturn31view0turn11view2turn15view4turn42view1
+The practical implication is straightforward. For **batch, highest-accuracy,
+research-grade or production-grade segmentation with labels available**, choose
+a modern transformer or sparse-3D panoptic model and fine-tune it locally. For
+**no-label or weak-label workflows**, use a robust 3D clustering method such as
+HFC or adaptive mean shift, and accept that canopy tops will be easier than
+suppressed trees. For **conventional ALS around the low end of your
+threshold**—roughly 8–20 pts/m²—models explicitly tested for density robustness
+are much safer than methods developed only on ultra-dense ULS.
+citeturn31view0turn11view2turn15view4turn42view1
 
 ## What the literature shows
 
-The literature now falls into a few clear families. **Local-maxima and CHM-seeded methods** are still useful as fast coarse detectors and as seed generators in hybrids, but they are usually weaker than full 3D methods in multilayer canopies because the CHM collapses vertical structure. **Point-cloud region growing and clustering methods** work directly in 3D and include Li2012-style spacing-based growing, adaptive mean shift, graph-cut partitioning, watershed-plus-clustering hybrids, and stem-guided clustering. **Deep 3D methods** split again into point/voxel models such as PointNet-style voxel classification, sparse 3D CNN or PointGroup-style instance segmentation, and newer **transformer-based panoptic models** مثل ForestFormer3D. **Multi-scale and multi-view fusion** methods bridge 2D and 3D by using CHM or imagery to detect tree tops or crown masks first, then refining boundaries in 3D point space. citeturn25view0turn37view0turn34view0turn11view1turn33view1turn46view0
+The literature now falls into a few clear families. **Local-maxima and
+CHM-seeded methods** are still useful as fast coarse detectors and as seed
+generators in hybrids, but they are usually weaker than full 3D methods in
+multilayer canopies because the CHM collapses vertical structure. **Point-cloud
+region growing and clustering methods** work directly in 3D and include
+Li2012-style spacing-based growing, adaptive mean shift, graph-cut partitioning,
+watershed-plus-clustering hybrids, and stem-guided clustering. **Deep 3D
+methods** split again into point/voxel models such as PointNet-style voxel
+classification, sparse 3D CNN or PointGroup-style instance segmentation, and
+newer **transformer-based panoptic models** مثل ForestFormer3D. **Multi-scale
+and multi-view fusion** methods bridge 2D and 3D by using CHM or imagery to
+detect tree tops or crown masks first, then refining boundaries in 3D point
+space.
+citeturn25view0turn37view0turn34view0turn11view1turn33view1turn46view0
 
-For dense forests, the key data requirements are not just nominal point density but also **how those points are distributed vertically**. A very important example is Dersch et al. 2021: they used airborne data with **more than 200 points/m²**, yet their stem-sensitive method still required that stems themselves have at least **five points per meter** to make automatic stem detection work well. Conversely, ForAINet showed that point-density robustness is not linear: its performance stayed within about 5 percentage points down to **75 pts/m²**, but it became challenged below **100 pts/m²**, and omission errors increased markedly below 75. SegmentAnyTree and the FGI-EMIT benchmark show a more encouraging picture for newer deep models, which remain better than unsupervised methods even at **10 pts/m²**, but that does not mean their performance is flat across densities; omission of small or understory trees still rises as density falls. citeturn37view0turn15view4turn11view2turn31view0
+For dense forests, the key data requirements are not just nominal point density
+but also **how those points are distributed vertically**. A very important
+example is Dersch et al. 2021: they used airborne data with **more than 200
+points/m²**, yet their stem-sensitive method still required that stems
+themselves have at least **five points per meter** to make automatic stem
+detection work well. Conversely, ForAINet showed that point-density robustness
+is not linear: its performance stayed within about 5 percentage points down to
+**75 pts/m²**, but it became challenged below **100 pts/m²**, and omission
+errors increased markedly below 75. SegmentAnyTree and the FGI-EMIT benchmark
+show a more encouraging picture for newer deep models, which remain better than
+unsupervised methods even at **10 pts/m²**, but that does not mean their
+performance is flat across densities; omission of small or understory trees
+still rises as density falls.
+citeturn37view0turn15view4turn11view2turn31view0
 
-Noise, seasonality, and occlusion matter almost as much as density. HFC is the clearest recent example of explicit robustness engineering: it applies **intensity filtering, SVD filtering, and Statistical Outlier Removal**, then clusters and merges remaining structure; on multiple UAS datasets it showed only **1–3 percentage-point** F1 variation under mixed-species effects and **1–2 percentage-point** variation between leaf conditions. Adaptive mean shift also shows good density robustness when bandwidth adapts to canopy structure rather than remaining fixed. By contrast, methods that depend heavily on a clean canopy surface or a single set of manually tuned thresholds are more brittle in broadleaf or mixed stands. citeturn40view0turn42view1turn20view0
+Noise, seasonality, and occlusion matter almost as much as density. HFC is the
+clearest recent example of explicit robustness engineering: it applies
+**intensity filtering, SVD filtering, and Statistical Outlier Removal**, then
+clusters and merges remaining structure; on multiple UAS datasets it showed only
+**1–3 percentage-point** F1 variation under mixed-species effects and **1–2
+percentage-point** variation between leaf conditions. Adaptive mean shift also
+shows good density robustness when bandwidth adapts to canopy structure rather
+than remaining fixed. By contrast, methods that depend heavily on a clean canopy
+surface or a single set of manually tuned thresholds are more brittle in
+broadleaf or mixed stands. citeturn40view0turn42view1turn20view0
 
-Preprocessing is converging to a stable recipe. The recurring steps are: **ground classification and height normalization**, **outlier removal**, **optional intensity or return-feature normalization**, then either seed generation or direct crop-based inference. In the classical literature, CHM generation itself can strongly change results, and local-maxima methods usually benefit from smoothing and variable windows rather than fixed windows. In deeper 3D methods, preprocessing usually shifts from hand-designed crown geometry toward **blocking/cropping, density augmentation, and semantic filtering**. ForAINet, for example, reports gains from adding features such as return number, scan-angle rank, and hand-crafted geometric descriptors, and even larger gains from **TreeMix** augmentation; ForestFormer3D explicitly uses **cylindrical overlapping crops**, **score-based block merging**, and boundary-mask suppression to handle very large scenes. citeturn25view0turn14view0turn13view0turn7view0
+Preprocessing is converging to a stable recipe. The recurring steps are:
+**ground classification and height normalization**, **outlier removal**,
+**optional intensity or return-feature normalization**, then either seed
+generation or direct crop-based inference. In the classical literature, CHM
+generation itself can strongly change results, and local-maxima methods usually
+benefit from smoothing and variable windows rather than fixed windows. In deeper
+3D methods, preprocessing usually shifts from hand-designed crown geometry
+toward **blocking/cropping, density augmentation, and semantic filtering**.
+ForAINet, for example, reports gains from adding features such as return number,
+scan-angle rank, and hand-crafted geometric descriptors, and even larger gains
+from **TreeMix** augmentation; ForestFormer3D explicitly uses **cylindrical
+overlapping crops**, **score-based block merging**, and boundary-mask
+suppression to handle very large scenes.
+citeturn25view0turn14view0turn13view0turn7view0
 
-Feature engineering has not disappeared. It has just moved. In classical 3D methods, the important features are height, local density, crown width–height relations, point spacing, verticality, and stem-likelihood cues. HFC adds intensity and local linearity through SVD. Dersch’s graph-cut method relies on vertical-line stem detection. In deep methods, raw XYZ alone can still work, as in the early PointNet forestry paper, but better panoptic models often improve when additional LiDAR attributes are present or when the network can learn center offsets or object queries. ForAINet explicitly tested **intensity**, **return number**, **scan-angle rank**, and **hand-crafted statistical features**; ForestFormer3D adds instance-aware query-point selection and score-based merging rather than relying on one single hand-designed crown model. citeturn35view4turn40view0turn37view0turn14view0turn7view0
+Feature engineering has not disappeared. It has just moved. In classical 3D
+methods, the important features are height, local density, crown width–height
+relations, point spacing, verticality, and stem-likelihood cues. HFC adds
+intensity and local linearity through SVD. Dersch’s graph-cut method relies on
+vertical-line stem detection. In deep methods, raw XYZ alone can still work, as
+in the early PointNet forestry paper, but better panoptic models often improve
+when additional LiDAR attributes are present or when the network can learn
+center offsets or object queries. ForAINet explicitly tested **intensity**,
+**return number**, **scan-angle rank**, and **hand-crafted statistical
+features**; ForestFormer3D adds instance-aware query-point selection and
+score-based merging rather than relying on one single hand-designed crown model.
+citeturn35view4turn40view0turn37view0turn14view0turn7view0
 
-Training labels are the main bottleneck for the best current methods. The most useful labels are **per-point instance IDs** for entire trees, and ideally **per-point semantics** such as ground, low vegetation, stem, live branch, dead branch, wood, and leaf. FOR-instance was created specifically to standardize this problem for dense UAV laser scanning data, and FOR-instanceV2 expands it dramatically by adding new regions and sensor modalities. TreeLearn is also notable because it trained on **6,665 trees** and added a hand-segmented benchmark of **156 full trees**. FGI-EMIT is the most relevant new ALS benchmark because it supplies **1,561 manually annotated trees** with an emphasis on smaller understory trees. citeturn30search8turn6view1turn30search3turn31view0
+Training labels are the main bottleneck for the best current methods. The most
+useful labels are **per-point instance IDs** for entire trees, and ideally
+**per-point semantics** such as ground, low vegetation, stem, live branch, dead
+branch, wood, and leaf. FOR-instance was created specifically to standardize
+this problem for dense UAV laser scanning data, and FOR-instanceV2 expands it
+dramatically by adding new regions and sensor modalities. TreeLearn is also
+notable because it trained on **6,665 trees** and added a hand-segmented
+benchmark of **156 full trees**. FGI-EMIT is the most relevant new ALS benchmark
+because it supplies **1,561 manually annotated trees** with an emphasis on
+smaller understory trees.
+citeturn30search8turn6view1turn30search3turn31view0
 
-Evaluation should not stop at tree count. The strongest recent papers report **precision, recall, and F1** for tree instances, usually by matching predicted and reference point sets using **IoU ≥ 0.5**; they also report a **coverage** metric, which is essentially the average best IoU per reference tree, plus semantic **mIoU** when a panoptic model is used. For downstream forestry, **RMSE** of tree height and crown dimensions on matched trees is also important. This is a better evaluation design than using stand totals alone, because stand-level biomass or tree-count agreement can hide severe over- and under-segmentation at the individual-tree level. citeturn6view1turn13view0turn46view0turn26view0
+Evaluation should not stop at tree count. The strongest recent papers report
+**precision, recall, and F1** for tree instances, usually by matching predicted
+and reference point sets using **IoU ≥ 0.5**; they also report a **coverage**
+metric, which is essentially the average best IoU per reference tree, plus
+semantic **mIoU** when a panoptic model is used. For downstream forestry,
+**RMSE** of tree height and crown dimensions on matched trees is also important.
+This is a better evaluation design than using stand totals alone, because
+stand-level biomass or tree-count agreement can hide severe over- and
+under-segmentation at the individual-tree level.
+citeturn6view1turn13view0turn46view0turn26view0
 
-In computational terms, the families behave very differently. Li2012-style region growing is the least scalable among the common baselines. CHM-seeded methods are usually the fastest. Mean-shift and graph-cut methods are intermediate: more expensive than CHM watershed, but still often practical plot-by-plot. Modern deep methods shift cost into training and GPU memory, then regain scalability at inference by using overlapping windows or cylinders plus post-merge logic. ForestFormer3D and SegmentAnyTree both depend on scene cropping; ForAINet and PointNet papers report moderate-to-large training cost and explicit GPU use. None of the recent 3D forest panoptic papers I reviewed claims true large-scene “real-time” end-to-end crown delineation; the realistic distinction today is **high-throughput batch** versus **fast-enough plot processing**, not real-time robotics. citeturn25view0turn7view0turn11view2turn35view2
+In computational terms, the families behave very differently. Li2012-style
+region growing is the least scalable among the common baselines. CHM-seeded
+methods are usually the fastest. Mean-shift and graph-cut methods are
+intermediate: more expensive than CHM watershed, but still often practical
+plot-by-plot. Modern deep methods shift cost into training and GPU memory, then
+regain scalability at inference by using overlapping windows or cylinders plus
+post-merge logic. ForestFormer3D and SegmentAnyTree both depend on scene
+cropping; ForAINet and PointNet papers report moderate-to-large training cost
+and explicit GPU use. None of the recent 3D forest panoptic papers I reviewed
+claims true large-scene “real-time” end-to-end crown delineation; the realistic
+distinction today is **high-throughput batch** versus **fast-enough plot
+processing**, not real-time robotics.
+citeturn25view0turn7view0turn11view2turn35view2
 
 ## Detailed comparison of promising methods
 
-The table below focuses on methods from roughly the past decade that are either strong performers, important architectural steps beyond Li2012, or practically useful baselines. “Runtime” is included where the consulted source reported it; otherwise it is marked as not reported.
+The table below focuses on methods from roughly the past decade that are either
+strong performers, important architectural steps beyond Li2012, or practically
+useful baselines. “Runtime” is included where the consulted source reported it;
+otherwise it is marked as not reported.
 
 | Method | Year | Core type | Data type | Point density evidence | Representative performance | Runtime and scalability | Code availability | Notes for >8 pts/m² |
 |---|---:|---|---|---|---|---|---|---|
@@ -45,9 +183,18 @@ The table below focuses on methods from roughly the past decade that are either 
 | **TreeisoNet** | 2025 | Supervised 3D crown segmentation with deep neural networks | ALS, UAV, TLS | Explicit cross-sensor evaluation | Mean **mIoU 0.81** for UAV, **0.76** for TLS, **0.59** for ALS; with moderate manual center refinement, improved to **0.85 UAV**, **0.86 TLS**, **0.80 ALS** | Attractive cross-sensor design, but public benchmark evidence is weaker than ForestFormer3D and SegmentAnyTree | Exact paper repo was not clearly identifiable in the consulted sources; related Artemis/TreeAIBox code exists from the same lab line | Worth considering if you can provide or refine tree centers/stem points; otherwise ForestFormer3D or SegmentAnyTree generally has stronger public benchmark evidence. citeturn48view0turn50view0 |
 | **Two-stage Mask R-CNN + 3D U-Net** | 2025 | Multi-view fusion: CHM detection + 3D point clustering | High-resolution airborne LiDAR | Mixed-wood forest plots with manual 3D crown delineations | Mean **mIoU 0.82** for coniferous, **0.81** for mixed-wood, **0.79** for deciduous plots; clearly better than Mask R-CNN alone and lidR itcSegment in that study | Batch workflow; first-stage CHM detection is computationally cheap, second-stage 3D U-Net adds cost but captures full crown structure | I did not find a public implementation in the reviewed sources | Best hybrid option when you already have a good CHM and want precise crown outlines in 3D, but it is less “purely 3D” than the leading point-based panoptic methods. citeturn46view0 |
 
-A useful way to interpret the table is to think in terms of **what problem you are actually solving**. If you mainly need **tree tops** or coarse individual-tree counts, a fast CHM-based detector plus local maxima may still be enough. If you need **full crown assignment in 3D**, the winners are point-based clustering or panoptic 3D deep learning. If you need **robust generalization across campaigns**, density ranges, and platforms, then transfer-oriented deep models are now ahead of classical methods. If you have **no labels but very dense point clouds**, HFC and adaptive mean shift remain the safest choices. citeturn25view0turn42view1turn11view2turn31view0
+A useful way to interpret the table is to think in terms of **what problem you
+are actually solving**. If you mainly need **tree tops** or coarse
+individual-tree counts, a fast CHM-based detector plus local maxima may still be
+enough. If you need **full crown assignment in 3D**, the winners are point-based
+clustering or panoptic 3D deep learning. If you need **robust generalization
+across campaigns**, density ranges, and platforms, then transfer-oriented deep
+models are now ahead of classical methods. If you have **no labels but very
+dense point clouds**, HFC and adaptive mean shift remain the safest choices.
+citeturn25view0turn42view1turn11view2turn31view0
 
-To make the trade-offs more concrete, the table below summarizes what each family needs in practice.
+To make the trade-offs more concrete, the table below summarizes what each
+family needs in practice.
 
 | Family | Input requirements | Preprocessing that matters most | Typical failure mode in dense forests | Best current role |
 |---|---|---|---|---|
@@ -59,11 +206,38 @@ To make the trade-offs more concrete, the table below summarizes what each famil
 
 ## Recommended top methods and use-case guidance
 
-For **best overall accuracy in dense forests**, my top recommendation is **ForestFormer3D**. The reason is not just that it is a transformer. The stronger evidence is empirical: it leads FOR-instanceV2 on instance F1 and coverage, generalizes well to unseen Wytham and LAUTx test sets, and then leads a separate 2026 multispectral ALS benchmark as well, where it remains superior to unsupervised methods down to 10 pts/m² and improves understory detection by a large margin. If you have labeled data—or can produce a modest local fine-tuning set—this is the best current research-backed answer to “better than Li2012.” It is best suited to **batch inference**, not interactive real-time work. citeturn7view1turn31view0turn33view1
+For **best overall accuracy in dense forests**, my top recommendation is
+**ForestFormer3D**. The reason is not just that it is a transformer. The
+stronger evidence is empirical: it leads FOR-instanceV2 on instance F1 and
+coverage, generalizes well to unseen Wytham and LAUTx test sets, and then leads
+a separate 2026 multispectral ALS benchmark as well, where it remains superior
+to unsupervised methods down to 10 pts/m² and improves understory detection by a
+large margin. If you have labeled data—or can produce a modest local fine-tuning
+set—this is the best current research-backed answer to “better than Li2012.” It
+is best suited to **batch inference**, not interactive real-time work.
+citeturn7view1turn31view0turn33view1
 
-For **the best transferability across UAV, airborne, mobile, or cross-density campaigns**, my second recommendation is **SegmentAnyTree**. It is the method I would choose if you expect to work across different forests and different sensors without re-engineering the entire pipeline each time. The strongest part of the paper is not any single headline F1 but the explicit design objective: train once on dense data, augment with aggressive random subsampling, and preserve utility on ULS, MLS, TLS, and sparse-ALS-like inputs. In other words, it is the most “operationally forgiving” current deep method in the literature I reviewed. citeturn11view2turn33view3turn30search10
+For **the best transferability across UAV, airborne, mobile, or cross-density
+campaigns**, my second recommendation is **SegmentAnyTree**. It is the method I
+would choose if you expect to work across different forests and different
+sensors without re-engineering the entire pipeline each time. The strongest part
+of the paper is not any single headline F1 but the explicit design objective:
+train once on dense data, augment with aggressive random subsampling, and
+preserve utility on ULS, MLS, TLS, and sparse-ALS-like inputs. In other words,
+it is the most “operationally forgiving” current deep method in the literature I
+reviewed. citeturn11view2turn33view3turn30search10
 
-For **no-label, high-throughput, production workflows**, my third recommendation is **HFC**, with **AMS3D-class adaptive mean shift** as the strongest alternative when you want a more established geometric baseline. HFC is attractive because it combines strong performance on FOR-instance with unusually good robustness to species mixture and leaf conditions, and it does so without requiring a deep training set. AMS3D remains important because an independent broadleaf benchmark still ranked it as the best overall algorithm among a strong set of classical methods. If your forest is structurally simpler and your engineering priority is “robust enough, with minimal annotation burden,” these 3D clustering methods are still very competitive. citeturn42view1turn26view0turn20view0
+For **no-label, high-throughput, production workflows**, my third recommendation
+is **HFC**, with **AMS3D-class adaptive mean shift** as the strongest
+alternative when you want a more established geometric baseline. HFC is
+attractive because it combines strong performance on FOR-instance with unusually
+good robustness to species mixture and leaf conditions, and it does so without
+requiring a deep training set. AMS3D remains important because an independent
+broadleaf benchmark still ranked it as the best overall algorithm among a strong
+set of classical methods. If your forest is structurally simpler and your
+engineering priority is “robust enough, with minimal annotation burden,” these
+3D clustering methods are still very competitive.
+citeturn42view1turn26view0turn20view0
 
 The most useful deployment guidance is this:
 
@@ -78,15 +252,42 @@ The most useful deployment guidance is this:
 
 ## Suggested evaluation protocol and production pipeline
 
-A strong evaluation protocol for your use case should be **plot- or stand-based**, never random-point-based. Split training, validation, and test data by **stand, plot, forest type, and acquisition campaign**, so the model cannot see near-duplicates of the same crowns during training. Use at least one **external transfer test** from a different site or season if you care about operational generalization. FOR-instance and FOR-instanceV2 are the best dense-UAV benchmarks for method development; FGI-EMIT is now the most useful public benchmark if ALS densities around your threshold matter, especially if you want to understand understory behavior. If your final target is a specific local forest type, you should still reserve a site-specific holdout set for the final test. citeturn30search8turn6view1turn31view0
+A strong evaluation protocol for your use case should be **plot- or
+stand-based**, never random-point-based. Split training, validation, and test
+data by **stand, plot, forest type, and acquisition campaign**, so the model
+cannot see near-duplicates of the same crowns during training. Use at least one
+**external transfer test** from a different site or season if you care about
+operational generalization. FOR-instance and FOR-instanceV2 are the best
+dense-UAV benchmarks for method development; FGI-EMIT is now the most useful
+public benchmark if ALS densities around your threshold matter, especially if
+you want to understand understory behavior. If your final target is a specific
+local forest type, you should still reserve a site-specific holdout set for the
+final test. citeturn30search8turn6view1turn31view0
 
-The core metrics should be **instance precision, recall, and F1** based on point-set matching with **IoU ≥ 0.5**, plus **coverage** for crown delineation quality. If your method also predicts semantic classes, report semantic **mIoU**. For forestry products, evaluate **tree count error**, **RMSE of matched tree height**, and—if delineation quality matters—**RMSE or relative RMSE of crown diameter/area/volume**. Also stratify results by **canopy layer**: dominant/codominant versus understory. This is important because aggregate F1 can look respectable while understory performance remains poor. citeturn6view1turn13view0turn14view1
+The core metrics should be **instance precision, recall, and F1** based on
+point-set matching with **IoU ≥ 0.5**, plus **coverage** for crown delineation
+quality. If your method also predicts semantic classes, report semantic
+**mIoU**. For forestry products, evaluate **tree count error**, **RMSE of
+matched tree height**, and—if delineation quality matters—**RMSE or relative
+RMSE of crown diameter/area/volume**. Also stratify results by **canopy layer**:
+dominant/codominant versus understory. This is important because aggregate F1
+can look respectable while understory performance remains poor.
+citeturn6view1turn13view0turn14view1
 
-A density-robustness study is worth doing explicitly for any deployment that spans multiple sensors. The cleanest design is to start from the densest available data and subsample to **10, 25, 50, 75, and 100 pts/m²**, following the kind of analysis used in recent deep-learning work. If your forests include deciduous stands or strong seasonal shifts, repeat at least one evaluation in **leaf-on and leaf-off** data. If mixed-species robustness matters, use separate splits for pure conifer, pure deciduous, and mixed plots. HFC shows a good way to quantify both species-mix and leaf-condition robustness with simple F1-variation summaries. citeturn15view4turn40view0turn42view1
+A density-robustness study is worth doing explicitly for any deployment that
+spans multiple sensors. The cleanest design is to start from the densest
+available data and subsample to **10, 25, 50, 75, and 100 pts/m²**, following
+the kind of analysis used in recent deep-learning work. If your forests include
+deciduous stands or strong seasonal shifts, repeat at least one evaluation in
+**leaf-on and leaf-off** data. If mixed-species robustness matters, use separate
+splits for pure conifer, pure deciduous, and mixed plots. HFC shows a good way
+to quantify both species-mix and leaf-condition robustness with simple
+F1-variation summaries. citeturn15view4turn40view0turn42view1
 
-The production pipeline I would recommend for dense 3D point clouds is shown below.
+The production pipeline I would recommend for dense 3D point clouds is shown
+below.
 
-**Workflow diagram**
+## Workflow diagram
 
 ```text
 Raw LAS/LAZ
@@ -127,16 +328,62 @@ flowchart TD
     K --> L[Stratified QA by canopy layer and forest type]
 ```
 
-For **preprocessing**, ground removal and normalization are mandatory. After that, the choice depends on model family. For HFC, keep the full filtering stack: **intensity filtering, SVD filtering, and SOR** before clustering. For ForAINet or SegmentAnyTree, keep the preprocessing light and invest more effort in **data augmentation**, **crop overlap**, and **semantic filtering**. For ForestFormer3D, use overlapping cylindrical crops and retain the paper’s logic of discarding predictions very near crop boundaries before score-based merge. For mixed-wood or structurally irregular crowns, consider a hybrid route where CHM-based detection initializes a 3D refinement model instead of forcing the network to infer everything from raw points in one step. citeturn40view0turn14view0turn7view0turn46view0
+For **preprocessing**, ground removal and normalization are mandatory. After
+that, the choice depends on model family. For HFC, keep the full filtering
+stack: **intensity filtering, SVD filtering, and SOR** before clustering. For
+ForAINet or SegmentAnyTree, keep the preprocessing light and invest more effort
+in **data augmentation**, **crop overlap**, and **semantic filtering**. For
+ForestFormer3D, use overlapping cylindrical crops and retain the paper’s logic
+of discarding predictions very near crop boundaries before score-based merge.
+For mixed-wood or structurally irregular crowns, consider a hybrid route where
+CHM-based detection initializes a 3D refinement model instead of forcing the
+network to infer everything from raw points in one step.
+citeturn40view0turn14view0turn7view0turn46view0
 
-For **training labels**, the ideal dataset stores a unique instance ID for each point and at least coarse semantic labels for ground versus tree. Best practice now is to preserve richer labels when possible—stem, wood, leaf, low vegetation, ground—because panoptic methods can use those labels jointly. If you lack a large hand-labeled set, a realistic compromise is to annotate a few local plots carefully, then fine-tune a transferred model such as SegmentAnyTree or ForestFormer3D and audit errors plot-by-plot. Public starting points are FOR-instance, FOR-instanceV2, and FGI-EMIT. citeturn30search8turn6view1turn31view0
+For **training labels**, the ideal dataset stores a unique instance ID for each
+point and at least coarse semantic labels for ground versus tree. Best practice
+now is to preserve richer labels when possible—stem, wood, leaf, low vegetation,
+ground—because panoptic methods can use those labels jointly. If you lack a
+large hand-labeled set, a realistic compromise is to annotate a few local plots
+carefully, then fine-tune a transferred model such as SegmentAnyTree or
+ForestFormer3D and audit errors plot-by-plot. Public starting points are
+FOR-instance, FOR-instanceV2, and FGI-EMIT.
+citeturn30search8turn6view1turn31view0
 
 ## Open questions and limitations
 
-The most important limitation in this literature is that **public, standardized ALS benchmarks are still fewer than dense-UAV and proximal benchmarks**, so evidence is strongest for ULS-like data and only recently becoming strong for conventional ALS. FGI-EMIT is a major step forward, but it is still new. That means some “best” conclusions are firmer for dense UAV laser scanning than for every possible airborne acquisition regime near the 8 pts/m² threshold. citeturn30search8turn31view0
+The most important limitation in this literature is that **public, standardized
+ALS benchmarks are still fewer than dense-UAV and proximal benchmarks**, so
+evidence is strongest for ULS-like data and only recently becoming strong for
+conventional ALS. FGI-EMIT is a major step forward, but it is still new. That
+means some “best” conclusions are firmer for dense UAV laser scanning than for
+every possible airborne acquisition regime near the 8 pts/m² threshold.
+citeturn30search8turn31view0
 
-A second limitation is that **runtime reporting is often weak**. Many papers report hardware, but not standardized wall-clock inference rates on comparable scene sizes. PointNet is an exception because it reports total training/testing time; ForAINet reports hardware and ablations; ForestFormer3D describes the crop-and-merge strategy but not a universal hectares-per-hour number in the sources I reviewed. If runtime is a major deployment constraint, you should benchmark candidate methods on your own data rather than relying on the literature alone. citeturn35view2turn13view0turn7view0
+A second limitation is that **runtime reporting is often weak**. Many papers
+report hardware, but not standardized wall-clock inference rates on comparable
+scene sizes. PointNet is an exception because it reports total training/testing
+time; ForAINet reports hardware and ablations; ForestFormer3D describes the
+crop-and-merge strategy but not a universal hectares-per-hour number in the
+sources I reviewed. If runtime is a major deployment constraint, you should
+benchmark candidate methods on your own data rather than relying on the
+literature alone. citeturn35view2turn13view0turn7view0
 
-A third limitation is that **graph neural networks and PointNet++-style hierarchical point models are clearly important architectural ideas, but I did not find a benchmark-leading aerial ITS paper in the reviewed primary-source set whose forest segmentation contribution fundamentally depended on a GNN**. In current forestry benchmarks, the strongest evidence is instead with sparse 3D CNN / PointGroup-lineage methods and transformer-panoptic models. That does not mean GNNs are unhelpful; it means the benchmark evidence is still thinner than for the currently leading families. citeturn43search1turn43search10turn11view2turn7view1
+A third limitation is that **graph neural networks and PointNet++-style
+hierarchical point models are clearly important architectural ideas, but I did
+not find a benchmark-leading aerial ITS paper in the reviewed primary-source set
+whose forest segmentation contribution fundamentally depended on a GNN**. In
+current forestry benchmarks, the strongest evidence is instead with sparse 3D
+CNN / PointGroup-lineage methods and transformer-panoptic models. That does not
+mean GNNs are unhelpful; it means the benchmark evidence is still thinner than
+for the currently leading families.
+citeturn43search1turn43search10turn11view2turn7view1
 
-Finally, some promising methods still have **incomplete public reproducibility**. I found strong public code for ForAINet, SegmentAnyTree, ForestFormer3D, HFC, and related Artemis ALS tooling, but not equally clear official repositories for every recent method reviewed. That matters because in this area, implementation details—crop overlap, merge criteria, tree-center supervision, density augmentation, and filtering thresholds—often drive as much performance as the high-level algorithm class. citeturn33view2turn33view3turn33view1turn38search1turn50view0
+Finally, some promising methods still have **incomplete public
+reproducibility**. I found strong public code for ForAINet, SegmentAnyTree,
+ForestFormer3D, HFC, and related Artemis ALS tooling, but not equally clear
+official repositories for every recent method reviewed. That matters because in
+this area, implementation details—crop overlap, merge criteria, tree-center
+supervision, density augmentation, and filtering thresholds—often drive as much
+performance as the high-level algorithm class.
+citeturn33view2turn33view3turn33view1turn38search1turn50view0

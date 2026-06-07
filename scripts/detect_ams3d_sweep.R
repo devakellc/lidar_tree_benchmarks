@@ -21,6 +21,11 @@ d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
                             file.path(getwd(), "scripts", "sweep_lib.R")))
 if (is.null(.swp)) stop("detect_ams3d_sweep.R: cannot locate scripts/sweep_lib.R")
 source(.swp)
+.mbl <- Find(file.exists, c(file.path("scripts", "model_bench_lib.R"),
+                            file.path("..", "..", "scripts", "model_bench_lib.R"),
+                            file.path(getwd(), "scripts", "model_bench_lib.R")))
+if (is.null(.mbl)) stop("detect_ams3d_sweep.R: cannot locate scripts/model_bench_lib.R")
+source(.mbl)
 
 ## ---- AMS3D apex extractor ------------------------------------------------
 # las: a NORMALIZED lidR::LAS (ground at 0). Returns data.frame(x,y,z) of
@@ -39,12 +44,9 @@ det_ams3d <- function(las, cd_ratio = 0.4, cl_ratio = 0.8, min_above = 2) {
       crown_id_column_name          = "crown_id"),
     error = function(e) NULL)
   if (is.null(seg)) return(empty)
-  if (!"crown_id" %in% names(seg@data)) return(empty)
-  dt <- as.data.table(seg@data)[!is.na(crown_id), .(X, Y, Z, crown_id)]
-  if (!nrow(dt)) return(empty)
-  ap <- dt[, .(x = X[which.max(Z)], y = Y[which.max(Z)], z = max(Z)),
-           by = crown_id]
-  data.frame(x = ap$x, y = ap$y, z = ap$z)
+  det <- reduce_instances(seg@data, id_col = "crown_id", x = "X", y = "Y", z = "Z")
+  assert_detection_contract(det)
+  det
 }
 
 ## ---- args ----------------------------------------------------------------
@@ -84,13 +86,14 @@ run_main <- function() {
     if (nrow(stems) < 1) return(NULL)
     out <- list(); native_pdens <- NA_real_
     for (rung in c(NA, RUNGS)) {
-      prep <- tryCatch(prepare_clip(ctg, cx, cy, rung, tmpdir, core_half = ph),
+      prep <- tryCatch(frozen_clip(ctg, SITE, pid, rung, cx, cy, ph,
+                                   out_root = file.path(nd, "frozen")),
                        error = function(e) NULL)
       if (is.null(prep)) next
       pdens <- prep$pdens; frdens <- prep$frdens
       if (is.na(rung)) native_pdens <- pdens
-      else if (is.na(native_pdens) || rung >= native_pdens) { unlink(prep$file); next }
-      las <- tryCatch(readLAS(prep$file), error = function(e) NULL)
+      else if (is.na(native_pdens) || rung >= native_pdens) next
+      las <- tryCatch(readLAS(prep$normalized), error = function(e) NULL)
       if (!is.null(las) && !is.empty(las)) {
         det <- det_ams3d(las, cd_ratio = CD, cl_ratio = CL, min_above = 2)
         sc  <- tryCatch(score_plot(stems, det, tol_xy = TOL, core_cx = cx,
@@ -105,7 +108,6 @@ run_main <- function() {
           out[[length(out) + 1]] <- sc
         }
       }
-      unlink(prep$file)
     }
     if (!length(out)) return(NULL)
     do.call(rbind, out)

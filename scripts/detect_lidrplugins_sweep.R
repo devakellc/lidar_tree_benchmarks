@@ -63,6 +63,17 @@ det_multichm <- function(las, res = 0.5, a = 0.10) {
 # returns per-point treeID -- an instance segmentation -- which collapses through
 # the bridge's reduce_instances() exactly like the AMS3D crown_id arm.
 det_ptrees <- function(las, hmin = 2, k = c(30, 15)) {
+  # ptrees' C routine (C_lastrees_ptrees) hard-segfaults -- uncatchable by the
+  # tryCatch below -- when there are too few returns above hmin (e.g. a treeless
+  # clip on a sparse rung). Under mclapply such a segfault silently nulls the
+  # whole plot (all rungs + all arms). Skip safely: too few canopy points means
+  # ptrees would detect nothing anyway, so return a 0-row frame (legit recall=0)
+  # without entering C, keeping the other detectors' results for the cell intact.
+  if (sum(las$Z >= hmin) < min(k)) {
+    empty <- data.frame(x = numeric(), y = numeric(), z = numeric())
+    assert_detection_contract(empty)
+    return(empty)
+  }
   seg <- tryCatch(lidR::segment_trees(las, lidRplugins::ptrees(k = k, hmin = hmin)),
                   error = function(e) NULL)
   if (is.null(seg)) return(NULL)            # crash -> skip (equal-set guard drops it)

@@ -26,3 +26,13 @@ test_that("det_lmfauto returns a 0-row frame (not NULL) when there are no trees"
   expect_true(is.null(det) || (is.data.frame(det) && nrow(det) == 0L))
   if (is.data.frame(det)) expect_identical(names(det), c("x", "y", "z"))
 })
+
+test_that("det_ptrees does not segfault on a no-canopy cloud (returns 0-row)", {
+  flat <- LAS(data.frame(X = runif(300, 0, 20), Y = runif(300, 0, 20),
+                         Z = rep(0.1, 300)))     # all below hmin: no canopy
+  st_crs(flat) <- 32611L
+  det <- det_ptrees(flat, hmin = 2)
+  expect_s3_class(det, "data.frame")
+  expect_identical(names(det), c("x", "y", "z"))
+  expect_equal(nrow(det), 0L)
+})

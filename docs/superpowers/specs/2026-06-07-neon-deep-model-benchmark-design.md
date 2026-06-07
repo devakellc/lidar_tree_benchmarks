@@ -20,7 +20,7 @@ below:
 |---|---|---|
 | Model set | Whatever is *actually runnable* (feasibility-gated) | A triage gate decides the set; see §2. |
 | Compute | Local CUDA GPU available | Deep models are on the table; single GPU ⇒ serial runs. |
-| Scoring basis | **Reduce predictions to detections**, reuse the existing harness | Each model collapses to `(x, y, apex height, crown diameter)`; `score_plot`/`greedy_match`/`pool()` stay unchanged. Fully comparable to the current CHM-VWF / Li 2012 arms. No new ground truth. |
+| Scoring basis | **Reduce predictions to detections**, reuse the existing harness | Each model collapses to a detection table `(x, y, apex height)` scored by `score_plot`/`greedy_match` unchanged. Crown diameter is a **separate optional side metric** (the scorer ignores it). Fully comparable to the current CHM-VWF / Li 2012 arms. No new ground truth. |
 | Model application | **Zero-shot pretrained transfer** | No fine-tuning (NEON has no per-point instance labels). |
 | Density axis | **Full density ladder** (native ~20 / 8 / 4 / 2 / 1 pts/m²) | Directly tests the report's density-robustness claims against the repo's decimation thesis. |
 | Sites | **SOAP first**, others follow | SOAP 2021 is the one site that natively clears 8 pts/m². |
@@ -91,18 +91,23 @@ different kind of arm; kept optional with the confound flagged loudly.
 ## 3. Architecture
 
 The benchmark is **one new data path bolted onto the existing scorer, which
-stays untouched.** Everything funnels into `score_plot` / `greedy_match` /
-`pool()` exactly as the Li 2012 arm already does. Three layers.
+stays untouched.** Everything funnels into `score_plot` / `greedy_match`
+(both already in `sweep_lib.R`) exactly as the Li 2012 arm already does.
+Pooling is **not** yet a shared function — `pool()` is copy-pasted in four
+scripts (`analyze_sweep.R`, `detect_pc_sweep.R`, `temporal_sensitivity.R`,
+`calval_split.R`), so #B2 *canonicalizes* it rather than reusing it. Three
+layers.
 
 ### Data flow
 
 ```text
 NEON SOAP LiDAR  +  field stems (existing ground truth)
    │
-   │  ① frozen-clip provider  (deterministic, seeded — ONE clip per (plot,rung), reused by ALL arms)
-   │      ├─ clip_normalized.laz   → CHM-VWF, Li2012, AMS3D, lidRplugins   (ground-flattened)
-   │      └─ clip_rawground.laz    → SegmentAnyTree, TreeisoNet, FF3D       (ground retained)
-   │         + captured native pdens/frdens for the no-upsampling guard
+   │  ① frozen-clip provider  (decimate raw ONCE w/ stable seed keyed by site/plot/rung; reused by ALL arms)
+   │      ├─ clip_rawground.laz    → SegmentAnyTree, TreeisoNet, FF3D       (ground retained)
+   │      ├─ clip_normalized.laz   → CHM-VWF, Li2012, AMS3D, lidRplugins    (derived from the SAME decimated set)
+   │      ├─ ground_dtm.tif (TIN)  → raw→height transform for raw-ground arms' apex z
+   │      └─ manifest.json         → seed, point counts, pdens/frdens, source tile ids
    │
    ├─ R-native arms ───────────────────────────────► read clip in R, emit instances
    └─ GPU arms ─► ② LAZ→PLY ─► [Docker per model] ─► instance PLY/LAS
@@ -120,20 +125,33 @@ NEON SOAP LiDAR  +  field stems (existing ground truth)
 
 - **① Frozen-clip provider** — the single most important new component.
   Decimation today is *non-deterministic* (`decimate_points(homogenize())` with
-  no `set.seed`), so each arm would otherwise see a different thinning. Freeze
-  one seeded clip per `(plot, rung)` and feed the **identical file** to every
-  arm, or cross-arm deltas are partly RNG noise. It emits **two variants**:
-  *normalized* (ground-flattened) for the CHM/AMS3D/lidRplugins arms, and
-  *raw-with-ground* for the deep trunk/offset arms that need ground as a
-  semantic class. Feeding the wrong variant is the **#1 silent-wrong-result
-  bug** (a trunk model fed a flattened cloud looks like a "density" failure when
-  it was really starved of ground). Native `pdens` is captured for the
-  no-upsampling guard.
+  no `set.seed`), and `prepare_clip()` decimates inline, normalizes, and writes
+  **only** the normalized LAZ ([`sweep_lib.R:90`](../../../scripts/sweep_lib.R)).
+  **Acceptance criterion:** decimate the raw clip **exactly once**, with a stable
+  seed keyed by `site/plot/rung`, then derive every variant from that one
+  decimated raw point set — never a second stochastic decimation. Feed the
+  **identical** point subset to every arm or cross-arm deltas are partly RNG
+  noise. It persists:
+  - `clip_rawground.laz` — ground retained, for the deep trunk/offset arms that
+    need ground as a semantic class.
+  - `clip_normalized.laz` — derived from the *same* decimated set, for the
+    CHM/AMS3D/lidRplugins arms. Feeding the wrong variant is the **#1
+    silent-wrong-result bug** (a trunk model fed a flattened cloud looks like a
+    "density" failure when it was really starved of ground).
+  - `ground_dtm.tif` (the TIN/DTM) — the raw→height-above-ground transform, so
+    apexes computed on `clip_rawground.laz` can be normalized **back to height**
+    before scoring (see ③); guards against absolute elevations leaking into the
+    height gate as `z`.
+  - `manifest.json` — seed, per-variant point counts, `pdens`/`frdens` (native
+    `pdens` drives the no-upsampling guard), and source-tile identity, so a run
+    is reproducible and auditable.
 - **③ Reducer** — the universal collapse `instance point-group → (x, y, z)`.
-  One **standardized apex rule** for all arms, and a crown-diameter estimator
-  with a **per-crown point-count floor** (a caliper over 3 points at 1 pt/m² is
-  garbage). This is what makes a transformer and a mean-shift clusterer scorable
-  on the same axis.
+  Output is **exactly `x,y,z`** (the only columns the scorer reads); one
+  **standardized apex rule** across all arms. For raw-ground arms, the apex `z`
+  is converted to **height above ground** via the persisted `ground_dtm.tif`
+  before it enters the scorer — never an absolute elevation. Crown diameter is
+  **not** part of this contract: it is a separate optional side metric (§ Layer
+  3 / #B2), so the reducer stays a clean `data.frame(x,y,z)`.
 - **④ Conformance harness** — a synthetic one-tree clip; every arm must return
   a base `data.frame` with exactly lowercase `x, y, z`, UTM coords, normalized
   height `z`, non-NULL on empty, *before* any real run. (`sf::st_coordinates`
@@ -151,11 +169,17 @@ NEON SOAP LiDAR  +  field stems (existing ground truth)
   SegmentAnyTree's only inside an 8.6 GB image. Mirror + SHA256 + record source
   URLs on day one or the benchmark is not reproducible after link-rot.
 
-### Layer 3 — scoring (reuse + three additions)
+### Layer 3 — scoring (reuse + four additions)
 
-- Reuse `greedy_match` / `score_plot` / `pool()` **unchanged**: sum-TP /
-  sum-n_ref pooling, ±20 m tower / ±10 m distributed cores, the
-  `[0.5·az, az+8]` height-consistency gate.
+- Reuse `greedy_match` / `score_plot` **unchanged** (both already in
+  `sweep_lib.R`): ±20 m tower / ±10 m distributed cores, the `[0.5·az, az+8]`
+  height-consistency gate, per-crown-class and per-height-band recall.
+- **Canonicalize `pool()`** — it is *not* in `sweep_lib.R`; it is duplicated in
+  `analyze_sweep.R`, `detect_pc_sweep.R`, `temporal_sensitivity.R`, and
+  `calval_split.R` (sum-TP / sum-n_ref). #B2 extracts **one** canonical pooler
+  (with the equal-set guard below) into the shared lib so the benchmark doesn't
+  create a fifth subtly-different copy; the analysis scripts can migrate to it
+  opportunistically.
 - **Per-(plot,rung) equal-set guard** — arms fail at *different* rungs (one
   OOMs at native, another collapses at 1), so the drop-set must be computed per
   `(plot, rung)`, not per plot, or a rung's cross-arm table silently compares
@@ -166,6 +190,14 @@ NEON SOAP LiDAR  +  field stems (existing ground truth)
 - **Zero-shot protocol ledger** — record every non-default knob (AMS3D
   allometry ratios, TreeisoNet voxel resolution, any HFC-style intensity
   threshold). These are *de facto* tuning and must be declared, not hidden.
+
+**Crown diameter — separate optional side metric (not in the detection
+contract).** `score_plot` reads only `x,y,z`. Crown-diameter RMSE is scored
+exactly as `crown_metrics_sweep.R` already does it — joining field
+`maxCrownDiameter`/`ninetyCrownDiameter` from the NEON `vst` rds and matching on
+shared tree-tops — as an **add-on table** keyed off the same detections, with
+the per-crown point-count floor applied there (a caliper over 3 points at
+1 pt/m² is garbage). It never enters the primary reducer or the greedy match.
 
 ### Reducer output contract (exact, from the repo)
 
@@ -205,15 +237,28 @@ how issues #3–#8 are already tracked. Research-surfaced gaps are folded in as
 
 - **#B1 · AMS3D arm end-to-end on SOAP** (native → full ladder).
   `detect_ams3d_sweep.R` patterned on `detect_pc_sweep.R`. Proves the whole
-  bridge in-language, zero GPU. *Absorbs:* reducer v1, crown-diameter-with-floor,
-  conformance harness v1, AMS3D allometry recorded in the ledger.
-  *Deps: #A0.* **← de-risking spike.**
-- **#B2 · Extract the shared bridge** into `model_bench_lib.R`: frozen-clip
-  provider (seeded; normalized + raw-with-ground variants; native-pdens guard) ·
-  universal reducer (standardized apex rule + CD floor) · conformance harness ·
-  pooling additions (per-(plot,rung) equal-set guard; per-class/height-band
-  primary tables; zero-shot ledger). AMS3D re-runs unchanged on top as the
-  regression check. *Deps: #B1.* **← A-layer hinge; all arms depend on this.**
+  bridge in-language, zero GPU. *Absorbs:* reducer v1 (`x,y,z` only), conformance
+  harness v1, AMS3D allometry recorded in the ledger, and crown-diameter scoring
+  as a **separate** side table (not in the reducer). *Deps: #A0.*
+  **← de-risking spike.**
+- **#B2 · Extract the shared bridge** into `model_bench_lib.R`:
+  - **Frozen-clip provider** — decimate raw **once** per `(site, plot, rung)`
+    with a stable keyed seed; persist `clip_rawground.laz`, the
+    `clip_normalized.laz` derived from that *same* decimated set, the
+    `ground_dtm.tif` raw→height transform, and a `manifest.json` (seed, counts,
+    `pdens`/`frdens`, source tiles). Native `pdens` drives the no-upsampling
+    guard.
+  - **Universal reducer** — `instance → data.frame(x,y,z)`; one apex rule;
+    raw-ground apexes normalized to height-above-ground via `ground_dtm.tif`.
+  - **Conformance harness** — synthetic one-tree contract assertion.
+  - **Canonical `pool()` + per-(plot,rung) equal-set guard** — one extracted
+    pooler (today duplicated in four scripts), plus per-class/height-band
+    primary tables and the zero-shot ledger.
+  - **Crown-diameter side metric** — the optional add-on table (with the
+    point-count floor), kept out of the detection path.
+
+  AMS3D re-runs unchanged on top as the regression check. *Deps: #B1.*
+  **← A-layer hinge; all arms depend on this.**
 
 ### Phase 2 — GPU/infra scaffolding (parallelizable)
 
@@ -269,9 +314,10 @@ how issues #3–#8 are already tracked. Research-surfaced gaps are folded in as
                    #C9 joins off #B2
 ```
 
-First real cross-arm result lands after **#B1 + #C9** (AMS3D + lidRplugins +
-existing baselines) — before any Docker work. **10 core issues (#A0–#R10) + 4
-deferred (#E11–#E14).**
+First real cross-arm result lands after **#B1 + #B2 + #C9** (AMS3D + lidRplugins
+
+- existing baselines; #C9 depends on the extracted bridge #B2) — before any
+Docker work. **10 core issues (#A0–#R10) + 4 deferred (#E11–#E14).**
 
 ---
 
@@ -281,17 +327,19 @@ Research-surfaced risks and where each is handled, so none is lost:
 
 | Gap / risk | Handled in |
 |---|---|
-| Normalized-vs-raw-ground input mismatch (silent-wrong-result #1) | #B2 frozen-clip two variants |
-| Non-deterministic decimation breaks cross-arm comparability | #B2 seeded frozen clip |
+| Normalized-vs-raw-ground input mismatch (silent-wrong-result #1) | #B2 frozen-clip two variants from one decimated set |
+| Non-deterministic decimation breaks cross-arm comparability | #B2 single keyed-seed decimation + manifest |
+| Raw-ground apex elevations leaking into the height gate as `z` | #B2 persisted `ground_dtm.tif` raw→height transform |
 | Instance→apex reduction ambiguity | #B1/#B2 standardized apex rule |
-| Crown-diameter from sparse points unstable | #B1/#B2 CD point-count floor |
+| Crown-diameter from sparse points unstable | #B2 crown-diameter side metric (point-count floor, out of detection path) |
+| `pool()` duplicated in 4 scripts (no canonical pooler) | #B2 extract one canonical `pool()` |
 | Per-model env incompatibility | #I3 containerized runner |
 | Single-GPU runtime / OOM | #I3 (serial) + per-arm chunk levers in #M6–#M8 |
 | Weights link-rot / single points of failure | #I5 mirror + checksum |
 | R↔Python format conversion, field preservation | #I4 I/O bridge |
-| CRS / units handoff (UTM, normalized z) | #I4 round-trip acceptance test |
+| CRS / units handoff (UTM, normalized z) | #I4 round-trip test + #B2 `ground_dtm.tif` |
 | Cylinder/block tiling + cross-block instance dedup | #M8 (and #M6/#M7 as needed) |
-| Per-(plot,rung) equal-set guard | #B2 pooling addition |
+| Per-(plot,rung) equal-set guard | #B2 canonical pooler |
 | Understory bias hidden by pooled F1 | #B2 per-class/height-band primary tables |
 | Zero-shot leakage via per-arm tuning | #A0 protocol + #B2 ledger |
 | Missing fair LiDAR-native competitor | #C9 lidRplugins arm |

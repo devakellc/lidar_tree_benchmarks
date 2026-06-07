@@ -13,25 +13,14 @@ suppressMessages({ library(lidR); library(sf); library(data.table)
                    library(parallel); library(crownsegmentr) })
 options(lidR.progress = FALSE)
 d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
-# Locate scripts/ dir robustly: works both as `Rscript scripts/foo.R` (project
-# root cwd) and when source()-d from tests/testthat/ (two levels up).
-local({
-  cf <- commandArgs(FALSE)
-  ff <- sub("^--file=", "", grep("^--file=", cf, value = TRUE)[1])
-  if (!is.na(ff) && nzchar(ff)) {
-    .src_dir <<- dirname(normalizePath(ff, mustWork = FALSE))
-  } else {
-    # sourced — search candidate directories for sweep_lib.R
-    # candidates cover both cwd=repo-root (Rscript) and cwd=tests/testthat (sourced under testthat)
-    candidates <- c("scripts",
-                    file.path("..", "..", "scripts"),
-                    file.path(getwd(), "scripts"))
-    found <- Filter(function(cand) file.exists(file.path(cand, "sweep_lib.R")),
-                    candidates)
-    .src_dir <<- if (length(found)) found[[1L]] else "scripts"
-  }
-})
-source(file.path(.src_dir, "sweep_lib.R"))
+# Locate sweep_lib.R robustly across run contexts: `Rscript scripts/foo.R`
+# (cwd = repo root), `Rscript tests/run_tests.R` and `testthat::test_file`
+# (cwd = tests/testthat during tests). Use the first candidate that exists.
+.swp <- Find(file.exists, c(file.path("scripts", "sweep_lib.R"),
+                            file.path("..", "..", "scripts", "sweep_lib.R"),
+                            file.path(getwd(), "scripts", "sweep_lib.R")))
+if (is.null(.swp)) stop("detect_ams3d_sweep.R: cannot locate scripts/sweep_lib.R")
+source(.swp)
 
 ## ---- AMS3D apex extractor ------------------------------------------------
 # las: a NORMALIZED lidR::LAS (ground at 0). Returns data.frame(x,y,z) of

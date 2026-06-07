@@ -47,3 +47,62 @@ crown_diameter_table <- function(pts, id_col = "crown_id", min_pts = 5) {
   data.frame(id = res$ID, n_pts = res$n_pts, d_eq = res$d_eq,
              d_caliper = res$d_caliper)
 }
+
+## ---- deterministic seed from a (site, plot, rung) key --------------------
+# Maps the key string to a stable non-negative 31-bit integer (FNV-1a), so
+# decimation is reproducible across arms and runs without external deps.
+# All key characters are ASCII (0-127), so XOR only touches the low 7 bits;
+# h is kept as a double with %% 2^32 wrapping to avoid R's signed int32 limits.
+seed_for <- function(site, plot, rung) {
+  key <- paste(site, plot, ifelse(is.na(rung), "native", rung), sep = "|")
+  h <- 2166136261                                  # FNV offset basis (uint32)
+  for (b in utf8ToInt(key)) {
+    h_low <- as.integer(h %% 128)
+    h <- ((h - h_low + bitwXor(h_low, as.integer(b))) * 16777619) %% 2^32
+  }
+  as.integer(h %% 2^31)
+}
+
+## ---- frozen clip provider: one decimated set -> two variants + DTM -------
+# Decimates the plot clip ONCE (seeded by site/plot/rung), then derives both the
+# raw-with-ground and the normalized variant from that SAME decimated set, plus
+# a TIN DTM and a JSON manifest. Caches under out_root; reuses on re-call.
+# rung = NA means native (no decimation). Returns a list with file paths +
+# densities, or NULL if the clip is unusable.
+frozen_clip <- function(ctg, site, plot, rung, cx, cy, core_half, out_root,
+                        buffer = 25) {
+  rdir <- file.path(out_root, site, plot, ifelse(is.na(rung), "native", rung))
+  fp <- list(rawground   = file.path(rdir, "clip_rawground.laz"),
+             normalized  = file.path(rdir, "clip_normalized.laz"),
+             dtm         = file.path(rdir, "ground_dtm.tif"),
+             manifest    = file.path(rdir, "manifest.json"))
+  if (file.exists(fp$manifest)) {                    # cached -> reuse verbatim
+    mf <- jsonlite::read_json(fp$manifest, simplifyVector = TRUE)
+    return(c(fp, list(pdens = mf$pdens, frdens = mf$frdens, seed = mf$seed)))
+  }
+  dir.create(rdir, showWarnings = FALSE, recursive = TRUE)
+  half <- core_half + buffer
+  las  <- lidR::clip_rectangle(ctg, cx - half, cy - half, cx + half, cy + half)
+  if (lidR::is.empty(las) || lidR::npoints(las) < 100) return(NULL)
+  seed <- seed_for(site, plot, rung)
+  if (!is.na(rung)) { set.seed(seed)
+    las <- lidR::decimate_points(las, lidR::homogenize(density = rung, res = 5)) }
+  if (sum(las$Classification == 2L) < 10) return(NULL)   # need ground for DTM
+  dtm <- lidR::rasterize_terrain(las, res = 1, algorithm = lidR::tin())
+  nrm <- lidR::normalize_height(las, lidR::tin(), na.rm = TRUE)
+  nrm <- lidR::filter_poi(nrm, Z >= -1, Z < 80)
+  area   <- (2 * half)^2
+  pdens  <- lidR::npoints(nrm) / area
+  frdens <- sum(nrm$ReturnNumber == 1L) / area
+  lidR::writeLAS(las, fp$rawground)
+  lidR::writeLAS(nrm, fp$normalized)
+  terra::writeRaster(dtm, fp$dtm, overwrite = TRUE)
+  jsonlite::write_json(list(site = site, plot = plot,
+                            rung = ifelse(is.na(rung), "native", rung),
+                            seed = seed, n_raw = lidR::npoints(las),
+                            n_norm = lidR::npoints(nrm),
+                            pdens = round(pdens, 3), frdens = round(frdens, 3),
+                            buffer = buffer, core_half = core_half),
+                       fp$manifest, auto_unbox = TRUE, pretty = TRUE)
+  c(fp, list(pdens = pdens, frdens = frdens, seed = seed))
+}

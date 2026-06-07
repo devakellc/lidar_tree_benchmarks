@@ -30,3 +30,14 @@ test_that("equal_set_guard drops (site,plot,rung) missing any arm", {
   expect_true(all(paste(g$site,g$plot,g$rung) == "SOAP p1 8"))
   expect_equal(attr(g, "dropped"), "SOAP::p2::8")
 })
+
+test_that("equal_set_guard requires the named arms, not just a matching count", {
+  # cell has TWO detectors but the required li2012 is missing (ams3d + a stray 'foo')
+  df <- rbind(mk_row("SOAP","p1","8","ams3d",10,5,6,4),
+              mk_row("SOAP","p1","8","foo",   10,5,6,4),
+              mk_row("SOAP","p2","8","ams3d",10,5,6,4),
+              mk_row("SOAP","p2","8","li2012",10,6,7,5))
+  g <- equal_set_guard(df, arms = c("ams3d","li2012"))
+  expect_true(all(paste(g$site,g$plot,g$rung) == "SOAP p2 8"))  # only p2 has BOTH required arms
+  expect_true("SOAP::p1::8" %in% attr(g, "dropped"))            # p1 dropped despite 2 detectors
+})

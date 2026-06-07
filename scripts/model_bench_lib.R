@@ -148,8 +148,8 @@ pool <- function(df, classes = POOL_CLASSES) {
 equal_set_guard <- function(df, arms, key_cols = c("site", "plot", "rung")) {
   k <- do.call(paste, c(df[key_cols], sep = "::"))
   df$.k <- k
-  n_arms <- tapply(df$detector, k, function(v) length(unique(v)))
-  common <- names(n_arms)[n_arms == length(arms)]
+  have_all <- tapply(df$detector, k, function(v) all(arms %in% v))
+  common <- names(have_all)[have_all]
   dropped <- setdiff(unique(k), common)
   out <- df[df$.k %in% common, setdiff(names(df), ".k"), drop = FALSE]
   attr(out, "dropped") <- dropped

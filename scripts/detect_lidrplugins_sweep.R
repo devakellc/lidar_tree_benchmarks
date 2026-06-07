@@ -10,6 +10,8 @@
 # Usage:
 #   Rscript scripts/detect_lidrplugins_sweep.R [SITE=SOAP] [PLOTS=ALL]
 #       [CORES=6] [TOL=4] [A=0.10]
+# Install: lidRplugins from a patched source clone (rgeos/rgdal/EBImage stripped
+#   from DESCRIPTION) -- see docs/superpowers/plans/2026-06-07-lidrplugins-competitor-arm.md Task 1.
 # Output: $CLAUDE_JOB_DIR/neon/<SITE>/lidrplugins_results.csv (one row per
 #         plot x rung x detector).
 suppressMessages({ library(lidR); library(lidRplugins); library(sf)

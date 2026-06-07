@@ -104,14 +104,17 @@ run_main <- function() {
       las <- tryCatch(readLAS(prep$file), error = function(e) NULL)
       if (!is.null(las) && !is.empty(las)) {
         det <- det_ams3d(las, cd_ratio = CD, cl_ratio = CL, min_above = 2)
-        sc  <- score_plot(stems, det, tol_xy = TOL, core_cx = cx, core_cy = cy,
-                          core_half = ph)
-        sc  <- cbind(data.frame(site = SITE, plot = pid, plotType = ci$plotType,
-                                detector = "ams3d",
-                                rung = ifelse(is.na(rung), "native", as.character(rung)),
-                                pdens = round(pdens, 2), frdens = round(frdens, 2),
-                                n_apex = nrow(det)), sc)
-        out[[length(out) + 1]] <- sc
+        sc  <- tryCatch(score_plot(stems, det, tol_xy = TOL, core_cx = cx,
+                                   core_cy = cy, core_half = ph),
+                        error = function(e) NULL)
+        if (!is.null(sc)) {
+          sc <- cbind(data.frame(site = SITE, plot = pid, plotType = ci$plotType,
+                                 detector = "ams3d",
+                                 rung = ifelse(is.na(rung), "native", as.character(rung)),
+                                 pdens = round(pdens, 2), frdens = round(frdens, 2),
+                                 n_apex = nrow(det)), sc)
+          out[[length(out) + 1]] <- sc
+        }
       }
       unlink(prep$file)
     }
@@ -124,7 +127,7 @@ run_main <- function() {
                   message("plot ", p, " failed: ", conditionMessage(e)); NULL }),
                 mc.cores = CORES, mc.preschedule = FALSE)
   results <- do.call(rbind, Filter(Negate(is.null), res_list))
-  if (is.null(results)) { cat("no AMS3D results\n"); return(invisible()) }
+  if (is.null(results) || !nrow(results)) { cat("no AMS3D results\n"); return(invisible()) }
   write.csv(results, file.path(nd, "ams3d_results.csv"), row.names = FALSE)
   write.csv(data.frame(knob = c("crown_diameter_to_tree_height",
                                 "crown_length_to_tree_height",

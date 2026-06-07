@@ -57,3 +57,83 @@ det_ams3d <- function(las, cd_ratio = 0.4, cl_ratio = 0.8, min_above = 2) {
            by = crown_id]
   data.frame(x = ap$x, y = ap$y, z = ap$z)
 }
+
+## ---- args ----------------------------------------------------------------
+args  <- strsplit(commandArgs(TRUE), "=")
+A     <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
+SITE  <- if (is.null(A$SITE))  "SOAP" else A$SITE
+PLOTS <- if (is.null(A$PLOTS) || A$PLOTS == "ALL") NULL else strsplit(A$PLOTS, ",")[[1]]
+CORES <- as.integer(if (is.null(A$CORES)) 6 else A$CORES)
+TOL   <- as.numeric(if (is.null(A$TOL)) 4.0 else A$TOL)
+CD    <- as.numeric(if (is.null(A$CD_RATIO)) 0.4 else A$CD_RATIO)
+CL    <- as.numeric(if (is.null(A$CL_RATIO)) 0.8 else A$CL_RATIO)
+RUNGS <- c(8, 4, 2, 1)
+MINTREES <- 6
+
+run_main <- function() {
+  nd  <- file.path(d, "neon", SITE)
+  gt  <- read.csv(file.path(nd, "ground_truth_stems.csv"), stringsAsFactors = FALSE)
+  pc  <- read.csv(file.path(nd, "plot_centroids.csv"),     stringsAsFactors = FALSE)
+  gt  <- gt[gt$live & gt$is_tree & !is.na(gt$E), ]
+  laz <- list.files(file.path(nd, "lidar"), pattern = "\\.laz$",
+                    recursive = TRUE, full.names = TRUE)
+  ctg <- readLAScatalog(laz, progress = FALSE)
+  counts <- table(gt$plotID)
+  keep   <- names(counts)[counts >= MINTREES]
+  if (!is.null(PLOTS)) keep <- intersect(keep, PLOTS)
+  keep   <- intersect(keep, pc$plotID)
+  cat(sprintf("[%s] AMS3D plots: %d (%s)\n", SITE, length(keep),
+              paste(keep, collapse = ",")))
+  tmpdir <- file.path(tempdir(), paste0("ams3d_", SITE))
+  dir.create(tmpdir, showWarnings = FALSE, recursive = TRUE)
+
+  run_plot <- function(pid) {
+    ci <- pc[pc$plotID == pid, ][1, ]
+    cx <- ci$easting; cy <- ci$northing
+    ph <- plot_half(ci$plotType)
+    stems <- gt[gt$plotID == pid & abs(gt$E - cx) <= ph & abs(gt$N - cy) <= ph, ]
+    if (nrow(stems) < 1) return(NULL)
+    out <- list(); native_pdens <- NA_real_
+    for (rung in c(NA, RUNGS)) {
+      prep <- tryCatch(prepare_clip(ctg, cx, cy, rung, tmpdir, core_half = ph),
+                       error = function(e) NULL)
+      if (is.null(prep)) next
+      pdens <- prep$pdens; frdens <- prep$frdens
+      if (is.na(rung)) native_pdens <- pdens
+      else if (is.na(native_pdens) || rung >= native_pdens) { unlink(prep$file); next }
+      las <- tryCatch(readLAS(prep$file), error = function(e) NULL)
+      if (!is.null(las) && !is.empty(las)) {
+        det <- det_ams3d(las, cd_ratio = CD, cl_ratio = CL, min_above = 2)
+        sc  <- score_plot(stems, det, tol_xy = TOL, core_cx = cx, core_cy = cy,
+                          core_half = ph)
+        sc  <- cbind(data.frame(site = SITE, plot = pid, plotType = ci$plotType,
+                                detector = "ams3d",
+                                rung = ifelse(is.na(rung), "native", as.character(rung)),
+                                pdens = round(pdens, 2), frdens = round(frdens, 2),
+                                n_apex = nrow(det)), sc)
+        out[[length(out) + 1]] <- sc
+      }
+      unlink(prep$file)
+    }
+    if (!length(out)) return(NULL)
+    do.call(rbind, out)
+  }
+
+  res_list <- mclapply(keep, function(p)
+                tryCatch(run_plot(p), error = function(e) {
+                  message("plot ", p, " failed: ", conditionMessage(e)); NULL }),
+                mc.cores = CORES, mc.preschedule = FALSE)
+  results <- do.call(rbind, Filter(Negate(is.null), res_list))
+  if (is.null(results)) { cat("no AMS3D results\n"); return(invisible()) }
+  write.csv(results, file.path(nd, "ams3d_results.csv"), row.names = FALSE)
+  write.csv(data.frame(knob = c("crown_diameter_to_tree_height",
+                                "crown_length_to_tree_height",
+                                "segment_crowns_only_above"),
+                       value = c(CD, CL, 2),
+                       source = "literature default (Ferraz 2016 allometry)"),
+            file.path(nd, "ams3d_ledger.csv"), row.names = FALSE)
+  cat(sprintf("[%s] AMS3D DONE: %d rows -> %s\n", SITE, nrow(results),
+              file.path(nd, "ams3d_results.csv")))
+}
+
+if (sys.nframe() == 0L) run_main()

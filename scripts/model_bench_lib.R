@@ -114,8 +114,9 @@ frozen_clip <- function(ctg, site, plot, rung, cx, cy, core_half, out_root,
 # from round(rec_<cls> * n_<cls>); understory = intermediate + suppressed.
 POOL_CLASSES <- c("dominant", "codominant", "intermediate", "suppressed")
 pool <- function(df, classes = POOL_CLASSES) {
+  if (is.null(df$tp_core)) df$tp_core <- round(df$precision * df$n_det)
   out <- data.frame(
-    n_plots = length(unique(paste(df$site, df$plot, df$rung))),
+    n_plots = length(unique(paste(df$site, df$plot, df$rung, sep = "::"))),
     n_ref = sum(df$n_ref), n_det = sum(df$n_det), TP = sum(df$TP),
     recall = sum(df$TP) / sum(df$n_ref),
     precision = sum(df$tp_core, na.rm = TRUE) / sum(df$n_det))

@@ -2,7 +2,9 @@ source(file.path("..", "..", "scripts", "model_bench_lib.R"), local = TRUE)
 
 mk_row <- function(site, plot, rung, det, n_ref, TP, n_det, tp_core) {
   data.frame(site = site, plot = plot, rung = rung, detector = det,
-             n_ref = n_ref, TP = TP, n_det = n_det, tp_core = tp_core,
+             n_ref = n_ref, TP = TP, n_det = n_det,
+             precision = tp_core / n_det,            # score_plot emits precision, not tp_core
+             recall = TP / n_ref,
              n_dominant = n_ref, rec_dominant = TP / n_ref,
              n_codominant = 0, rec_codominant = NA_real_,
              n_intermediate = 0, rec_intermediate = NA_real_,

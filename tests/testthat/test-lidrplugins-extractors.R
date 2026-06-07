@@ -17,3 +17,12 @@ test_that("det_ptrees honors the contract (frame-or-NULL) on the toy cloud", {
               (is.data.frame(det) && !inherits(det, "sf") &&
                identical(names(det), c("x", "y", "z"))))
 })
+
+test_that("det_lmfauto returns a 0-row frame (not NULL) when there are no trees", {
+  flat <- LAS(data.frame(X = runif(200, 0, 10), Y = runif(200, 0, 10),
+                         Z = rep(0.1, 200)))      # all near ground: no trees
+  st_crs(flat) <- 32611L
+  det <- det_lmfauto(flat, hmin = 2)
+  expect_true(is.null(det) || (is.data.frame(det) && nrow(det) == 0L))
+  if (is.data.frame(det)) expect_identical(names(det), c("x", "y", "z"))
+})

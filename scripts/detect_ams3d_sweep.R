@@ -75,8 +75,6 @@ run_main <- function() {
   keep   <- intersect(keep, pc$plotID)
   cat(sprintf("[%s] AMS3D plots: %d (%s)\n", SITE, length(keep),
               paste(keep, collapse = ",")))
-  tmpdir <- file.path(tempdir(), paste0("ams3d_", SITE))
-  dir.create(tmpdir, showWarnings = FALSE, recursive = TRUE)
 
   run_plot <- function(pid) {
     ci <- pc[pc$plotID == pid, ][1, ]

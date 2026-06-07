@@ -98,12 +98,22 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `validate_heights.R` | Apex-vs-field height bias/RMSE at native density; `MEAS_YEAR=2021` writes a distinct `height_pairs_2021.csv` for the temporal cut. |
 | `temporal_sensitivity.R` | Pool baseline (+/-4 yr) vs exact-2021 sweeps at modal params per rung; recall/precision/F1/height deltas + height-bias comparison (issue #5). |
 | `detect_pc_sweep.R` | Issue #6: point-cloud detectors (lidR lmf-on-points, Li 2012, lasR point `local_maximum`) vs the CHM-VWF baseline at native density, scored on field stems by crown class; quantifies understory-recall deltas and the occlusion floor. Writes `neon/<SITE>/pc_detect_results.csv`. |
+| `model_bench_lib.R` | Shared bridge for the model benchmark (#B2): reduce_instances, crown_diameter_table, seed_for/frozen_clip, pool/equal_set_guard, assert_detection_contract. |
+| `detect_ams3d_sweep.R` | AMS3D (crownsegmentr) arm (#B1): adaptive mean-shift crowns over the density ladder, reduced to detections and scored by crown class. |
+| `detect_lidrplugins_sweep.R` | lidRplugins competitor arm (#C9): lmfauto/multichm (locate_trees) + ptrees (segment_trees) vs the CHM-VWF baseline over the density ladder. |
 
 ## Reproduce
 
 Requirements: R with `lasR` (>= 0.21, dev/`pre-devel` build with EPT parallel
 acquisition and variable-window `ws`) and `lidR`; PDAL (>= 2.9) for the EPT
 extraction.
+
+The model-benchmark arms add two more: **crownsegmentr** (CRAN,
+`install.packages("crownsegmentr")`) for the AMS3D arm; and **lidRplugins**
+for the competitor arm — its CRAN-archived `rgeos`/`rgdal` and Bioconductor
+`EBImage` are declared but unused by the detectors we call, so install from a
+source clone with those stripped from DESCRIPTION (see
+`docs/superpowers/plans/2026-06-07-lidrplugins-competitor-arm.md`, Task 1).
 
 ```sh
 export CLAUDE_JOB_DIR=$(pwd)/work && mkdir -p "$CLAUDE_JOB_DIR"

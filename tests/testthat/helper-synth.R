@@ -24,6 +24,7 @@ synth_las_normalized <- function() {
   df$Z[1]  <- 18; df$Y[1]  <- 10; df$X[1]  <- 10   # guarantee a tree-A apex
   df$Z[61] <- 12; df$Y[61] <- 12; df$X[61] <- 40   # guarantee a tree-B apex
   las <- LAS(df)
-  projection(las) <- 32611
+  st_crs(las) <- 32611L
   las
 }
+

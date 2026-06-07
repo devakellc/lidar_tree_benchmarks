@@ -154,3 +154,18 @@ equal_set_guard <- function(df, arms, key_cols = c("site", "plot", "rung")) {
   attr(out, "dropped") <- dropped
   out
 }
+
+## ---- scorer-contract conformance harness ---------------------------------
+# Asserts `det` satisfies what score_plot consumes: a base data.frame (not sf),
+# with exactly numeric columns x, y, z (lowercase). Empty must be a 0-row frame,
+# never NULL. Returns TRUE invisibly or stops with a specific message.
+assert_detection_contract <- function(det) {
+  if (is.null(det)) stop("detection table is NULL; return a 0-row data.frame instead")
+  if (!is.data.frame(det)) stop("detection table must be a base data.frame")
+  if (inherits(det, "sf")) stop("detection table must not be an sf object")
+  if (!identical(names(det), c("x", "y", "z")))
+    stop("detection table must have exactly columns x, y, z (lowercase)")
+  if (!all(vapply(det, is.numeric, logical(1))))
+    stop("detection columns x, y, z must be numeric")
+  invisible(TRUE)
+}

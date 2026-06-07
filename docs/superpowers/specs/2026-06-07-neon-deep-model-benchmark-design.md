@@ -314,10 +314,10 @@ how issues #3–#8 are already tracked. Research-surfaced gaps are folded in as
                    #C9 joins off #B2
 ```
 
-First real cross-arm result lands after **#B1 + #B2 + #C9** (AMS3D + lidRplugins
-
-- existing baselines; #C9 depends on the extracted bridge #B2) — before any
-Docker work. **10 core issues (#A0–#R10) + 4 deferred (#E11–#E14).**
+First real cross-arm result lands after **#B1 + #B2 + #C9** (AMS3D +
+lidRplugins + existing baselines; #C9 depends on the extracted bridge #B2) —
+before any Docker work. **10 core issues (#A0–#R10) + 4 deferred
+(#E11–#E14).**
 
 ---
 
@@ -381,7 +381,7 @@ Research-surfaced risks and where each is handled, so none is lost:
 - [`docs/dataset-research-and-sweep-plan.md`](../../dataset-research-and-sweep-plan.md)
   — NEON density-ladder rationale.
 - `scripts/sweep_lib.R` (`greedy_match`, `plot_half`, `prepare_clip`,
-  `score_plot`, `pool`), `scripts/detect_pc_sweep.R` (the arm template),
+  `score_plot`), `scripts/detect_pc_sweep.R` (the arm template),
   `scripts/crown_metrics_sweep.R` (crown-diameter scoring),
   `scripts/neon_ground_truth.R` (stem schema, crown class).
 

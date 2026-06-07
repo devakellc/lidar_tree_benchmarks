@@ -106,3 +106,51 @@ frozen_clip <- function(ctg, site, plot, rung, cx, cy, core_half, out_root,
                        fp$manifest, auto_unbox = TRUE, pretty = TRUE)
   c(fp, list(pdens = pdens, frdens = frdens, seed = seed))
 }
+
+## ---- canonical pooler: sum counts, never average rates -------------------
+# df: long-form scored rows (one per site x plot x rung x detector subset).
+# Pools to a single row: recall = sum(TP)/sum(n_ref), precision =
+# sum(tp_core)/sum(n_det), F1 from the pooled rates; per-class recall recovered
+# from round(rec_<cls> * n_<cls>); understory = intermediate + suppressed.
+POOL_CLASSES <- c("dominant", "codominant", "intermediate", "suppressed")
+pool <- function(df, classes = POOL_CLASSES) {
+  out <- data.frame(
+    n_plots = length(unique(paste(df$site, df$plot, df$rung))),
+    n_ref = sum(df$n_ref), n_det = sum(df$n_det), TP = sum(df$TP),
+    recall = sum(df$TP) / sum(df$n_ref),
+    precision = sum(df$tp_core, na.rm = TRUE) / sum(df$n_det))
+  out$F1 <- if (!is.na(out$recall) && !is.na(out$precision) &&
+                (out$recall + out$precision) > 0)
+    2 * out$recall * out$precision / (out$recall + out$precision) else NA_real_
+  for (cl in classes) {
+    nref <- sum(df[[paste0("n_", cl)]], na.rm = TRUE)
+    tp   <- sum(ifelse(df[[paste0("n_", cl)]] > 0,
+                       round(df[[paste0("rec_", cl)]] * df[[paste0("n_", cl)]]), 0),
+                na.rm = TRUE)
+    out[[paste0("rec_", cl)]] <- if (nref) tp / nref else NA_real_
+    out[[paste0("n_", cl)]]   <- nref
+  }
+  nref_u <- sum(df$n_intermediate, na.rm = TRUE) + sum(df$n_suppressed, na.rm = TRUE)
+  tp_u <- sum(ifelse(df$n_intermediate > 0,
+                     round(df$rec_intermediate * df$n_intermediate), 0), na.rm = TRUE) +
+          sum(ifelse(df$n_suppressed > 0,
+                     round(df$rec_suppressed * df$n_suppressed), 0), na.rm = TRUE)
+  out$rec_understory <- if (nref_u) tp_u / nref_u else NA_real_
+  out$n_understory   <- nref_u
+  out
+}
+
+## ---- per-(plot,rung) equal-set guard -------------------------------------
+# Keep only (site,plot,rung) cells scored by EVERY arm; drop the rest so a rung's
+# cross-arm comparison uses an identical plot population. Returns the filtered
+# df with the dropped cell keys in attr(.,"dropped").
+equal_set_guard <- function(df, arms, key_cols = c("site", "plot", "rung")) {
+  k <- do.call(paste, c(df[key_cols], sep = "::"))
+  df$.k <- k
+  n_arms <- tapply(df$detector, k, function(v) length(unique(v)))
+  common <- names(n_arms)[n_arms == length(arms)]
+  dropped <- setdiff(unique(k), common)
+  out <- df[df$.k %in% common, setdiff(names(df), ".k"), drop = FALSE]
+  attr(out, "dropped") <- dropped
+  out
+}

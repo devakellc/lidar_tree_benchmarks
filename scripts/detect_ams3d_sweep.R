@@ -22,10 +22,11 @@ local({
     .src_dir <<- dirname(normalizePath(ff, mustWork = FALSE))
   } else {
     # sourced — search candidate directories for sweep_lib.R
+    # candidates cover both cwd=repo-root (Rscript) and cwd=tests/testthat (sourced under testthat)
     candidates <- c("scripts",
                     file.path("..", "..", "scripts"),
                     file.path(getwd(), "scripts"))
-    found <- Filter(function(d) file.exists(file.path(d, "sweep_lib.R")),
+    found <- Filter(function(cand) file.exists(file.path(cand, "sweep_lib.R")),
                     candidates)
     .src_dir <<- if (length(found)) found[[1L]] else "scripts"
   }
@@ -49,6 +50,7 @@ det_ams3d <- function(las, cd_ratio = 0.4, cl_ratio = 0.8, min_above = 2) {
       crown_id_column_name          = "crown_id"),
     error = function(e) NULL)
   if (is.null(seg)) return(empty)
+  if (!"crown_id" %in% names(seg@data)) return(empty)
   dt <- as.data.table(seg@data)[!is.na(crown_id), .(X, Y, Z, crown_id)]
   if (!nrow(dt)) return(empty)
   ap <- dt[, .(x = X[which.max(Z)], y = Y[which.max(Z)], z = max(Z)),

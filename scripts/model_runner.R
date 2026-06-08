@@ -24,13 +24,26 @@ source(.find("model_bench_lib.R"))
   if (length(out)) message(paste(tail(out, 3), collapse = "\n"))
 }
 
-# Read an arm's detections CSV under the scorer contract: a valid `x y z` table
-# -> data.frame(x,y,z) (a header with no data rows is a legit 0-row frame); a
-# wrong-schema or unreadable file -> NULL. Callers map NULL -> skip the cell.
+.valid_detection_or_null <- function(det) {
+  ok <- tryCatch({ assert_detection_contract(det); TRUE },
+                 error = function(e) FALSE)
+  if (!ok) return(NULL)
+  if (!all(is.finite(det$x) & is.finite(det$y) & is.finite(det$z)))
+    return(NULL)
+  det
+}
+
+# Read an arm's detections CSV under the scorer contract: a valid finite `x y z`
+# table -> data.frame(x,y,z) (a header with no data rows is a legit 0-row
+# frame); wrong-schema, unreadable, or non-finite coordinates -> NULL.
+# Callers map NULL -> skip the cell.
 .read_detection_csv <- function(out_csv) {
   d <- tryCatch(read.table(out_csv, header = TRUE), error = function(e) NULL)
   if (is.null(d) || !identical(names(d), c("x", "y", "z"))) return(NULL)
-  data.frame(x = as.numeric(d$x), y = as.numeric(d$y), z = as.numeric(d$z))
+  det <- suppressWarnings(data.frame(x = as.numeric(d$x),
+                                     y = as.numeric(d$y),
+                                     z = as.numeric(d$z)))
+  .valid_detection_or_null(det)
 }
 
 run_python_arm <- function(venv_python, script, input, out_csv,
@@ -51,7 +64,6 @@ run_python_arm <- function(venv_python, script, input, out_csv,
   if (!file.exists(out_csv)) return(NULL)
   det <- .read_detection_csv(out_csv)                # NULL on wrong-schema/unreadable
   if (is.null(det)) return(NULL)
-  assert_detection_contract(det)
   det
 }
 
@@ -116,6 +128,5 @@ run_docker_arm <- function(image, input, out_csv, extra = character(),
   rd  <- if (is.null(reader)) .read_detection_csv else reader
   det <- tryCatch(rd(out_abs), error = function(e) NULL)
   if (is.null(det)) return(NULL)                     # schema failure -> skip cell
-  assert_detection_contract(det)
-  det
+  .valid_detection_or_null(det)
 }

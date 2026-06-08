@@ -4,7 +4,8 @@
 # (max-Z per id). det_to_agl: apex absolute elevation -> height above ground via
 # the frozen clip's ground_dtm.tif, so z matches score_plot's height gate; it
 # drops apexes that fall off the DTM and records the count in attr "n_dropped".
-# (LAZ->PLY for the SAT/FF3D Docker arms is added in their issue, not here.)
+# LAZ<->PLY bridge (laz_to_ply / read_ply / ply_to_laz / read_instances_ply)
+# feeds the PLY-ingesting SAT (#M6) / FF3D (#M8) Docker arms; see #19.
 .find <- function(rel) Find(file.exists, c(file.path("scripts", rel),
                                            file.path("..", "..", "scripts", rel),
                                            file.path(getwd(), "scripts", rel)))
@@ -26,7 +27,8 @@ instances_to_det <- function(pts, id_field = "pred_itc",
 read_instances_laz <- function(path, id_field = "pred_itc") {
   las <- lidR::readLAS(path)
   if (is.null(las) || lidR::is.empty(las))
-    return(data.frame(x = numeric(), y = numeric(), z = numeric()))
+    return(data.frame(x = numeric(), y = numeric(), z = numeric()))  # legit empty
+  if (!id_field %in% names(las@data)) return(NULL)   # schema failure -> skip cell
   instances_to_det(las@data, id_field = id_field)
 }
 
@@ -40,4 +42,161 @@ det_to_agl <- function(det, dtm_path) {
   rownames(out) <- NULL
   attr(out, "n_dropped") <- as.integer(sum(!ok))
   out
+}
+
+## ---- binary little-endian PLY bridge (#19) -------------------------------
+# Hand-rolled vertex-scalar PLY I/O (no ascii, no faces, no list properties) so
+# the LAZ<->PLY conversions the SAT (#M6) / FF3D (#M8) Docker arms need stay
+# unit-testable in pure R. Coordinates default to absolute UTM as `double`
+# (lossless); `coord_type="float"` forces a local `offset` (returned on write,
+# re-added on read) because float32 cannot hold a UTM northing to < ~0.5 m.
+
+.PLY_SIZES <- c(char = 1L, uchar = 1L, short = 2L, ushort = 2L,
+                int = 4L, uint = 4L, float = 4L, double = 8L)
+
+.ply_default_type <- function(col) switch(col,
+  Intensity = "ushort",
+  ReturnNumber = , NumberOfReturns = , Classification = "uchar",
+  gpstime = "double", "float")
+
+# values -> an N x size raw matrix (row i = the little-endian bytes of value i).
+.ply_col_raw <- function(v, type) switch(type,
+  double = matrix(writeBin(as.double(v), raw(), size = 8, endian = "little"),
+                  ncol = 8, byrow = TRUE),
+  float  = matrix(writeBin(as.double(v), raw(), size = 4, endian = "little"),
+                  ncol = 4, byrow = TRUE),
+  int = , uint = matrix(writeBin(as.integer(v), raw(), size = 4, endian = "little"),
+                        ncol = 4, byrow = TRUE),
+  short = , ushort = {
+    iv <- as.integer(v)
+    cbind(as.raw(bitwAnd(iv, 255L)), as.raw(bitwAnd(iv %/% 256L, 255L)))
+  },
+  char = , uchar = matrix(as.raw(bitwAnd(as.integer(v), 255L)), ncol = 1),
+  stop("laz_to_ply: unsupported PLY type '", type, "'"))
+
+# an N x size raw matrix -> the property's numeric/integer vector.
+.ply_read_col <- function(mat, type) {
+  n <- nrow(mat); bytes <- as.vector(t(mat))
+  switch(type,
+    double = readBin(bytes, "double", n, size = 8, endian = "little"),
+    float  = readBin(bytes, "double", n, size = 4, endian = "little"),
+    int = , uint = readBin(bytes, "integer", n, size = 4, endian = "little"),
+    short  = readBin(bytes, "integer", n, size = 2, endian = "little", signed = TRUE),
+    ushort = as.integer(mat[, 1]) + 256L * as.integer(mat[, 2]),
+    char   = readBin(bytes, "integer", n, size = 1, endian = "little", signed = TRUE),
+    uchar  = as.integer(mat[, 1]),
+    stop("read_ply: unsupported PLY type '", type, "'"))
+}
+
+.find_bytes <- function(all, marker) {
+  k <- length(marker); lim <- min(length(all), 65536L)
+  for (i in which(all[seq_len(lim)] == marker[1]))
+    if (i + k - 1 <= length(all) && all(all[i:(i + k - 1)] == marker)) return(i)
+  stop("read_ply: 'end_header' marker not found (not a binary PLY?)")
+}
+
+# LAZ -> binary PLY. `fields`: LAS columns carried at LAS-native widths. `props`:
+# named list(<out> = list(from = <lascol> | const = <value>, type = <ply type>))
+# for model-shaped output (renames, dtype, constant columns). Returns
+# list(n, offset) invisibly.
+laz_to_ply <- function(laz_path, ply_path, fields = character(), props = NULL,
+                       coord_type = c("double", "float"), offset = NULL) {
+  coord_type <- match.arg(coord_type)
+  las <- lidR::readLAS(laz_path)
+  d <- las@data; n <- nrow(d)
+  xyz <- cbind(as.double(d$X), as.double(d$Y), as.double(d$Z))
+  if (is.null(offset))
+    offset <- if (n > 0 && coord_type == "float")
+      floor(apply(xyz, 2, min)) else c(0, 0, 0)
+  xyz <- sweep(xyz, 2, offset)
+  cols <- list(x = list(v = xyz[, 1], t = coord_type),
+               y = list(v = xyz[, 2], t = coord_type),
+               z = list(v = xyz[, 3], t = coord_type))
+  for (f in fields) {
+    if (!f %in% names(d)) stop("laz_to_ply: field '", f, "' not in the LAS")
+    cols[[f]] <- list(v = d[[f]], t = .ply_default_type(f))
+  }
+  for (nm in names(props)) {
+    spec <- props[[nm]]
+    ty <- if (is.null(spec$type)) "float" else spec$type
+    if (!is.null(spec$const)) {
+      v <- rep(spec$const, length.out = n)
+    } else {
+      from <- if (is.null(spec$from)) nm else spec$from
+      if (!from %in% names(d))
+        stop("laz_to_ply: prop source '", from, "' not in the LAS")
+      v <- d[[from]]
+    }
+    cols[[nm]] <- list(v = v, t = ty)
+  }
+  pnames <- names(cols); ptypes <- vapply(cols, `[[`, "", "t")
+  body <- if (n > 0)
+    as.vector(t(do.call(cbind, lapply(cols, function(c) .ply_col_raw(c$v, c$t)))))
+  else raw(0)
+  header <- paste0("ply\n", "format binary_little_endian 1.0\n",
+                   "comment generated by io_bridge.R laz_to_ply\n",
+                   "element vertex ", n, "\n",
+                   paste0("property ", ptypes, " ", pnames, collapse = "\n"), "\n",
+                   "end_header\n")
+  con <- file(ply_path, "wb"); on.exit(close(con))
+  writeBin(charToRaw(header), con); writeBin(body, con)
+  invisible(list(n = n, offset = offset))
+}
+
+# Binary vertex-scalar PLY -> data.frame (one column per property, named by the
+# header), with `offset` added back to x/y/z. attr(.,"properties") = name->type.
+read_ply <- function(ply_path, offset = c(0, 0, 0)) {
+  all <- readBin(ply_path, "raw", n = file.size(ply_path))
+  marker <- charToRaw("end_header\n"); pos <- .find_bytes(all, marker)
+  lines <- strsplit(rawToChar(all[seq_len(pos - 1)]), "\n", fixed = TRUE)[[1]]
+  fmt <- grep("^format ", lines, value = TRUE)
+  if (!length(fmt) || !grepl("binary_little_endian", fmt))
+    stop("read_ply: only binary_little_endian is supported")
+  n <- as.integer(sub("^element vertex ", "",
+                      grep("^element vertex ", lines, value = TRUE)[1]))
+  pp <- strsplit(grep("^property ", lines, value = TRUE), " ", fixed = TRUE)
+  ptypes <- vapply(pp, `[`, "", 2L); pnames <- vapply(pp, `[`, "", 3L)
+  sizes <- as.integer(.PLY_SIZES[ptypes])
+  if (anyNA(sizes)) stop("read_ply: unknown property type(s)")
+  if (n > 0) {
+    body <- all[(pos + length(marker)):length(all)]
+    rows <- matrix(body[seq_len(n * sum(sizes))], ncol = sum(sizes), byrow = TRUE)
+    off <- 1L; out <- vector("list", length(pnames))
+    for (i in seq_along(pnames)) {
+      out[[i]] <- .ply_read_col(rows[, off:(off + sizes[i] - 1), drop = FALSE],
+                                ptypes[i])
+      off <- off + sizes[i]
+    }
+    df <- as.data.frame(setNames(out, pnames), check.names = FALSE,
+                        stringsAsFactors = FALSE)
+  } else {
+    df <- as.data.frame(setNames(rep(list(numeric(0)), length(pnames)), pnames),
+                        check.names = FALSE, stringsAsFactors = FALSE)
+  }
+  if (all(c("x", "y", "z") %in% names(df))) {
+    df$x <- df$x + offset[1]; df$y <- df$y + offset[2]; df$z <- df$z + offset[3]
+  }
+  attr(df, "properties") <- setNames(ptypes, pnames)
+  df
+}
+
+# Inverse converter: binary PLY -> LAZ (XYZ + recognized fields). Minimal.
+ply_to_laz <- function(ply_path, laz_path, offset = c(0, 0, 0)) {
+  p <- read_ply(ply_path, offset = offset)
+  out <- data.frame(X = p$x, Y = p$y, Z = p$z)
+  if (!is.null(p$Intensity)) out$Intensity <- as.integer(p$Intensity)
+  else if (!is.null(p$intensity)) out$Intensity <- as.integer(round(p$intensity))
+  if (!is.null(p$ReturnNumber)) out$ReturnNumber <- as.integer(p$ReturnNumber)
+  lidR::writeLAS(lidR::LAS(out), laz_path)
+  invisible(laz_path)
+}
+
+# Instance-labeled PLY output -> apex det(x,y,z). Strict: a missing id_field is a
+# schema failure (-> NULL, the runner skips the cell), never a fake 0-row.
+read_instances_ply <- function(ply_path, id_field = "treeID",
+                               offset = c(0, 0, 0),
+                               x = "x", y = "y", z = "z") {
+  p <- read_ply(ply_path, offset = offset)
+  if (!id_field %in% names(p)) return(NULL)
+  instances_to_det(p, id_field = id_field, x = x, y = y, z = z)
 }

@@ -8,24 +8,24 @@
 # the equal-set guard drops the cell (never a fake 0-row from a stale/partial or
 # malformed file). Only a VALID `x y z` CSV with no data rows -> a 0-row frame
 # (legit ran-but-empty -> recall 0).
-.script_path <- function() {
-  ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
-  if (!is.null(ofile) && length(ofile) && nzchar(ofile)) return(ofile)
-  hit <- grep("^--file=", commandArgs(FALSE), value = TRUE)
-  if (length(hit)) return(sub("^--file=", "", hit[1]))
-  NA_character_
-}
-.sp <- .script_path()
-.ROOT <- if (!is.na(.sp)) normalizePath(file.path(dirname(.sp), ".."),
-                                        mustWork = FALSE) else getwd()
-.find <- function(rel) Find(file.exists, c(file.path(.ROOT, "scripts", rel),
-                                           file.path("scripts", rel),
-                                           file.path("..", "..", "scripts", rel),
-                                           file.path(getwd(), "scripts", rel)))
+bs <- Find(file.exists, c(
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs)
 source(.find("model_bench_lib.R"))
 
+.log_python_failure <- function(label, out, st) {
+  if (is.null(label) || !nzchar(label)) return(invisible(NULL))
+  message(sprintf("  %s: GPU driver failed (status %s)", label,
+                  if (is.null(st)) "?" else st))
+  if (length(out)) message(paste(tail(out, 3), collapse = "\n"))
+}
+
 run_python_arm <- function(venv_python, script, input, out_csv,
-                           extra = character(), timeout = 1800) {
+                           extra = character(), timeout = 1800,
+                           label = NULL) {
   if (file.exists(out_csv)) unlink(out_csv)          # never read a stale file
   # shQuote every arg: system2 pastes into a shell, so unquoted paths with
   # spaces/parens (e.g. the upstream "...(GPU4GB).json" config) would break sh.
@@ -34,7 +34,10 @@ run_python_arm <- function(venv_python, script, input, out_csv,
                                            stderr = TRUE, timeout = timeout)),
                   error = function(e) NULL)
   st <- if (is.null(out)) 1L else attr(out, "status")   # non-NULL only when != 0
-  if (!is.null(st) && st != 0) return(NULL)          # crash -> skip cell
+  if (!is.null(st) && st != 0) {
+    .log_python_failure(label, out, st)
+    return(NULL)                                     # crash -> skip cell
+  }
   if (!file.exists(out_csv)) return(NULL)
   d <- tryCatch(read.table(out_csv, header = TRUE), error = function(e) NULL)
   if (is.null(d) || !identical(names(d), c("x", "y", "z")))
@@ -45,14 +48,18 @@ run_python_arm <- function(venv_python, script, input, out_csv,
 }
 
 run_python_crown_arm <- function(venv_python, script, input, out_csv,
-                                 extra = character(), timeout = 1800) {
+                                 extra = character(), timeout = 1800,
+                                 label = NULL) {
   if (file.exists(out_csv)) unlink(out_csv)          # never read a stale file
   args <- shQuote(c(script, input, out_csv, extra))
   out <- tryCatch(suppressWarnings(system2(venv_python, args, stdout = TRUE,
                                            stderr = TRUE, timeout = timeout)),
                   error = function(e) NULL)
   st <- if (is.null(out)) 1L else attr(out, "status")
-  if (!is.null(st) && st != 0) return(NULL)
+  if (!is.null(st) && st != 0) {
+    .log_python_failure(label, out, st)
+    return(NULL)
+  }
   if (!file.exists(out_csv)) return(NULL)
   d <- tryCatch(read.table(out_csv, header = TRUE), error = function(e) NULL)
   if (is.null(d) || !identical(names(d), c("x", "y", "z", "crown_id")))

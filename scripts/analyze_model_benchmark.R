@@ -10,9 +10,12 @@
 # Writes: summary CSVs + figs/ + a generated markdown table fragment under the
 #         same dir; the narrative results/model-benchmark-results.md is authored.
 suppressMessages({ library(data.table) })
-.find <- function(rel) Find(file.exists, c(file.path("scripts", rel),
-                                           file.path("..", "..", "scripts", rel),
-                                           file.path(getwd(), "scripts", rel)))
+bs <- Find(file.exists, c(
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs)
 source(.find("model_bench_lib.R"))
 
 RUNG_LEVELS <- c("native", "8", "4", "2", "1")

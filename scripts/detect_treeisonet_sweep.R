@@ -17,20 +17,12 @@
 suppressMessages({ library(lidR); library(data.table) })
 options(lidR.progress = FALSE)
 d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
-.script_path <- function() {
-  ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
-  if (!is.null(ofile) && length(ofile) && nzchar(ofile)) return(ofile)
-  hit <- grep("^--file=", commandArgs(FALSE), value = TRUE)
-  if (length(hit)) return(sub("^--file=", "", hit[1]))
-  NA_character_
-}
-.sp <- .script_path()
-.ROOT <- if (!is.na(.sp)) normalizePath(file.path(dirname(.sp), ".."),
-                                        mustWork = FALSE) else getwd()
-.find <- function(rel) Find(file.exists, c(file.path(.ROOT, "scripts", rel),
-                                           file.path("scripts", rel),
-                                           file.path("..", "..", "scripts", rel),
-                                           file.path(getwd(), "scripts", rel)))
+bs <- Find(file.exists, c(
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs)
 source(.find("sweep_lib.R")); source(.find("model_bench_lib.R"))
 source(.find("model_runner.R"))
 
@@ -81,7 +73,9 @@ run_main <- function() {
       ocsv <- file.path(tempdir(), sprintf("ti_%s_%s.csv", pid,
                         ifelse(is.na(rung), "native", rung)))
       det <- run_python_arm(VENV, DRV, prep$normalized, ocsv,
-                            extra = c(LOC, CFG, VOXEL, CONF), timeout = 900)
+                            extra = c(LOC, CFG, VOXEL, CONF), timeout = 900,
+                            label = sprintf("%s/%s", pid,
+                              ifelse(is.na(rung), "native", rung)))
       if (is.null(det)) next                # GPU crash -> skip cell (guard drops)
       sc <- tryCatch(score_plot(stems, det, tol_xy = TOL, core_cx = cx,
                                 core_cy = cy, core_half = ph),

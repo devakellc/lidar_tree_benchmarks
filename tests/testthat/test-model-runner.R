@@ -34,6 +34,16 @@ test_that("run_python_arm returns a 0-row frame on a valid header with no rows",
   expect_equal(nrow(det), 0L)                 # ran-but-empty -> legit recall 0
 })
 
+test_that("run_python_arm logs driver failures when label is set", {
+  d <- tempfile(); dir.create(d)
+  out <- file.path(d, "stale.csv"); writeLines("x y z\n9 9 9", out)
+  py <- file.path(d, "boom.py"); writeLines("import sys; sys.exit(3)", py)
+  expect_message(
+    expect_null(run_python_arm("python3", py, input = "x.laz", out_csv = out,
+                              label = "SOAP_001/native")),
+    "SOAP_001/native: GPU driver failed")
+})
+
 test_that("run_python_crown_arm returns filtered labeled crown points", {
   d <- tempfile(); dir.create(d)
   py <- file.path(d, "crowns.py"); out <- file.path(d, "crowns.csv")

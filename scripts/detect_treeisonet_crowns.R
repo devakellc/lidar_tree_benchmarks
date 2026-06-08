@@ -19,20 +19,12 @@
 suppressMessages({ library(lidR); library(data.table); library(grDevices) })
 options(lidR.progress = FALSE)
 d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
-.script_path <- function() {
-  ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
-  if (!is.null(ofile) && length(ofile) && nzchar(ofile)) return(ofile)
-  hit <- grep("^--file=", commandArgs(FALSE), value = TRUE)
-  if (length(hit)) return(sub("^--file=", "", hit[1]))
-  NA_character_
-}
-.sp <- .script_path()
-.ROOT <- if (!is.na(.sp)) normalizePath(file.path(dirname(.sp), ".."),
-                                        mustWork = FALSE) else getwd()
-.find <- function(rel) Find(file.exists, c(file.path(.ROOT, "scripts", rel),
-                                           file.path("scripts", rel),
-                                           file.path("..", "..", "scripts", rel),
-                                           file.path(getwd(), "scripts", rel)))
+bs <- Find(file.exists, c(
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs)
 source(.find("sweep_lib.R")); source(.find("model_bench_lib.R"))
 source(.find("model_runner.R"))
 
@@ -94,7 +86,8 @@ run_main <- function() {
     if (is.null(prep)) next
     ocsv <- file.path(tempdir(), sprintf("ticr_%s.csv", pid))
     pts <- run_python_crown_arm(VENV, DRV, prep$normalized, ocsv,
-      extra = c(LOC, LCFG, OFF, OCFG, "0", CONF, HMIN), timeout = 900)
+      extra = c(LOC, LCFG, OFF, OCFG, "0", CONF, HMIN), timeout = 900,
+      label = pid)
     if (is.null(pts) || !nrow(pts)) next
     dt  <- as.data.table(pts)
     ap  <- dt[, .(x = X[which.max(Z)], y = Y[which.max(Z)], z = max(Z)), by = crown_id]

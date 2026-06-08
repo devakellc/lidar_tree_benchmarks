@@ -24,7 +24,7 @@ These were settled during brainstorming and a follow-up Codex design review:
 | PLY I/O location | **Hand-rolled binary PLY in base R**, inside `io_bridge.R` | No new deps; the bridge stays unit-testable in pure R (no venv/Docker), matching the repo's GPU-free-bridge property. |
 | Coordinate contract | **`coord_type` + `offset`**, offset returned and restored | float64 absolute is lossless but **float32 + absolute UTM northing (~4.1e6) loses ~0.5 m** (float32 ulp). So `float` forces a local offset; the offset is returned on write and re-added on read. See §2.1. |
 | PLY schema | **Configurable property names + dtype + constant columns** | SAT writes lowercase `x/y/z/intensity` + `semantic_seg`/`treeID`; the writer must express those, not only LAS-native `Intensity`. The *mechanism* is here; each model's exact recipe stays in its arm. |
-| Docker output | **Contract-owned `reader=`** on one runner | Default reader = the same `x y z` CSV parse as the venv arm; #M6/#M8 pass `read_instances_ply`/`read_instances_laz`. The runner owns failure/missing/exception/contract; the reader returns `NULL` on schema failure (skip cell), 0-row only when legitimately empty. |
+| Docker command | **Explicit `cmd` required** on one runner | Docker args after the image override CMD unless the image has an ENTRYPOINT, so the runner requires a non-empty `cmd` and appends `<input> <out> <extra>` to that command. The runner owns failure/missing/exception/contract; #M6/#M8 can pass `read_instances_ply`/`read_instances_laz` as `reader=`. |
 | Bind mounts | **Identity mounts** (`-v abs:abs`), absolute paths only | In-container paths == host paths ⇒ zero translation. `normalizePath` + `shQuote` as in `run_python_arm` (paths with spaces/parens). |
 | Crash contract | **Identical to the venv backend** | Non-zero exit OR missing output → `NULL`; wrong-schema → `NULL`; valid header, no rows → 0-row frame. Never a fake 0-row from a stale/partial file. |
 
@@ -91,16 +91,19 @@ model-output readers, leaving the general `instances_to_det` utility untouched.
 cmd = character(), mounts = NULL, gpus = "all", docker = "docker",
 timeout = 1800, label = NULL, reader = NULL)`**
 
-- Unlink any stale `out_csv` first (never read a stale file).
+`cmd` must be non-empty.
+
+- Validate non-empty `cmd` first (API misuse must not delete stale output).
+- Unlink any stale `out_csv` before running the container (never read a stale file).
 - **Identity-mount** `normalizePath(dirname(input))` +
   `normalizePath(dirname(out_csv))`, plus every entry in `mounts` (host
   weight/config dirs), as `-v abs:abs`. Relative paths are normalized to
   absolute so `-v` is always valid.
-- Assemble `docker run --rm [--gpus all] -v … <image> [cmd…] <input>
-  <out_csv> <extra…>`, `shQuote` every token, and `system2` it with the same
-  `tryCatch` + exit-status discipline as `run_python_arm`. `gpus = NULL` omits
-  `--gpus`; `cmd` overrides the in-container command (default: the image's own
-  entrypoint/CMD).
+- Require a non-empty `cmd`, then assemble `docker run --rm [--gpus all] -v …
+  <image> <cmd…> <input> <out_csv> <extra…>`, `shQuote` every token, and
+  `system2` it with the same `tryCatch` + exit-status discipline as
+  `run_python_arm`. `gpus = NULL` omits `--gpus`. Requiring `cmd` prevents
+  accidentally replacing an image CMD with the input LAZ path.
 - **The runner owns the contract.** On non-zero exit / missing output → `NULL`.
   Otherwise the reader is applied inside `tryCatch` (a throwing reader → `NULL`);
   a `NULL` reader result → `NULL` (schema failure, skip); a non-NULL result is
@@ -144,6 +147,8 @@ emulates the daemon (strips `run`, `--rm`, `--gpus <v>`, repeated `-v <v>`, and
 the image token, then `exec`s the rest), reusing the same arm scripts as the
 venv tests:
 
+- missing `cmd` errors before stale-output unlink, so an input path cannot
+  accidentally replace an image CMD;
 - valid CSV → `x y z` det, **and the recorded argv equals**
   `run --rm --gpus all -v host:host … image cmd input out extra`;
 - `gpus = NULL` omits `--gpus`; repeated `mounts` each appear as `-v`;

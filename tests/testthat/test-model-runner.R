@@ -93,6 +93,16 @@ test_that("run_python_crown_arm returns NULL on stale or wrong-schema output", {
   p
 }
 
+test_that("run_docker_arm requires cmd so image CMD is not overwritten", {
+  d <- tempfile(); dir.create(d)
+  out <- file.path(d, "stale.csv"); writeLines("x y z\\n9 9 9", out)
+  expect_error(run_docker_arm("img", input = file.path(d, "in.laz"),
+                              out_csv = out, docker = .fake_docker(d),
+                              cmd = character()),
+               "cmd must be supplied")
+  expect_true(file.exists(out))                 # API misuse must not unlink output
+})
+
 test_that("run_docker_arm runs a container and returns x,y,z; argv is well-formed", {
   d <- tempfile(); dir.create(d)
   py <- file.path(d, "arm.py"); out <- file.path(d, "det.csv")

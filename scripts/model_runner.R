@@ -80,8 +80,9 @@ run_python_crown_arm <- function(venv_python, script, input, out_csv,
 
 # #19 Docker backend. Same contract as run_python_arm, but the arm runs inside a
 # CUDA container (SAT #M6 / FF3D #M8). Identity bind-mounts (-v abs:abs) make
-# in-container paths == host paths, so the entrypoint receives real paths;
-# `cmd` overrides the image's own command, `mounts` adds weight/config dirs,
+# in-container paths == host paths, so the model command receives real paths;
+# `cmd` is required because Docker args after the image override an image CMD
+# unless the image defines an ENTRYPOINT. `mounts` adds weight/config dirs,
 # `gpus=NULL` drops --gpus. The runner OWNS the contract: non-zero exit or
 # missing output -> NULL; the reader (default = the x y z CSV parse; pass
 # read_instances_ply/read_instances_laz for a labeled-cloud output) is wrapped
@@ -91,6 +92,9 @@ run_docker_arm <- function(image, input, out_csv, extra = character(),
                            cmd = character(), mounts = NULL, gpus = "all",
                            docker = "docker", timeout = 1800, label = NULL,
                            reader = NULL) {
+  if (is.null(cmd) || !length(cmd))
+    stop("run_docker_arm: cmd must be supplied so input/out do not override an image CMD",
+         call. = FALSE)
   if (file.exists(out_csv)) unlink(out_csv)          # never read a stale file
   in_abs  <- normalizePath(input,   mustWork = FALSE)
   out_abs <- normalizePath(out_csv, mustWork = FALSE)

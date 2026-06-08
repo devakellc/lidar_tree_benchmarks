@@ -62,14 +62,19 @@ LADDER_ARMS <- c("ams3d", "lmfauto", "multichm", "ptrees", "chm_vwf")
 NATIVE_ARMS <- c("chm_vwf", "ptrees", "ams3d", "li2012")
 
 # Render a long pooled table to a GitHub-markdown block (selected columns).
+# Format numeric columns BEFORE apply() (which would coerce the whole frame to a
+# character matrix and silently drop the rounding); integer-valued columns
+# (counts) stay integers, rates get `digits` decimals.
 .md_table <- function(df, cols, digits = 2) {
-  hdr <- paste0("| ", paste(cols, collapse = " | "), " |")
-  sep <- paste0("|", paste(rep(" --- ", length(cols)), collapse = "|"), "|")
-  body <- apply(df[, cols, drop = FALSE], 1, function(r)
-    paste0("| ", paste(vapply(r, function(v) {
-      if (is.numeric(v) && !is.na(suppressWarnings(as.numeric(v))))
-        formatC(as.numeric(v), format = "f", digits = digits) else as.character(v)
-    }, character(1)), collapse = " | "), " |"))
+  d2 <- df[, cols, drop = FALSE]
+  for (j in seq_along(d2)) if (is.numeric(d2[[j]])) {
+    col <- d2[[j]]
+    d2[[j]] <- if (all(col == round(col), na.rm = TRUE)) as.character(col)
+               else formatC(col, format = "f", digits = digits)
+  }
+  hdr  <- paste0("| ", paste(cols, collapse = " | "), " |")
+  sep  <- paste0("|", paste(rep(" --- ", length(cols)), collapse = "|"), "|")
+  body <- apply(d2, 1, function(r) paste0("| ", paste(r, collapse = " | "), " |"))
   paste(c(hdr, sep, body), collapse = "\n")
 }
 

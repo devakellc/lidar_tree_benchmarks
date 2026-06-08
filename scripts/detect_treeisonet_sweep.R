@@ -10,16 +10,19 @@
 #
 # Usage:
 #   Rscript scripts/detect_treeisonet_sweep.R [SITE=SOAP] [PLOTS=ALL]
-#       [CONF=0.15] [VOXEL=0] [TOL=4]
+#       [CONF=0.22] [VOXEL=0] [TOL=4]
 # Requires the venv + weights from gpu/setup_treeisonet_env.sh + gpu/mirror_weights.sh.
 # Output: $CLAUDE_JOB_DIR/neon/<SITE>/treeisonet_results.csv (one row per
 #         plot x rung).
 suppressMessages({ library(lidR); library(data.table) })
 options(lidR.progress = FALSE)
 d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
-.find <- function(rel) Find(file.exists, c(file.path("scripts", rel),
-                                           file.path("..", "..", "scripts", rel),
-                                           file.path(getwd(), "scripts", rel)))
+bs <- Find(file.exists, c(
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs)
 source(.find("sweep_lib.R")); source(.find("model_bench_lib.R"))
 source(.find("model_runner.R"))
 
@@ -27,14 +30,14 @@ args  <- strsplit(commandArgs(TRUE), "=")
 A     <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
 SITE  <- if (is.null(A$SITE))  "SOAP" else A$SITE
 PLOTS <- if (is.null(A$PLOTS) || A$PLOTS == "ALL") NULL else strsplit(A$PLOTS, ",")[[1]]
-CONF  <- if (is.null(A$CONF))  "0.15" else A$CONF
+CONF  <- if (is.null(A$CONF))  "0.22" else A$CONF
 VOXEL <- if (is.null(A$VOXEL)) "0" else A$VOXEL
 TOL   <- as.numeric(if (is.null(A$TOL)) 4.0 else A$TOL)
 RUNGS <- c(8, 4, 2, 1); MINTREES <- 6
-VENV  <- file.path(getwd(), "gpu/.venv/bin/python")
-DRV   <- file.path(getwd(), "gpu/run_treeisonet.py")
-LOC   <- file.path(getwd(), "gpu/store/treeaibox/als_treeloc.pth")
-CFG   <- Sys.glob(file.path(getwd(), "gpu/store/treeaibox/*reclamation*treeloc*.json"))[1]
+VENV  <- file.path(.ROOT, "gpu/.venv/bin/python")
+DRV   <- file.path(.ROOT, "gpu/run_treeisonet.py")
+LOC   <- file.path(.ROOT, "gpu/store/treeaibox/als_treeloc.pth")
+CFG   <- Sys.glob(file.path(.ROOT, "gpu/store/treeaibox/*reclamation*treeloc*.json"))[1]
 
 run_main <- function() {
   stopifnot(file.exists(VENV), file.exists(DRV), file.exists(LOC), !is.na(CFG))
@@ -70,7 +73,9 @@ run_main <- function() {
       ocsv <- file.path(tempdir(), sprintf("ti_%s_%s.csv", pid,
                         ifelse(is.na(rung), "native", rung)))
       det <- run_python_arm(VENV, DRV, prep$normalized, ocsv,
-                            extra = c(LOC, CFG, VOXEL, CONF), timeout = 900)
+                            extra = c(LOC, CFG, VOXEL, CONF), timeout = 900,
+                            label = sprintf("%s/%s", pid,
+                              ifelse(is.na(rung), "native", rung)))
       if (is.null(det)) next                # GPU crash -> skip cell (guard drops)
       sc <- tryCatch(score_plot(stems, det, tol_xy = TOL, core_cx = cx,
                                 core_cy = cy, core_half = ph),

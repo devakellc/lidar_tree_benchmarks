@@ -10,9 +10,12 @@
 # Writes: summary CSVs + figs/ + a generated markdown table fragment under the
 #         same dir; the narrative results/model-benchmark-results.md is authored.
 suppressMessages({ library(data.table) })
-.find <- function(rel) Find(file.exists, c(file.path("scripts", rel),
-                                           file.path("..", "..", "scripts", rel),
-                                           file.path(getwd(), "scripts", rel)))
+bs <- Find(file.exists, c(
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs)
 source(.find("model_bench_lib.R"))
 
 RUNG_LEVELS <- c("native", "8", "4", "2", "1")
@@ -58,6 +61,12 @@ deltas_vs_baseline <- function(pooled, baseline = "chm_vwf") {
              d_understory = m$rec_understory - m$rec_understory_base)
 }
 
+require_chm_vwf_baseline <- function(u) {
+  if (!"chm_vwf" %in% unique(u$detector))
+    stop("chm_vwf missing - run detect_lidrplugins_sweep.R first", call. = FALSE)
+  invisible(TRUE)
+}
+
 LADDER_ARMS <- c("ams3d", "lmfauto", "multichm", "ptrees", "chm_vwf", "treeisonet")
 NATIVE_ARMS <- c("chm_vwf", "ptrees", "ams3d", "li2012", "treeisonet")
 
@@ -92,6 +101,7 @@ run_main <- function() {
   dfs <- Filter(Negate(is.null), dfs)
   if (!length(dfs)) stop("no arm result CSVs found under ", nd)
   u <- harmonize_union(dfs)
+  require_chm_vwf_baseline(u)
   cat("arms present:", paste(sort(unique(u$detector)), collapse = ", "), "\n")
 
   ladder <- pool_arms(u, arms = intersect(LADDER_ARMS, unique(u$detector)))
@@ -109,7 +119,8 @@ run_main <- function() {
   ## figures: recall and understory recall vs first-return density, per arm
   fig <- file.path(nd, "figs"); dir.create(fig, showWarnings = FALSE)
   arms <- intersect(LADDER_ARMS, unique(ladder$detector))
-  pal  <- setNames(c("#1b9e77","#d95f02","#7570b3","#e7298a","#666666")[seq_along(arms)], arms)
+  pal_src <- c("#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#666666", "#e6ab02")
+  pal  <- setNames(pal_src[seq_along(arms)], arms)
   draw <- function(file, ycol, ylab, main) {
     png(file.path(fig, file), 1000, 750, res = 130); on.exit(dev.off())
     par(mar = c(4.2, 4.2, 2.5, 1)); first <- TRUE

@@ -156,7 +156,7 @@ parallel overhead can exceed benefit below ~25–30M points on this network path
 
 ## Billion-point AOI (10k acres): concurrency crash + partition knee at scale
 
-A 10,000-acre AOI (`aoi_10k_acres.geojson`; EPSG:3857 bbox
+A 10,000-acre AOI (`data/aoi_10k_acres.geojson`; EPSG:3857 bbox
 `-13549926.53,4944632.44,-13541563.99,4953027.51`) over the same dataset is
 **1,150,704,902 points** (~28 pts/m², ~10× the full-sweep AOI). It exposed both
 a bug and a clearer picture of the partition knee.

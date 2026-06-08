@@ -37,6 +37,10 @@ in [`results/`](results/).
 - [`results/ept-acquisition-sweep-results.md`](results/ept-acquisition-sweep-results.md)
   — lasR remote-EPT acquisition parameter sweep on USGS 3DEP (throughput, not
   detection accuracy).
+- [`results/model-benchmark-results.md`](results/model-benchmark-results.md)
+  — cross-model density-ladder synthesis (#R10): AMS3D, lmfauto/multichm/ptrees,
+  CHM-VWF and native Li 2012 on shared frozen clips, by crown class and height
+  band, with head-to-head deltas vs CHM-VWF.
 
 ## Headline findings
 
@@ -101,6 +105,8 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `model_bench_lib.R` | Shared bridge for the model benchmark (#B2): reduce_instances, crown_diameter_table, seed_for/frozen_clip, pool/equal_set_guard, assert_detection_contract. |
 | `detect_ams3d_sweep.R` | AMS3D (crownsegmentr) arm (#B1): adaptive mean-shift crowns over the density ladder, reduced to detections and scored by crown class. |
 | `detect_lidrplugins_sweep.R` | lidRplugins competitor arm (#C9): lmfauto/multichm (locate_trees) + ptrees (segment_trees) vs the CHM-VWF baseline over the density ladder. |
+| `detect_li2012_native.R` | Native-only Li 2012 arm (#R10): lidR `li2012` point segmenter on the native frozen clip, reduced to detections via the bridge; the point-segmenter leg of the head-to-head. Writes `neon/<SITE>/li2012_results.csv`. |
+| `analyze_model_benchmark.R` | Cross-model synthesis (#R10): unions every arm on the shared frozen clips, equal-set-guards across arms, pools per (detector, rung) by crown class + height band, and writes the density-robustness figures + table fragment behind [`model-benchmark-results.md`](results/model-benchmark-results.md). |
 
 ## Reproduce
 

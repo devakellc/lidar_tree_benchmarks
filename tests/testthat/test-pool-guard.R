@@ -31,6 +31,35 @@ test_that("equal_set_guard drops (site,plot,rung) missing any arm", {
   expect_equal(attr(g, "dropped"), "SOAP::p2::8")
 })
 
+test_that("pool pools height bands by summed counts when present", {
+  hrow <- function(plot, n_ref, TP, tp_core, n_tall, rec_tall) {
+    data.frame(site = "SOAP", plot = plot, rung = "native", detector = "x",
+               n_ref = n_ref, TP = TP, n_det = TP, precision = tp_core / TP,
+               recall = TP / n_ref,
+               n_dominant = 0, rec_dominant = NA_real_,
+               n_codominant = 0, rec_codominant = NA_real_,
+               n_intermediate = 0, rec_intermediate = NA_real_,
+               n_suppressed = 0, rec_suppressed = NA_real_,
+               n_h_short = 0, rec_h_short = NA_real_,
+               n_h_mid = 0, rec_h_mid = NA_real_,
+               n_h_tall = n_tall, rec_h_tall = rec_tall)
+  }
+  df <- rbind(hrow("p1", 10, 5, 5, 4, 0.50),   # tall: 2 of 4
+              hrow("p2", 10, 6, 6, 6, 0.50))    # tall: 3 of 6
+  p <- pool(df)
+  expect_equal(p$n_h_tall, 10)                  # summed n
+  expect_equal(p$rec_h_tall, 0.5)               # (2+3)/(4+6), NOT mean(0.5,0.5)
+  expect_true(is.na(p$rec_h_short))             # band absent -> NA, n=0
+  expect_equal(p$n_h_short, 0)
+})
+
+test_that("pool omits height-band columns when n_h_* absent", {
+  df <- rbind(mk_row("SOAP","p1","8","ams3d",10,5,6,4),
+              mk_row("SOAP","p2","8","ams3d",90,45,50,40))
+  p <- pool(df)
+  expect_false("rec_h_tall" %in% names(p))      # additive: no bands in, none out
+})
+
 test_that("equal_set_guard requires the named arms, not just a matching count", {
   # cell has TWO detectors but the required li2012 is missing (ams3d + a stray 'foo')
   df <- rbind(mk_row("SOAP","p1","8","ams3d",10,5,6,4),

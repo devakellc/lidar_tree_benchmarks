@@ -27,11 +27,31 @@ err_stats <- function(det, fld) {
 
 cols <- c("site", "plot", "algo", "crown_class", "individualID",
           "d_eq", "d_caliper", "area", "field_maxCD", "field_ninetyCD")
-chm <- read.csv(file.path(nd, "crown_metrics_results.csv"), stringsAsFactors = FALSE)
-chm <- chm[chm$site == SITE, cols]
+read_metric_csv <- function(path, required = cols, optional = FALSE) {
+  if (!file.exists(path)) {
+    if (optional) return(NULL)
+    stop(sprintf("missing required metric file: %s", path))
+  }
+  x <- tryCatch(read.csv(path, stringsAsFactors = FALSE), error = function(e) NULL)
+  if (is.null(x)) {
+    if (optional) return(NULL)
+    stop(sprintf("could not read required metric file: %s", path))
+  }
+  missing <- setdiff(required, names(x))
+  if (length(missing)) {
+    msg <- sprintf("%s missing columns: %s", path, paste(missing, collapse = ", "))
+    if (optional) { warning(msg); return(NULL) }
+    stop(msg)
+  }
+  x[, required, drop = FALSE]
+}
+chm <- read_metric_csv(file.path(nd, "crown_metrics_results.csv"))
+chm <- chm[chm$site == SITE, cols, drop = FALSE]
 tif <- file.path(nd, "treeisonet_crown_metrics.csv")
-ti  <- if (file.exists(tif)) read.csv(tif, stringsAsFactors = FALSE)[, cols] else NULL
+ti  <- read_metric_csv(tif, optional = TRUE)
+if (!is.null(ti)) ti <- ti[ti$site == SITE, cols, drop = FALSE]
 res <- rbind(chm, ti)
+if (!nrow(res)) stop(sprintf("no crown metric rows for SITE=%s", SITE))
 algos <- unique(res$algo)
 cat(sprintf("[%s] crown-diameter comparison: %d matched-tree rows, %d algos\n",
             SITE, nrow(res), length(algos)))

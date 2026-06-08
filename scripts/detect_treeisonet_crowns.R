@@ -83,12 +83,25 @@ run_main <- function() {
     ocsv <- file.path(tempdir(), sprintf("ticr_%s.csv", pid))
     if (file.exists(ocsv)) unlink(ocsv)
     a <- shQuote(c(DRV, prep$normalized, ocsv, LOC, LCFG, OFF, OCFG, "0", CONF, HMIN))
-    st <- tryCatch(system2(VENV, a, stdout = TRUE, stderr = TRUE, timeout = 900),
-                   error = function(e) NULL)
+    log <- tryCatch(system2(VENV, a, stdout = TRUE, stderr = TRUE, timeout = 900),
+                    error = function(e) NULL)
+    status <- if (is.null(log)) 1L else attr(log, "status")
+    if (!is.null(status) && status != 0) {
+      message(sprintf("  %s: treeisonet crown driver failed (status %s)",
+                      pid, status))
+      if (length(log)) message(paste(tail(log, 3), collapse = "\n"))
+      next
+    }
     if (!file.exists(ocsv)) next
     pts <- tryCatch(read.table(ocsv, header = TRUE), error = function(e) NULL)
-    if (is.null(pts) || !nrow(pts)) next
-    names(pts) <- c("X", "Y", "Z", "crown_id")
+    if (is.null(pts) ||
+        !identical(names(pts), c("x", "y", "z", "crown_id")) ||
+        !nrow(pts)) next
+    pts <- data.frame(X = as.numeric(pts$x), Y = as.numeric(pts$y),
+                      Z = as.numeric(pts$z), crown_id = as.integer(pts$crown_id))
+    pts <- pts[is.finite(pts$X) & is.finite(pts$Y) & is.finite(pts$Z) &
+               !is.na(pts$crown_id), ]
+    if (!nrow(pts)) next
     dt  <- as.data.table(pts)
     ap  <- dt[, .(x = X[which.max(Z)], y = Y[which.max(Z)], z = max(Z)), by = crown_id]
     cd  <- crown_diameter_table(pts, id_col = "crown_id", min_pts = 5)

@@ -21,10 +21,12 @@ Rscript scripts/analyze_model_benchmark.R  SITE=SOAP
 
 ## What this is
 
-- **Population.** 18 SOAP plots, 232 field stems pooled, five density rungs
-  (native ≈ 11.8, 8, 4, 2, 1 first-return pulses/m²). Every arm runs on the
-  byte-identical frozen normalized clip per (plot, rung), so differences are the
-  detector, not the input.
+- **Population.** 18 SOAP plots, 232 field stems pooled, five density rungs —
+  the undecimated native cloud plus all-return decimation targets of 8/4/2/1
+  pts/m² (the `lidR::homogenize` unit), i.e. first-return ≈ 11.8 / 5.8 / 3.0 /
+  1.5 / 0.8 pulses/m² as reported in the `frdens` column and used as the
+  density-curve x-axis. Every arm runs on the byte-identical frozen normalized
+  clip per (plot, rung), so differences are the detector, not the input.
 - **Scoring.** Each detector is reduced to apex detections `(x, y, z)` and
   scored by the unchanged `score_plot`/`greedy_match` (global nearest-distance
   1:1 with a height-consistency gate) against field stems in the plot core.

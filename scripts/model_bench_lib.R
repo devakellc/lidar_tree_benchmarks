@@ -111,7 +111,9 @@ frozen_clip <- function(ctg, site, plot, rung, cx, cy, core_half, out_root,
 # df: long-form scored rows (one per site x plot x rung x detector subset).
 # Pools to a single row: recall = sum(TP)/sum(n_ref), precision =
 # sum(tp_core)/sum(n_det), F1 from the pooled rates; per-class recall recovered
-# from round(rec_<cls> * n_<cls>); understory = intermediate + suppressed.
+# from round(rec_<cls> * n_<cls>); understory = intermediate + suppressed. When
+# the height-band columns (n_h_short/mid/tall) are present it pools those too,
+# by the same summed-count rule; absent, no rec_h_*/n_h_* columns are emitted.
 POOL_CLASSES <- c("dominant", "codominant", "intermediate", "suppressed")
 pool <- function(df, classes = POOL_CLASSES) {
   if (is.null(df$tp_core)) df$tp_core <- round(df$precision * df$n_det)
@@ -138,6 +140,15 @@ pool <- function(df, classes = POOL_CLASSES) {
                      round(df$rec_suppressed * df$n_suppressed), 0), na.rm = TRUE)
   out$rec_understory <- if (nref_u) tp_u / nref_u else NA_real_
   out$n_understory   <- nref_u
+  hbands <- c("short", "mid", "tall")
+  if (all(paste0("n_h_", hbands) %in% names(df))) for (b in hbands) {
+    nref <- sum(df[[paste0("n_h_", b)]], na.rm = TRUE)
+    tp   <- sum(ifelse(df[[paste0("n_h_", b)]] > 0,
+                       round(df[[paste0("rec_h_", b)]] * df[[paste0("n_h_", b)]]), 0),
+                na.rm = TRUE)
+    out[[paste0("rec_h_", b)]] <- if (nref) tp / nref else NA_real_
+    out[[paste0("n_h_", b)]]   <- nref
+  }
   out
 }
 

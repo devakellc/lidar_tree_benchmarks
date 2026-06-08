@@ -52,3 +52,10 @@ test_that("deltas_vs_baseline subtracts the baseline arm per rung", {
   expect_equal(dl$d_understory[dl$detector == "ams3d"], 0.2)
   expect_false("chm_vwf" %in% dl$detector)            # baseline itself excluded
 })
+
+test_that("model synthesis fails explicitly without the CHM-VWF baseline", {
+  u <- harmonize_union(list(mk_arm("ams3d", "8", "p1", 10, 5, 20, FALSE)))
+  expect_error(require_chm_vwf_baseline(u),
+               "chm_vwf missing - run detect_lidrplugins_sweep.R first",
+               fixed = TRUE)
+})

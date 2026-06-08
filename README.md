@@ -32,8 +32,9 @@ in [`results/`](results/).
   — point-cloud detectors (Li 2012 / lmf) vs CHM-VWF at native density:
   understory-recall deltas and the occlusion floor (issue #6).
 - [`results/crown-segmentation-results.md`](results/crown-segmentation-results.md)
-  — five crown segmenters scored on crown-diameter RMSE vs NEON field widths,
-  by crown class (issue #7).
+  — five CHM crown segmenters scored on crown-diameter RMSE vs NEON field widths,
+  plus a SOAP-only TreeisoNet `treeOff` crown arm unioned by
+  `analyze_crown_metrics.R` (issue #7 / #20).
 - [`results/ept-acquisition-sweep-results.md`](results/ept-acquisition-sweep-results.md)
   — lasR remote-EPT acquisition parameter sweep on USGS 3DEP (throughput, not
   detection accuracy).
@@ -65,9 +66,10 @@ in [`results/`](results/).
 
 ## Scripts
 
-All under [`scripts/`](scripts/). They expect an environment variable
-`CLAUDE_JOB_DIR` pointing at a **working directory** (where `aoi.laz` lives and
-outputs are written) — set it to any folder:
+Most entry points live under [`scripts/`](scripts/); GPU prerequisites and tests
+are listed where they belong. The analysis scripts expect an environment
+variable `CLAUDE_JOB_DIR` pointing at a **working directory** (where `aoi.laz`
+lives and outputs are written) — set it to any folder:
 
 ```sh
 export CLAUDE_JOB_DIR=/path/to/workdir
@@ -96,7 +98,10 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `li2012_16core.R` | Retile + 16-core Li 2012 throughput; extrapolates to 10k acres. |
 | `calval_split.R` | Calibration/validation split (issue #3): tune `(chm_res, vwf_a)` per density rung on a stratified calibration subset, report held-out F1; multi-seed robustness. |
 | `ept_discovery.R` | Find public USGS 3DEP EPT projects covering each NEON site (point-in-polygon vs the entwine boundary index); writes `neon/<SITE>/ql2/ept_candidates.csv`. |
+| `neon_download_lidar.R` | Fetch NEON DP1.30003.001 LiDAR tiles overlapping a site/plot set; populates `neon/<SITE>/lidar/` for the density-ladder runs. |
+| `verify_geolocation.R` | Audit stem coordinates by re-deriving NEON plot/stem offsets from the API and comparing them with `ground_truth_stems.csv`. |
 | `native_ql2_crosscheck.R` | Pull the native 3DEP cloud per NEON plot via PDAL (reproject 3857 -> UTM 11N), run the CHM-VWF pipeline, and compare native (+ decimated-to-2) detection to the cached decimated-2 rung by crown class (issue #4). |
+| `bench_lasr_ept_acquisition.R` / `sweep_lasr_ept_params.R` / `sweep_lasr_ept_partitions.R` | EPT acquisition benchmarks for lasR remote reads: throughput, chunking, and partition-parameter sensitivity. |
 | `neon_ground_truth.R` | Build NEON field-stem ground truth (`DP1.10098.001`); writes `ground_truth_stems.csv` with `meas_year`/`dist21` for exact-year filtering. |
 | `run_sweep.R` + `sweep_lib.R` | NEON density-ladder sweep: per plot x rung x `chm_res` x `vwf_a`, scored vs stems. `MEAS_YEAR=2021` restricts to exact-year stems (issue #5); use a distinct `OUT=` to keep the +/-4 yr baseline. |
 | `analyze_sweep.R` / `compare_sites.R` | Pool the sweep (sum TP / sum n_ref) + figures; cross-site structure gradient SJER -> SOAP -> TEAK. |
@@ -107,8 +112,10 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `detect_ams3d_sweep.R` | AMS3D (crownsegmentr) arm (#B1): adaptive mean-shift crowns over the density ladder, reduced to detections and scored by crown class. |
 | `detect_lidrplugins_sweep.R` | lidRplugins competitor arm (#C9): lmfauto/multichm (locate_trees) + ptrees (segment_trees) vs the CHM-VWF baseline over the density ladder. |
 | `detect_li2012_native.R` | Native-only Li 2012 arm (#R10): lidR `li2012` point segmenter on the native frozen clip, reduced to detections via the bridge; the point-segmenter leg of the head-to-head. Writes `neon/<SITE>/li2012_results.csv`. |
-| `detect_treeisonet_sweep.R` | TreeisoNet deep-model arm (#M7): runs the headless GPU driver (`gpu/run_treeisonet.py`, cu128/sm_120) on the normalized frozen clip per plot x rung, serially (one GPU), apex-only with a local-canopy-max z-snap, at one calibrated zero-shot `CONF`. Writes `neon/<SITE>/treeisonet_results.csv`. See `docs/superpowers/plans/2026-06-08-gpu-arm-infra-m7-first.md`. |
+| `detect_treeisonet_sweep.R` | TreeisoNet deep-model arm (#M7): runs the headless GPU driver (`gpu/run_treeisonet.py`, cu128/sm_120) on the normalized frozen clip per plot x rung, serially (one GPU), apex-only with a local-canopy-max z-snap, at the calibrated zero-shot `CONF=0.22` default. Writes `neon/<SITE>/treeisonet_results.csv`. See `docs/superpowers/plans/2026-06-08-gpu-arm-infra-m7-first.md`. |
 | `analyze_model_benchmark.R` | Cross-model synthesis (#R10): unions every arm on the shared frozen clips, equal-set-guards across arms, pools per (detector, rung) by crown class + height band, and writes the density-robustness figures + table fragment behind [`model-benchmark-results.md`](results/model-benchmark-results.md). |
+| `gpu/setup_treeisonet_env.sh` + `gpu/mirror_weights.sh` | GPU arm prerequisites: create the pinned TreeisoNet venv, mirror weights/configs, and verify the tracked checksum manifest. |
+| `tests/run_tests.R` | Unit-test harness for benchmark library code, model runners, extractors, I/O helpers, pooling guards, and synthesis helpers. |
 
 ## Reproduce
 
@@ -125,6 +132,13 @@ source clone with those stripped from DESCRIPTION (see
 
 ```sh
 export CLAUDE_JOB_DIR=$(pwd)/work && mkdir -p "$CLAUDE_JOB_DIR"
+
+# Model benchmark (SOAP; TreeisoNet CONF defaults to calibrated 0.22)
+Rscript scripts/detect_ams3d_sweep.R       SITE=SOAP PLOTS=ALL CORES=12
+Rscript scripts/detect_lidrplugins_sweep.R SITE=SOAP PLOTS=ALL CORES=12
+Rscript scripts/detect_li2012_native.R     SITE=SOAP PLOTS=ALL CORES=12
+Rscript scripts/detect_treeisonet_sweep.R
+Rscript scripts/analyze_model_benchmark.R  SITE=SOAP
 
 # Toy tile (no data download needed; uses lasR's bundled MixedConifer.las)
 Rscript scripts/detect_lasr.R
@@ -154,6 +168,10 @@ Rscript scripts/tile_aoi.R                   # retile aoi.laz under work/tiles/
 Rscript scripts/detect_lasr_catalog.R
 Rscript scripts/detect_lidr_catalog.R
 ```
+
+Run the library tests with `Rscript tests/run_tests.R`. The TreeisoNet commands
+need the GPU prerequisites from `gpu/setup_treeisonet_env.sh` and
+`gpu/mirror_weights.sh` before the first run.
 
 Data (`*.laz`, `*.tif`, `*.csv`, `*.gpkg`, and `tiles/`) is gitignored —
 regenerate it with the steps above.

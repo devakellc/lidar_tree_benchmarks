@@ -17,7 +17,7 @@ export CLAUDE_JOB_DIR=$(pwd)/work
 Rscript scripts/detect_ams3d_sweep.R       SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_lidrplugins_sweep.R SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_li2012_native.R     SITE=SOAP PLOTS=ALL CORES=12
-Rscript scripts/detect_treeisonet_sweep.R  SITE=SOAP PLOTS=ALL CONF=0.22  # GPU, serial
+Rscript scripts/detect_treeisonet_sweep.R                       # GPU, serial; CONF=0.22 default
 Rscript scripts/analyze_model_benchmark.R  SITE=SOAP
 ```
 

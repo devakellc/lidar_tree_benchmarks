@@ -33,3 +33,26 @@ test_that("run_python_arm returns a 0-row frame on a valid header with no rows",
   expect_identical(names(det), c("x", "y", "z"))
   expect_equal(nrow(det), 0L)                 # ran-but-empty -> legit recall 0
 })
+
+test_that("run_python_crown_arm returns filtered labeled crown points", {
+  d <- tempfile(); dir.create(d)
+  py <- file.path(d, "crowns.py"); out <- file.path(d, "crowns.csv")
+  writeLines(c("import sys",
+               "open(sys.argv[2],'w').write('x y z crown_id\\n1 2 3 7\\nNA 2 3 8\\n')"), py)
+  pts <- run_python_crown_arm("python3", py, input = "x.laz", out_csv = out)
+  expect_identical(names(pts), c("X", "Y", "Z", "crown_id"))
+  expect_equal(nrow(pts), 1L)
+  expect_equal(pts$crown_id, 7L)
+})
+
+test_that("run_python_crown_arm returns NULL on stale or wrong-schema output", {
+  d <- tempfile(); dir.create(d)
+  out <- file.path(d, "stale.csv"); writeLines("x y z crown_id\\n9 9 9 1", out)
+  py <- file.path(d, "boom.py"); writeLines("import sys; sys.exit(3)", py)
+  expect_null(run_python_crown_arm("python3", py, input = "x.laz", out_csv = out))
+
+  bad <- file.path(d, "bad.py"); bad_out <- file.path(d, "bad.csv")
+  writeLines(c("import sys",
+               "open(sys.argv[2],'w').write('x y z\\n1 2 3\\n')"), bad)
+  expect_null(run_python_crown_arm("python3", bad, input = "x.laz", out_csv = bad_out))
+})

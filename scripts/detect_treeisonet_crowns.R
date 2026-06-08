@@ -19,10 +19,22 @@
 suppressMessages({ library(lidR); library(data.table); library(grDevices) })
 options(lidR.progress = FALSE)
 d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
-.find <- function(rel) Find(file.exists, c(file.path("scripts", rel),
+.script_path <- function() {
+  ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+  if (!is.null(ofile) && length(ofile) && nzchar(ofile)) return(ofile)
+  hit <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+  if (length(hit)) return(sub("^--file=", "", hit[1]))
+  NA_character_
+}
+.sp <- .script_path()
+.ROOT <- if (!is.na(.sp)) normalizePath(file.path(dirname(.sp), ".."),
+                                        mustWork = FALSE) else getwd()
+.find <- function(rel) Find(file.exists, c(file.path(.ROOT, "scripts", rel),
+                                           file.path("scripts", rel),
                                            file.path("..", "..", "scripts", rel),
                                            file.path(getwd(), "scripts", rel)))
 source(.find("sweep_lib.R")); source(.find("model_bench_lib.R"))
+source(.find("model_runner.R"))
 
 args  <- strsplit(commandArgs(TRUE), "=")
 A     <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
@@ -32,12 +44,12 @@ CONF  <- if (is.null(A$CONF))  "0.22" else A$CONF
 TOL   <- as.numeric(if (is.null(A$TOL)) 4.0 else A$TOL)
 HMIN  <- if (is.null(A$HMIN)) "2" else A$HMIN
 MINTREES <- 6
-VENV  <- file.path(getwd(), "gpu/.venv/bin/python")
-DRV   <- file.path(getwd(), "gpu/run_treeisonet_crowns.py")
-LOC   <- file.path(getwd(), "gpu/store/treeaibox/als_treeloc.pth")
-LCFG  <- Sys.glob(file.path(getwd(), "gpu/store/treeaibox/*reclamation*treeloc*.json"))[1]
-OFF   <- file.path(getwd(), "gpu/store/treeaibox/als_treeoff.pth")
-OCFG  <- Sys.glob(file.path(getwd(), "gpu/store/treeaibox/*reclamation*treeoff*.json"))[1]
+VENV  <- file.path(.ROOT, "gpu/.venv/bin/python")
+DRV   <- file.path(.ROOT, "gpu/run_treeisonet_crowns.py")
+LOC   <- file.path(.ROOT, "gpu/store/treeaibox/als_treeloc.pth")
+LCFG  <- Sys.glob(file.path(.ROOT, "gpu/store/treeaibox/*reclamation*treeloc*.json"))[1]
+OFF   <- file.path(.ROOT, "gpu/store/treeaibox/als_treeoff.pth")
+OCFG  <- Sys.glob(file.path(.ROOT, "gpu/store/treeaibox/*reclamation*treeoff*.json"))[1]
 
 # Field crown diameter per individualID, nearest-to-2021 measurement (mirrors
 # crown_metrics_sweep.R::field_crowns -- the vst rds is the canonical source).
@@ -81,27 +93,9 @@ run_main <- function() {
                      error = function(e) NULL)
     if (is.null(prep)) next
     ocsv <- file.path(tempdir(), sprintf("ticr_%s.csv", pid))
-    if (file.exists(ocsv)) unlink(ocsv)
-    a <- shQuote(c(DRV, prep$normalized, ocsv, LOC, LCFG, OFF, OCFG, "0", CONF, HMIN))
-    log <- tryCatch(system2(VENV, a, stdout = TRUE, stderr = TRUE, timeout = 900),
-                    error = function(e) NULL)
-    status <- if (is.null(log)) 1L else attr(log, "status")
-    if (!is.null(status) && status != 0) {
-      message(sprintf("  %s: treeisonet crown driver failed (status %s)",
-                      pid, status))
-      if (length(log)) message(paste(tail(log, 3), collapse = "\n"))
-      next
-    }
-    if (!file.exists(ocsv)) next
-    pts <- tryCatch(read.table(ocsv, header = TRUE), error = function(e) NULL)
-    if (is.null(pts) ||
-        !identical(names(pts), c("x", "y", "z", "crown_id")) ||
-        !nrow(pts)) next
-    pts <- data.frame(X = as.numeric(pts$x), Y = as.numeric(pts$y),
-                      Z = as.numeric(pts$z), crown_id = as.integer(pts$crown_id))
-    pts <- pts[is.finite(pts$X) & is.finite(pts$Y) & is.finite(pts$Z) &
-               !is.na(pts$crown_id), ]
-    if (!nrow(pts)) next
+    pts <- run_python_crown_arm(VENV, DRV, prep$normalized, ocsv,
+      extra = c(LOC, LCFG, OFF, OCFG, "0", CONF, HMIN), timeout = 900)
+    if (is.null(pts) || !nrow(pts)) next
     dt  <- as.data.table(pts)
     ap  <- dt[, .(x = X[which.max(Z)], y = Y[which.max(Z)], z = max(Z)), by = crown_id]
     cd  <- crown_diameter_table(pts, id_col = "crown_id", min_pts = 5)

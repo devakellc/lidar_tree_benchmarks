@@ -7,10 +7,11 @@ code in this repository.
 
 A **research/benchmark** repository (not an application): R scripts that detect
 tree-tops and delineate crowns from airborne LiDAR, then quantify how detection
-accuracy responds to point density. There is no build system, package, or test
-suite — every script is a standalone `Rscript` run, and the deliverables are the
+accuracy responds to point density. There is no build system or package; most
+analysis entry points are standalone `Rscript` runs, and the deliverables are the
 markdown result documents under [`results/`](results/) plus CSVs/figures
-regenerated under the working directory.
+regenerated under the working directory. A lightweight unit-test harness lives at
+[`tests/run_tests.R`](tests/run_tests.R).
 
 The central methodology lives in [treetop-detection-approach.md](docs/treetop-detection-approach.md):
 **measure density first, then derive parameters from it** (Step 0). CHM
@@ -52,6 +53,8 @@ pipelines.
   **PDAL ≥ 2.9** CLI for EPT extraction (`scripts/extract*.json`).
 - Markdown is linted with **rumdl** ([.rumdl.toml](.rumdl.toml)): 80-char prose
   line limit, tables and code blocks exempt. Keep result docs within it.
+- Unit tests are run with `Rscript tests/run_tests.R`; they cover the benchmark
+  bridge, extractors, I/O helpers, pooling guards, and synthesis helpers.
 
 ## Engine split (lasR vs lidR)
 

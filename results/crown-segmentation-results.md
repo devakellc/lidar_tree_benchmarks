@@ -5,7 +5,10 @@ the density-ladder sweep scores tree-top **detection** only; this benchmark
 delineates **crowns** from the detected tops and scores their diameter against
 NEON field crown diameter. Five segmenters are seeded from the **same** detected
 tops, run per plot on a native-density pit-free CHM, matched back to field
-stems, and scored RMSE/MAE/bias/R² by crown class. Driver:
+stems, and scored RMSE/MAE/bias/R² by crown class. A SOAP-only TreeisoNet
+`treeOff` crown arm is unioned by
+[`scripts/analyze_crown_metrics.R`](../scripts/analyze_crown_metrics.R) into the
+deep-model section below. Driver:
 [`scripts/crown_metrics_sweep.R`](../scripts/crown_metrics_sweep.R). Sites: NEON
 SJER (open oak savanna), SOAP (mixed conifer), TEAK (red-fir). Last run:
 2026-06-05.*

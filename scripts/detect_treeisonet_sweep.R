@@ -10,14 +10,25 @@
 #
 # Usage:
 #   Rscript scripts/detect_treeisonet_sweep.R [SITE=SOAP] [PLOTS=ALL]
-#       [CONF=0.15] [VOXEL=0] [TOL=4]
+#       [CONF=0.22] [VOXEL=0] [TOL=4]
 # Requires the venv + weights from gpu/setup_treeisonet_env.sh + gpu/mirror_weights.sh.
 # Output: $CLAUDE_JOB_DIR/neon/<SITE>/treeisonet_results.csv (one row per
 #         plot x rung).
 suppressMessages({ library(lidR); library(data.table) })
 options(lidR.progress = FALSE)
 d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
-.find <- function(rel) Find(file.exists, c(file.path("scripts", rel),
+.script_path <- function() {
+  ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+  if (!is.null(ofile) && length(ofile) && nzchar(ofile)) return(ofile)
+  hit <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+  if (length(hit)) return(sub("^--file=", "", hit[1]))
+  NA_character_
+}
+.sp <- .script_path()
+.ROOT <- if (!is.na(.sp)) normalizePath(file.path(dirname(.sp), ".."),
+                                        mustWork = FALSE) else getwd()
+.find <- function(rel) Find(file.exists, c(file.path(.ROOT, "scripts", rel),
+                                           file.path("scripts", rel),
                                            file.path("..", "..", "scripts", rel),
                                            file.path(getwd(), "scripts", rel)))
 source(.find("sweep_lib.R")); source(.find("model_bench_lib.R"))
@@ -27,14 +38,14 @@ args  <- strsplit(commandArgs(TRUE), "=")
 A     <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
 SITE  <- if (is.null(A$SITE))  "SOAP" else A$SITE
 PLOTS <- if (is.null(A$PLOTS) || A$PLOTS == "ALL") NULL else strsplit(A$PLOTS, ",")[[1]]
-CONF  <- if (is.null(A$CONF))  "0.15" else A$CONF
+CONF  <- if (is.null(A$CONF))  "0.22" else A$CONF
 VOXEL <- if (is.null(A$VOXEL)) "0" else A$VOXEL
 TOL   <- as.numeric(if (is.null(A$TOL)) 4.0 else A$TOL)
 RUNGS <- c(8, 4, 2, 1); MINTREES <- 6
-VENV  <- file.path(getwd(), "gpu/.venv/bin/python")
-DRV   <- file.path(getwd(), "gpu/run_treeisonet.py")
-LOC   <- file.path(getwd(), "gpu/store/treeaibox/als_treeloc.pth")
-CFG   <- Sys.glob(file.path(getwd(), "gpu/store/treeaibox/*reclamation*treeloc*.json"))[1]
+VENV  <- file.path(.ROOT, "gpu/.venv/bin/python")
+DRV   <- file.path(.ROOT, "gpu/run_treeisonet.py")
+LOC   <- file.path(.ROOT, "gpu/store/treeaibox/als_treeloc.pth")
+CFG   <- Sys.glob(file.path(.ROOT, "gpu/store/treeaibox/*reclamation*treeloc*.json"))[1]
 
 run_main <- function() {
   stopifnot(file.exists(VENV), file.exists(DRV), file.exists(LOC), !is.na(CFG))

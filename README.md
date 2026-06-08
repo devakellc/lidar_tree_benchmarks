@@ -82,6 +82,7 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `segment_lasr.R` / `segment_lidr.R` | Steps 6-7 on the toy: region-growing / dalponte2016 + crown polygons + metrics. |
 | `compare_crowns.R` | Spatial matching + per-pair IoU between two crown GPKGs. |
 | `crown_metrics_sweep.R` | Issue #7: seed 5 crown segmenters (dalponte2016, silva2016, marker-free watershed, lasR region_growing, random walker) from shared NEON tree-tops; score crown-diameter RMSE vs field `maxCrownDiameter`/`ninetyCrownDiameter` by crown class. |
+| `detect_treeisonet_crowns.R` + `analyze_crown_metrics.R` | TreeisoNet `treeOff` crown arm (#20): the GPU offset net (`gpu/run_treeisonet_crowns.py`) per SOAP plot → per-point instances → `crown_diameter_table` → matched-tree crown-diameter RMSE; `analyze_crown_metrics.R` unions it (SOAP-only) with the #7 CHM segmenters into [`crown-segmentation-results.md`](results/crown-segmentation-results.md). |
 | `extract.json` | PDAL pipeline: clip the AOI from the public EPT, reproject 3857 -> UTM 10N, write `aoi.laz`. |
 | `detect_lasr_ept_aoi.R` | lasR-native remote EPT AOI pipeline (acquire + process directly in lasR). |
 | `detect_lasr_aoi.R` / `detect_lidr_aoi.R` | Full approach on the real 3DEP AOI after PDAL extraction. |

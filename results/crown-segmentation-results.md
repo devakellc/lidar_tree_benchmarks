@@ -257,6 +257,61 @@ never cross them.
 
 ---
 
+## Deep model: TreeisoNet treeOff crowns (SOAP, issues #M7 / #20)
+
+The crown analogue of the TreeisoNet detection arm: its offset net (`treeOff`)
+is run zero-shot on the same native frozen SOAP clips
+(`gpu/run_treeisonet_crowns.py`), the per-point instances reduced to apexes +
+convex-hull crown diameters (the bridge's `reduce_instances` +
+`crown_diameter_table` on canopy points >= 2 m), matched to field stems, and
+scored against field crown diameter exactly like the five CHM segmenters. The
+comparison is **SOAP-only** (TreeisoNet's GPU clips are SOAP), so the five
+classical arms are re-pooled on their SOAP rows here — their numbers differ
+slightly from the multi-site tables above.
+
+### Crown-diameter accuracy on SOAP (pooled matched trees)
+
+**Equivalent-circle d_eq vs ninetyCrownDiameter**
+
+| algo | n | rmse | mae | bias | r2 |
+| --- | --- | --- | --- | --- | --- |
+| lasr_region_growing | 87 | 2.78 | 2.08 | +1.15 | -0.004 |
+| dalponte2016 | 87 | 3.00 | 2.27 | +1.36 | -0.167 |
+| silva2016 | 87 | 3.00 | 2.31 | +1.33 | -0.169 |
+| random_walker | 87 | 3.36 | 2.66 | +1.93 | -0.461 |
+| watershed_markerfree | 87 | 3.64 | 2.95 | +2.41 | -0.720 |
+| treeisonet | 96 | 8.97 | 4.72 | +2.36 | -10.197 |
+
+**Max-caliper d_caliper vs maxCrownDiameter**
+
+| algo | n | rmse | mae | bias | r2 |
+| --- | --- | --- | --- | --- | --- |
+| lasr_region_growing | 87 | 4.02 | 3.05 | +1.79 | -0.119 |
+| silva2016 | 87 | 4.60 | 3.74 | +2.62 | -0.467 |
+| dalponte2016 | 87 | 5.02 | 3.96 | +2.91 | -0.747 |
+| random_walker | 87 | 5.02 | 4.06 | +3.06 | -0.749 |
+| watershed_markerfree | 87 | 6.32 | 5.10 | +4.36 | -1.769 |
+| treeisonet | 96 | 11.98 | 6.46 | +3.49 | -10.854 |
+
+**TreeisoNet treeOff crowns are far worse than every classical segmenter** —
+RMSE 8.97 m (`d_eq` vs ninetyCD) and 11.98 m (`d_caliper` vs maxCD), ~2.5–3x the
+best CHM arm (2.78 / 4.02 m), with a strongly negative R² (about −10). But the
+gap is a **heavy tail, not a uniform shift**: MAE (4.72 / 6.46 m) is far below
+RMSE, and the median crown is reasonable (`d_eq` median ≈ 6 m vs field ≈ 5 m).
+The tail comes from `treeOff`'s nearest-seed assignment lumping spatially distant
+points into a few crowns zero-shot, inflating their hulls to tens of metres. So
+even for the trees it detects, the deep model delineates crowns unreliably on
+sparse NEON ALS — mirroring its detection collapse.
+
+Caveats specific to this arm: (a) geometry is the **convex hull of canopy
+points**, not the dissolved CHM polygon the classical arms use — not identical
+estimators, though both target the same field diameter; (b) seeds are the
+detection arm's `conf = 0.22` tops (few seeds → some under-segmentation, which
+feeds the large-crown tail); (c) only TreeisoNet's *detected* trees contribute,
+and its detection is poor, so n is limited to its matches.
+
+---
+
 ## Reproduce
 
 ```sh
@@ -266,6 +321,10 @@ Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK CORES=4 \
 # -> work/neon/<SITE>/crown_metrics_results.csv  (one row per matched tree:
 #    site, plot, algo, crown_class, individualID, d_eq, d_caliper, area,
 #    field_maxCD, field_ninetyCD), plus the pooled RMSE tables on stdout.
+
+# TreeisoNet treeOff crown arm (SOAP, GPU; needs gpu/setup_treeisonet_env.sh):
+Rscript scripts/detect_treeisonet_crowns.R SITE=SOAP PLOTS=ALL CONF=0.22
+Rscript scripts/analyze_crown_metrics.R    SITE=SOAP   # union + SOAP RMSE table
 ```
 
 Requires lidR + lasR (`pre-devel`), terra, sf, data.table, **Matrix** (random

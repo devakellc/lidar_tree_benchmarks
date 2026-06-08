@@ -11,3 +11,8 @@ tiles/
 tiles_norm/
 work/
 Rplots.pdf
+# GPU arm: large payloads + venv + upstream clone are regenerated; the
+# checksum manifest and pinned commit are versioned (NOT ignored).
+gpu/store/
+gpu/.venv/
+gpu/TreeAIBox/

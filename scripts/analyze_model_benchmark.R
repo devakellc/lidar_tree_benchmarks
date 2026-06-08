@@ -58,8 +58,8 @@ deltas_vs_baseline <- function(pooled, baseline = "chm_vwf") {
              d_understory = m$rec_understory - m$rec_understory_base)
 }
 
-LADDER_ARMS <- c("ams3d", "lmfauto", "multichm", "ptrees", "chm_vwf")
-NATIVE_ARMS <- c("chm_vwf", "ptrees", "ams3d", "li2012")
+LADDER_ARMS <- c("ams3d", "lmfauto", "multichm", "ptrees", "chm_vwf", "treeisonet")
+NATIVE_ARMS <- c("chm_vwf", "ptrees", "ams3d", "li2012", "treeisonet")
 
 # Render a long pooled table to a GitHub-markdown block (selected columns).
 # Format numeric columns BEFORE apply() (which would coerce the whole frame to a
@@ -86,7 +86,7 @@ run_main <- function() {
   nd   <- file.path(d, "neon", SITE)
 
   arm_files <- c(ams3d = "ams3d_results.csv", lidrplugins = "lidrplugins_results.csv",
-                 li2012 = "li2012_results.csv")
+                 li2012 = "li2012_results.csv", treeisonet = "treeisonet_results.csv")
   dfs <- lapply(file.path(nd, arm_files), function(f)
     if (file.exists(f)) read.csv(f, stringsAsFactors = FALSE) else NULL)
   dfs <- Filter(Negate(is.null), dfs)

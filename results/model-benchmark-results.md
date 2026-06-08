@@ -4,10 +4,11 @@ Cross-model synthesis (#R10) of every tree detector currently runnable on the
 NEON SOAP density ladder, scored on the **same frozen clips** by the **same**
 field-stem harness, so the arms are directly comparable. It unifies the AMS3D
 instance segmenter (`crownsegmentr`), the lidRplugins competitors (`lmfauto`,
-`multichm`, `ptrees`), the CHM-VWF baseline (`detect_lasr`), and a native-only
-Li 2012 point segmenter. The deep GPU models from the deep-research report
-(SegmentAnyTree, TreeisoNet-ALS, ForestFormer3D) are deferred to the GPU track
-(#M6–#M8) and will slot into these tables as further arms.
+`multichm`, `ptrees`), the CHM-VWF baseline (`detect_lasr`), a native-only
+Li 2012 point segmenter, and the first **deep GPU model** — the zero-shot
+TreeisoNet-ALS instance segmenter (#M7, run on the RTX 5090). The remaining deep
+models (SegmentAnyTree #M6, ForestFormer3D #M8) stay deferred behind the sm_120
+Docker rebuild and will slot into these tables as further arms.
 
 Regenerate:
 
@@ -16,6 +17,7 @@ export CLAUDE_JOB_DIR=$(pwd)/work
 Rscript scripts/detect_ams3d_sweep.R       SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_lidrplugins_sweep.R SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_li2012_native.R     SITE=SOAP PLOTS=ALL CORES=12
+Rscript scripts/detect_treeisonet_sweep.R  SITE=SOAP PLOTS=ALL CONF=0.22  # GPU, serial
 Rscript scripts/analyze_model_benchmark.R  SITE=SOAP
 ```
 
@@ -32,9 +34,11 @@ Rscript scripts/analyze_model_benchmark.R  SITE=SOAP
   1:1 with a height-consistency gate) against field stems in the plot core.
   Pooling sums counts (recall = ΣTP / Σn_ref), never averages per-plot rates.
 - **Equal-set guard.** The density-ladder comparison keeps only (plot, rung)
-  cells scored by **all five** ladder arms; here that dropped **0** cells (every
-  arm returned a row for every cell, a 0-row table where it found nothing), so
-  all five arms are compared on the identical 18-plot population at each rung.
+  cells scored by **all six** ladder arms; here that dropped **0** cells (every
+  arm returned a row for every cell, a 0-row table where it found nothing —
+  TreeisoNet included), so all six arms are compared on the identical 18-plot
+  population at each rung, and the five classical arms' numbers are unchanged by
+  adding the deep model.
 - **Why Li 2012 is a separate table.** It is run native-only (a point segmenter
   is meaningless at 1–2 pts/m²), so including it in the ladder guard would drop
   every decimated cell. It appears only in the native point-segmenter
@@ -78,6 +82,11 @@ alongside throughout.
 | ptrees | 4 | 3.00 | 18 | 232 | 0.50 | 0.34 | 0.41 | 0.58 | 0.54 | 0.27 |
 | ptrees | 2 | 1.53 | 18 | 232 | 0.31 | 0.37 | 0.34 | 0.45 | 0.28 | 0.11 |
 | ptrees | 1 | 0.78 | 18 | 232 | 0.21 | 0.38 | 0.27 | 0.28 | 0.21 | 0.07 |
+| treeisonet | native | 11.78 | 18 | 232 | 0.27 | 0.08 | 0.12 | 0.25 | 0.28 | 0.27 |
+| treeisonet | 8 | 5.79 | 18 | 232 | 0.06 | 0.10 | 0.07 | 0.07 | 0.04 | 0.07 |
+| treeisonet | 4 | 3.00 | 18 | 232 | 0.02 | 0.21 | 0.04 | 0.03 | 0.02 | 0.00 |
+| treeisonet | 2 | 1.53 | 18 | 232 | 0.00 | 0.00 | NA | 0.00 | 0.00 | 0.00 |
+| treeisonet | 1 | 0.78 | 18 | 232 | 0.00 | NA | NA | 0.00 | 0.00 | 0.00 |
 
 Reading it:
 
@@ -96,6 +105,8 @@ Reading it:
   dominant crowns; precision falls in step.
 - **CHM-VWF** holds the best precision (0.32–0.48) and the most even
   precision/recall trade, the reference every other arm is measured against.
+- **TreeisoNet (the deep model)** is the **weakest arm**: native recall 0.27 /
+  F1 0.12, and it collapses to ~0 by rung 2 — see the dedicated section below.
 
 ## Per-height-band recall
 
@@ -128,13 +139,19 @@ Bands: short < 8 m, mid 8–15 m, tall ≥ 15 m.
 | ptrees | 4 | 0.62 | 60 | 0.38 | 90 | 0.54 | 79 |
 | ptrees | 2 | 0.45 | 60 | 0.24 | 90 | 0.25 | 79 |
 | ptrees | 1 | 0.37 | 60 | 0.13 | 90 | 0.16 | 79 |
+| treeisonet | native | 0.42 | 60 | 0.29 | 90 | 0.14 | 79 |
+| treeisonet | 8 | 0.07 | 60 | 0.09 | 90 | 0.00 | 79 |
+| treeisonet | 4 | 0.05 | 60 | 0.01 | 90 | 0.00 | 79 |
+| treeisonet | 2 | 0.00 | 60 | 0.00 | 90 | 0.00 | 79 |
+| treeisonet | 1 | 0.00 | 60 | 0.00 | 90 | 0.00 | 79 |
 
 The short-tree band is where density bites hardest. AMS3D and ptrees own short
 trees at native density (0.94 and 0.85) but both collapse on the sparse rungs
 (AMS3D short 0.94 → 0.24; ptrees 0.85 → 0.16). CHM-VWF short recall is flat and
 mediocre (~0.23–0.46) at all densities. lmfauto's tall-tree recall climbs to
 0.92 at 1 pt/m² — the coarse-window effect again, now visibly concentrated in
-the dominant canopy.
+the dominant canopy. TreeisoNet is worst in every band even at native (tall 0.42
+vs CHM-VWF 0.63, short 0.14 vs 0.46) and zero below rung 8.
 
 ## Density-robustness curves
 
@@ -160,12 +177,15 @@ population:
 | chm_vwf | 18 | 232 | 0.48 | 0.32 | 0.38 | 0.27 | 45 |
 | li2012 | 18 | 232 | 0.59 | 0.26 | 0.36 | 0.33 | 45 |
 | ptrees | 18 | 232 | 0.85 | 0.15 | 0.26 | 0.78 | 45 |
+| treeisonet | 18 | 232 | 0.27 | 0.08 | 0.12 | 0.27 | 45 |
 
-Every point/instance segmenter beats CHM-VWF on understory recall — ptrees 0.78
-and AMS3D 0.69 emphatically, Li 2012 0.33 modestly — confirming the thesis, but
-all of them pay for it in precision, and only Li 2012 stays near CHM-VWF on F1.
-The sub-canopy gain is real; whether it is worth the commission cost depends on
-the downstream use.
+The *classical* point/instance segmenters beat CHM-VWF on understory recall —
+ptrees 0.78 and AMS3D 0.69 emphatically, Li 2012 0.33 modestly — confirming the
+thesis, all paying for it in precision (only Li 2012 stays near CHM-VWF on F1).
+The lone **deep** arm, TreeisoNet, is the exception: understory 0.27 only *ties*
+CHM-VWF and its overall recall (0.27) is the lowest of any native arm. The
+sub-canopy gain is real for the classical point methods; the zero-shot deep
+model does not deliver it here.
 
 ## Head-to-head deltas vs CHM-VWF
 
@@ -194,24 +214,59 @@ the baseline):
 | ptrees | 4 | 0.16 | 0.00 | 0.11 |
 | ptrees | 2 | -0.03 | -0.05 | -0.02 |
 | ptrees | 1 | -0.12 | -0.12 | -0.11 |
+| treeisonet | native | -0.21 | -0.26 | 0.00 |
+| treeisonet | 8 | -0.28 | -0.32 | -0.07 |
+| treeisonet | 4 | -0.33 | -0.37 | -0.16 |
+| treeisonet | 2 | -0.34 | NA | -0.13 |
+| treeisonet | 1 | -0.34 | NA | -0.18 |
 
-Everyone beats CHM-VWF on recall and understory recall at the denser rungs, but
-**only multichm beats it on F1 at every rung** (+0.03 to +0.08): the others buy
-recall with precision the CHM keeps. ptrees crosses below the baseline on every
-metric by 1–2 pts/m², the clearest "point segmenter needs points" signal in the
-study.
+The *classical* arms beat CHM-VWF on recall and understory recall at the denser
+rungs, but **only multichm beats it on F1 at every rung** (+0.03 to +0.08): the
+others buy recall with precision the CHM keeps. ptrees crosses below the
+baseline by 1–2 pts/m², the clearest "point segmenter needs points" signal among
+them. TreeisoNet is **below CHM-VWF on every metric at every rung** (Δrecall
+−0.21 → −0.34) — the deep model does not clear even the classical baseline.
+
+## Deep model: TreeisoNet zero-shot (#M7)
+
+TreeisoNet-ALS (`treeisonet_als_reclamation`, esegformer3D, NRCan/TreeAIBox) is
+the first deep instance segmenter in the benchmark, run zero-shot on the RTX
+5090 (Blackwell sm_120, torch cu128) via `gpu/run_treeisonet.py`: TreeLoc →
+`postPeakExtraction` tops → snap each apex z to the local canopy max (the same
+canopy-surface height the CHM arms use). One fixed confidence threshold
+(`conf = 0.22`) was calibrated once for pooled F1 on a 5-plot subset, then
+applied unchanged across the ladder — no per-plot tuning, postPeakExtraction
+defaults otherwise.
+
+The result is a clear negative. TreeisoNet is the weakest arm at every rung and
+below the CHM-VWF baseline throughout (native recall 0.27 / precision 0.08 / F1
+0.12; understory 0.27 merely ties CHM-VWF). It **collapses with density** far
+faster than any classical arm — recall 0.27 → 0.06 → ~0 from native to rung 4,
+and exactly zero at rungs 2 and 1 (precision then undefined, shown `NA`). Lower
+thresholds do not help: at `conf = 0.10` it floods the core with hundreds of
+spurious tops (precision ~0.01), so no threshold yields a usable F1 (peak ≈ 0.06
+in calibration).
+
+This is the zero-shot domain-shift failure made concrete: a model trained on
+dense ULS/UAV/TLS (its published ALS auto-mIoU is ~0.59) does not transfer to
+sparse discrete-return NEON ALS without fine-tuning, and at NEON densities it is
+beaten by a tuned classical CHM detector. Read it as a *floor* the heavier deep
+arms (SegmentAnyTree #M6, ForestFormer3D #M8) must clear to justify their cost.
 
 ## Appendix: zero-shot ledger
 
-Every arm here is **classical / parameter-derived**, applied zero-shot with no
-NEON-specific fitting; the only knobs are the density-first parameters the repo
-already derives (CHM resolution and the VWF window from measured first-return
-density — see [treetop-detection-approach.md](../docs/treetop-detection-approach.md)),
-plus literature-default crown allometry for AMS3D (Ferraz 2016). The triage,
-zero-shot protocol, and weights-mirror policy are in
-[model-benchmark-plan.md](../docs/model-benchmark-plan.md) (#A0). The pretrained
-deep models (SegmentAnyTree, TreeisoNet-ALS, ForestFormer3D) are deferred to the
-GPU track (#M6–#M8) and will be added as further arms in this same synthesis.
+Every arm except TreeisoNet is **classical / parameter-derived**, applied
+zero-shot with no NEON-specific fitting; the only knobs are the density-first
+parameters the repo already derives (CHM resolution and the VWF window from
+measured first-return density — see
+[treetop-detection-approach.md](../docs/treetop-detection-approach.md)), plus
+literature-default crown allometry for AMS3D (Ferraz 2016). TreeisoNet is the one
+**pretrained deep** arm, also zero-shot: published ALS weights, a single
+calibrated confidence, no fine-tuning. The triage, zero-shot protocol, and
+weights-mirror policy are in
+[model-benchmark-plan.md](../docs/model-benchmark-plan.md) (#A0). SegmentAnyTree
+(#M6) and ForestFormer3D (#M8) remain deferred behind the sm_120 Docker rebuild
+and will be added as further arms in this same synthesis.
 
 ## Caveats
 
@@ -225,7 +280,8 @@ GPU track (#M6–#M8) and will be added as further arms in this same synthesis.
   report were developed/trained largely on dense ULS/UAS or TLS point clouds;
   NEON is discrete-return airborne LiDAR at far lower density. These results
   characterise zero-shot transfer to ALS, not the methods at their design
-  density.
+  density — TreeisoNet's collapse (above) is the concrete evidence, and #M6/#M8
+  are expected to share the risk.
 - **Field-stem ground truth reduces every model to detections.** Scoring is
   apex recall/precision against mapped stems, not point-level instance IoU; an
   over-segmenter is penalised only through precision, and a model that recovers

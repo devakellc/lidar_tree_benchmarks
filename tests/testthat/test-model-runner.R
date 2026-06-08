@@ -25,6 +25,12 @@ test_that("run_python_arm returns NULL on a wrong-schema CSV (contract failure)"
   expect_null(run_python_arm("python3", py, input = "x.laz", out_csv = out))
 })
 
+test_that(".read_detection_csv returns NULL on non-finite coordinates", {
+  out <- tempfile(fileext = ".csv")
+  writeLines("x y z\n1 foo 3\n4 5 Inf", out)
+  expect_null(.read_detection_csv(out))
+})
+
 test_that("run_python_arm returns a 0-row frame on a valid header with no rows", {
   d <- tempfile(); dir.create(d)
   py <- file.path(d, "empty.py"); out <- file.path(d, "empty.csv")
@@ -186,6 +192,10 @@ test_that("run_docker_arm honors a custom reader= (NULL skip, throw skip, valid 
                cmd = c("python3", py), docker = .fake_docker(d))
   expect_null(do.call(run_docker_arm, c(base, list(reader = function(p) NULL))))
   expect_null(do.call(run_docker_arm, c(base, list(reader = function(p) stop("x")))))
+  expect_null(do.call(run_docker_arm,
+                      c(base, list(reader = function(p) data.frame(a = 1)))))
+  expect_null(do.call(run_docker_arm,
+                      c(base, list(reader = function(p) data.frame(x = 1, y = NaN, z = 3)))))
   det <- do.call(run_docker_arm,
                  c(base, list(reader = function(p) data.frame(x = 1, y = 2, z = 3))))
   expect_equal(det$z, 3)

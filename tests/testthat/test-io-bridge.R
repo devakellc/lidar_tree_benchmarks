@@ -49,6 +49,14 @@ test_that("read_instances_laz is strict: a missing id field returns NULL, not 0-
   expect_null(read_instances_laz(f, id_field = "treeID"))   # schema fail -> skip
 })
 
+test_that("read_instances_laz checks schema before accepting an empty LAS", {
+  las <- lidR::LAS(data.frame(X = numeric(), Y = numeric(), Z = numeric()))
+  f <- tempfile(fileext = ".laz")
+  ok <- tryCatch({ lidR::writeLAS(las, f); TRUE }, error = function(e) FALSE)
+  skip_if(!ok, "lidR cannot write empty LAS fixture")
+  expect_null(read_instances_laz(f, id_field = "treeID"))
+})
+
 ## ---- LAZ <-> PLY bridge (#19) --------------------------------------------
 
 # Build a LAZ on disk with optional extra per-point attributes, return its path.
@@ -125,6 +133,38 @@ test_that("props emits a model-shaped PLY (lowercase names, dtype, const cols)",
   expect_equal(p$treeID, c(0L, 0L))
 })
 
+test_that("read_ply accepts CRLF headers and rejects truncated bodies", {
+  crlf <- tempfile(fileext = ".ply")
+  con <- file(crlf, "wb")
+  writeBin(charToRaw(paste0("ply\r\nformat binary_little_endian 1.0\r\n",
+                            "element vertex 0\r\nproperty double x\r\n",
+                            "property double y\r\nproperty double z\r\n",
+                            "end_header\r\n")), con)
+  close(con)
+  p <- read_ply(crlf)
+  expect_identical(names(p), c("x", "y", "z"))
+  expect_equal(nrow(p), 0L)
+
+  truncated <- tempfile(fileext = ".ply")
+  con <- file(truncated, "wb")
+  writeBin(charToRaw(paste0("ply\nformat binary_little_endian 1.0\n",
+                            "element vertex 1\nproperty double x\n",
+                            "property double y\nproperty double z\n",
+                            "property int treeID\nend_header\n")), con)
+  writeBin(as.raw(c(0, 0)), con)
+  close(con)
+  expect_error(read_ply(truncated), "truncated body")
+})
+
+test_that("uint PLY properties round-trip as unsigned numeric values", {
+  f <- .laz_fixture(data.frame(X = 1, Y = 2, Z = 3))
+  ply <- tempfile(fileext = ".ply")
+  laz_to_ply(f, ply, props = list(bigID = list(const = 4294967295, type = "uint")))
+  p <- read_ply(ply)
+  expect_identical(attr(p, "properties")[["bigID"]], "uint")
+  expect_equal(p$bigID, 4294967295)
+})
+
 test_that("read_instances_ply reduces a labeled PLY to apexes; strict on id_field", {
   dt <- data.frame(X = c(10, 10, 40, 40, 25), Y = c(10, 10, 12, 12, 25),
                    Z = c(18, 9, 12, 5, 3))
@@ -148,6 +188,26 @@ test_that("ply_to_laz inverts laz_to_ply (XYZ round-trip through LAS)", {
   expect_equal(nrow(r2@data), 2L)
   expect_lt(max(abs(sort(r2$X) - sort(r1$X))), 0.01)
   expect_lt(max(abs(sort(r2$Z) - sort(r1$Z))), 0.01)
+})
+
+test_that("ply_to_laz preserves carried fields and extra properties", {
+  dt <- data.frame(X = c(320001.5, 320002.5), Y = c(4100001.5, 4100002.5),
+                   Z = c(10, 20), Intensity = c(10L, 20L),
+                   ReturnNumber = c(1L, 2L), NumberOfReturns = c(2L, 2L),
+                   Classification = c(2L, 5L))
+  f <- .laz_fixture(dt, attrs = list(treeID = c(7L, 8L)))
+  ply <- tempfile(fileext = ".ply")
+  laz_to_ply(f, ply, fields = c("Intensity", "ReturnNumber", "NumberOfReturns",
+                                "Classification"),
+             props = list(treeID = list(from = "treeID", type = "int")))
+  laz2 <- tempfile(fileext = ".laz"); ply_to_laz(ply, laz2)
+  r <- lidR::readLAS(laz2)
+  expect_equal(r$Intensity, dt$Intensity)
+  expect_equal(r$ReturnNumber, dt$ReturnNumber)
+  expect_equal(r$NumberOfReturns, dt$NumberOfReturns)
+  expect_equal(r$Classification, dt$Classification)
+  expect_true("treeID" %in% names(r@data))
+  expect_equal(r$treeID, c(7L, 8L))
 })
 
 test_that("emitted binary PLY is readable by Python plyfile (non-circular check)", {

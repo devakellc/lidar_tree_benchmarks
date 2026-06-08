@@ -26,9 +26,10 @@ instances_to_det <- function(pts, id_field = "pred_itc",
 
 read_instances_laz <- function(path, id_field = "pred_itc") {
   las <- lidR::readLAS(path)
-  if (is.null(las) || lidR::is.empty(las))
-    return(data.frame(x = numeric(), y = numeric(), z = numeric()))  # legit empty
+  empty <- data.frame(x = numeric(), y = numeric(), z = numeric())
+  if (is.null(las)) return(NULL)
   if (!id_field %in% names(las@data)) return(NULL)   # schema failure -> skip cell
+  if (lidR::is.empty(las)) return(empty)              # legit empty with schema
   instances_to_det(las@data, id_field = id_field)
 }
 
@@ -59,40 +60,56 @@ det_to_agl <- function(det, dtm_path) {
   ReturnNumber = , NumberOfReturns = , Classification = "uchar",
   gpstime = "double", "float")
 
+.ply_uint_raw <- function(v) {
+  dv <- as.double(v)
+  bad <- !is.finite(dv) | dv < 0 | dv > 4294967295 | dv != floor(dv)
+  if (any(bad))
+    stop("laz_to_ply: uint values must be whole numbers in [0, 2^32 - 1]")
+  cbind(as.raw(dv %% 256),
+        as.raw(floor(dv / 256) %% 256),
+        as.raw(floor(dv / 65536) %% 256),
+        as.raw(floor(dv / 16777216) %% 256))
+}
+
 # values -> an N x size raw matrix (row i = the little-endian bytes of value i).
 .ply_col_raw <- function(v, type) switch(type,
   double = matrix(writeBin(as.double(v), raw(), size = 8, endian = "little"),
                   ncol = 8, byrow = TRUE),
   float  = matrix(writeBin(as.double(v), raw(), size = 4, endian = "little"),
                   ncol = 4, byrow = TRUE),
-  int = , uint = matrix(writeBin(as.integer(v), raw(), size = 4, endian = "little"),
-                        ncol = 4, byrow = TRUE),
+  int = matrix(writeBin(as.integer(v), raw(), size = 4, endian = "little"),
+               ncol = 4, byrow = TRUE),
+  uint = .ply_uint_raw(v),
   short = , ushort = {
     iv <- as.integer(v)
     cbind(as.raw(bitwAnd(iv, 255L)), as.raw(bitwAnd(iv %/% 256L, 255L)))
   },
   char = , uchar = matrix(as.raw(bitwAnd(as.integer(v), 255L)), ncol = 1),
-  stop("laz_to_ply: unsupported PLY type '", type, "'"))
+  stop("laz_to_ply: unsupported PLY type ", type))
 
-# an N x size raw matrix -> the property's numeric/integer vector.
+# an N x size raw matrix -> the property numeric/integer vector.
 .ply_read_col <- function(mat, type) {
   n <- nrow(mat); bytes <- as.vector(t(mat))
   switch(type,
     double = readBin(bytes, "double", n, size = 8, endian = "little"),
     float  = readBin(bytes, "double", n, size = 4, endian = "little"),
-    int = , uint = readBin(bytes, "integer", n, size = 4, endian = "little"),
+    int    = readBin(bytes, "integer", n, size = 4, endian = "little", signed = TRUE),
+    uint   = as.numeric(mat[, 1]) + 256 * as.numeric(mat[, 2]) +
+      65536 * as.numeric(mat[, 3]) + 16777216 * as.numeric(mat[, 4]),
     short  = readBin(bytes, "integer", n, size = 2, endian = "little", signed = TRUE),
     ushort = as.integer(mat[, 1]) + 256L * as.integer(mat[, 2]),
     char   = readBin(bytes, "integer", n, size = 1, endian = "little", signed = TRUE),
     uchar  = as.integer(mat[, 1]),
-    stop("read_ply: unsupported PLY type '", type, "'"))
+    stop("read_ply: unsupported PLY type ", type))
 }
 
-.find_bytes <- function(all, marker) {
+.find_bytes <- function(all, marker, required = TRUE) {
   k <- length(marker); lim <- min(length(all), 65536L)
-  for (i in which(all[seq_len(lim)] == marker[1]))
+  hit <- which(all[seq_len(lim)] == marker[1])
+  for (i in hit)
     if (i + k - 1 <= length(all) && all(all[i:(i + k - 1)] == marker)) return(i)
-  stop("read_ply: 'end_header' marker not found (not a binary PLY?)")
+  if (required) stop("read_ply: end_header marker not found (not a binary PLY?)")
+  NA_integer_
 }
 
 # LAZ -> binary PLY. `fields`: LAS columns carried at LAS-native widths. `props`:
@@ -147,20 +164,33 @@ laz_to_ply <- function(laz_path, ply_path, fields = character(), props = NULL,
 # header), with `offset` added back to x/y/z. attr(.,"properties") = name->type.
 read_ply <- function(ply_path, offset = c(0, 0, 0)) {
   all <- readBin(ply_path, "raw", n = file.size(ply_path))
-  marker <- charToRaw("end_header\n"); pos <- .find_bytes(all, marker)
+  marker <- charToRaw("end_header\n")
+  pos <- .find_bytes(all, marker, required = FALSE)
+  if (is.na(pos)) {
+    marker <- charToRaw("end_header\r\n")
+    pos <- .find_bytes(all, marker, required = FALSE)
+  }
+  if (is.na(pos)) stop("read_ply: end_header marker not found (not a binary PLY?)")
   lines <- strsplit(rawToChar(all[seq_len(pos - 1)]), "\n", fixed = TRUE)[[1]]
+  lines <- sub("\r$", "", lines)
   fmt <- grep("^format ", lines, value = TRUE)
   if (!length(fmt) || !grepl("binary_little_endian", fmt))
     stop("read_ply: only binary_little_endian is supported")
-  n <- as.integer(sub("^element vertex ", "",
-                      grep("^element vertex ", lines, value = TRUE)[1]))
+  vline <- grep("^element vertex ", lines, value = TRUE)
+  n <- as.integer(sub("^element vertex ", "", vline[1]))
+  if (!length(vline) || is.na(n) || n < 0)
+    stop("read_ply: invalid element vertex line")
   pp <- strsplit(grep("^property ", lines, value = TRUE), " ", fixed = TRUE)
   ptypes <- vapply(pp, `[`, "", 2L); pnames <- vapply(pp, `[`, "", 3L)
   sizes <- as.integer(.PLY_SIZES[ptypes])
   if (anyNA(sizes)) stop("read_ply: unknown property type(s)")
+  row_size <- sum(sizes); expected <- n * row_size
+  body_start <- pos + length(marker)
+  body <- if (body_start <= length(all)) all[body_start:length(all)] else raw(0)
+  if (length(body) < expected)
+    stop("read_ply: truncated body; expected ", expected, " bytes, got ", length(body))
   if (n > 0) {
-    body <- all[(pos + length(marker)):length(all)]
-    rows <- matrix(body[seq_len(n * sum(sizes))], ncol = sum(sizes), byrow = TRUE)
+    rows <- matrix(body[seq_len(expected)], ncol = row_size, byrow = TRUE)
     off <- 1L; out <- vector("list", length(pnames))
     for (i in seq_along(pnames)) {
       out[[i]] <- .ply_read_col(rows[, off:(off + sizes[i] - 1), drop = FALSE],
@@ -184,10 +214,17 @@ read_ply <- function(ply_path, offset = c(0, 0, 0)) {
 ply_to_laz <- function(ply_path, laz_path, offset = c(0, 0, 0)) {
   p <- read_ply(ply_path, offset = offset)
   out <- data.frame(X = p$x, Y = p$y, Z = p$z)
-  if (!is.null(p$Intensity)) out$Intensity <- as.integer(p$Intensity)
+  if (!is.null(p$Intensity)) out$Intensity <- as.integer(round(p$Intensity))
   else if (!is.null(p$intensity)) out$Intensity <- as.integer(round(p$intensity))
-  if (!is.null(p$ReturnNumber)) out$ReturnNumber <- as.integer(p$ReturnNumber)
-  lidR::writeLAS(lidR::LAS(out), laz_path)
+  for (nm in c("ReturnNumber", "NumberOfReturns", "Classification"))
+    if (!is.null(p[[nm]])) out[[nm]] <- as.integer(round(p[[nm]]))
+  if (!is.null(p$gpstime)) out$gpstime <- as.numeric(p$gpstime)
+  las <- lidR::LAS(out)
+  recognized <- c("x", "y", "z", "Intensity", "intensity", "ReturnNumber",
+                  "NumberOfReturns", "Classification", "gpstime")
+  for (nm in setdiff(names(p), recognized))
+    las <- lidR::add_lasattribute(las, p[[nm]], nm, nm)
+  lidR::writeLAS(las, laz_path)
   invisible(laz_path)
 }
 

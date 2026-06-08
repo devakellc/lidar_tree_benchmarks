@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Driver for the NEON SOAP density-ladder parameter sweep.
 # Usage:
 #   Rscript scripts/run_sweep.R [PLOTS=SOAP_031,SOAP_048|ALL] [OUT=results.csv]
@@ -21,8 +34,8 @@
 # byte the prior behaviour). Pass OUT= explicitly to override either default.
 suppressMessages({ library(lidR); library(parallel) })
 options(lidR.progress = FALSE)
-d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
-source(file.path("scripts", "sweep_lib.R"))
+d <- .job_dir()
+source(.find("sweep_lib.R"))
 
 ## ---- args ----------------------------------------------------------------
 args <- strsplit(commandArgs(TRUE), "=")
@@ -121,13 +134,29 @@ res_list <- mclapply(keep, function(p) tryCatch(run_plot(p), error=function(e) {
 results <- do.call(rbind, Filter(Negate(is.null), res_list))
 dt <- as.numeric(difftime(Sys.time(), t0, units = "mins"))
 
+if (is.null(results) || !nrow(results))
+  stop("no sweep results produced; check input LiDAR, ground truth, and plot filters",
+       call. = FALSE)
+
 dir.create(dirname(OUT), showWarnings = FALSE, recursive = TRUE)
 write.csv(results, OUT, row.names = FALSE)
-if (is.null(results)) results <- data.frame()
 cat(sprintf("\nDONE: %d rows in %.1f min -> %s\n", nrow(results), dt, OUT))
-if (nrow(results)) {
-  cat("\noverall recall/precision by rung (mean over plots, res=0.5, a=0.10):\n")
-  s <- results[results$chm_res == 0.5 & results$vwf_a == 0.10, ]
-  agg <- aggregate(cbind(recall, precision, F1) ~ rung, data = s, mean, na.rm = TRUE)
+
+s <- results[results$chm_res == 0.5 & results$vwf_a == 0.10, ]
+if (nrow(s)) {
+  cat("\noverall recall/precision by rung (pooled, res=0.5, a=0.10):\n")
+  s$tp_core <- round(s$precision * s$n_det)
+  agg <- do.call(rbind, lapply(c("native", "8", "4", "2", "1"), function(rl) {
+    ss <- s[s$rung == rl, ]
+    if (!nrow(ss)) return(NULL)
+    recall <- sum(ss$TP) / sum(ss$n_ref)
+    precision <- if (sum(ss$n_det) > 0) sum(ss$tp_core, na.rm = TRUE) /
+      sum(ss$n_det) else NA_real_
+    f1 <- if (!is.na(precision) && (recall + precision) > 0)
+      2 * recall * precision / (recall + precision) else NA_real_
+    data.frame(rung = rl, n_plots = length(unique(ss$plot)),
+               n_ref = sum(ss$n_ref), n_det = sum(ss$n_det),
+               recall = recall, precision = precision, F1 = f1)
+  }))
   print(agg, row.names = FALSE)
 }

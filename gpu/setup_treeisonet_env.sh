@@ -22,6 +22,7 @@ uv pip install "timm==0.9.16" "laspy[lazrs]" numpy numpy_indexed numpy_groupies 
                scipy scikit-image commentjson einops pyproj
 # Copy the ALS treeloc/treeoff config JSONs beside the weights (glob = robust to
 # the upstream paren-vs-underscore naming).
+mkdir -p "$ROOT/store/treeaibox"
 cp "$ROOT"/TreeAIBox/modules/treeisonet/*reclamation*treeloc*.json "$ROOT/store/treeaibox/" 2>/dev/null || true
 cp "$ROOT"/TreeAIBox/modules/treeisonet/*reclamation*treeoff*.json "$ROOT/store/treeaibox/" 2>/dev/null || true
 python - <<'PY'

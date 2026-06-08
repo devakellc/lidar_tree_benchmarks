@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # EPT discovery helper for the native-QL2 cross-check (issue #4).
 # Fetches the entwine/USGS 3DEP public boundaries (resources.geojson), reprojects
 # each NEON site centroid (UTM 11N / EPSG:32611) into the index CRS (EPSG:4326),
@@ -107,7 +120,7 @@ discover_ept <- function(sites, job_dir, index_local = NULL,
 if (sys.nframe() == 0L) {
   args <- strsplit(commandArgs(TRUE), "=")
   A <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
-  job_dir <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
+  job_dir <- .job_dir()
   sites <- if (is.null(A$SITES)) c("SOAP", "SJER", "TEAK") else
     strsplit(A$SITES, ",")[[1]]
   index_local <- if (is.null(A$INDEX)) NULL else A$INDEX

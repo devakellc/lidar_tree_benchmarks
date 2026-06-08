@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Calibration / validation split for the NEON density-ladder sweep (issue #3).
 #
 # The sweep's "best (chm_res, vwf_a) per density rung" table (analyze_sweep.R,
@@ -54,7 +67,7 @@ SEED  <- if (is.null(A$SEED)) 1L else as.integer(A$SEED)
 FRAC  <- if (is.null(A$FRAC)) 0.5 else as.numeric(A$FRAC)   # calibration fraction
 SEEDS <- if (is.null(A$SEEDS)) 1:5 else as.integer(strsplit(A$SEEDS, ",")[[1]])
 
-d  <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
+d  <- .job_dir()
 rung_lab <- c("native","8","4","2","1")
 classes  <- c("dominant","codominant","intermediate","suppressed")
 
@@ -73,7 +86,7 @@ pool <- function(df) {
     n_plots = length(unique(df$plot)),
     n_ref   = sum(df$n_ref), n_det = sum(df$n_det), TP = sum(df$TP),
     recall    = sum(df$TP) / sum(df$n_ref),
-    precision = sum(df$tp_core, na.rm = TRUE) / sum(df$n_det))
+    precision = if (sum(df$n_det) > 0) sum(df$tp_core, na.rm = TRUE) / sum(df$n_det) else NA_real_)
   out$F1 <- if (!is.na(out$recall) && !is.na(out$precision) &&
                 (out$recall + out$precision) > 0)
     2 * out$recall * out$precision / (out$recall + out$precision) else NA_real_

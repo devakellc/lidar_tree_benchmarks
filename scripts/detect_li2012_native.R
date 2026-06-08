@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Native-only Li 2012 arm (#R10) of the NEON model benchmark. Runs lidR's
 # li2012 point-cloud segmenter on the SAME native frozen clip per plot,
 # collapses per-point treeID through the bridge's reduce_instances(), and
@@ -12,7 +25,7 @@
 #         detector "li2012", rung "native").
 suppressMessages({ library(lidR); library(data.table); library(parallel) })
 options(lidR.progress = FALSE)
-d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
+d <- .job_dir()
 .find <- function(rel) Find(file.exists, c(file.path("scripts", rel),
                                            file.path("..", "..", "scripts", rel),
                                            file.path(getwd(), "scripts", rel)))

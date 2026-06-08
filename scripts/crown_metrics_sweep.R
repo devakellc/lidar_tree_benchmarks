@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Crown-segmentation benchmark for GitHub issue #7.
 #
 # The density-ladder sweep scores DETECTION (treetops) only. This script closes
@@ -44,8 +57,8 @@ suppressMessages({
   library(data.table); library(Matrix); library(parallel)
 })
 options(lidR.progress = FALSE, lidR.verbose = FALSE)
-d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
-source(file.path("scripts", "sweep_lib.R"))
+d <- .job_dir()
+source(.find("sweep_lib.R"))
 
 ## ---- args (KEY=VALUE positional, per repo convention) --------------------
 args  <- strsplit(commandArgs(TRUE), "=")

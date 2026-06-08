@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Build field-stem ground truth for NEON SOAP woody-vegetation structure
 # (DP1.10098.001), geolocated to UTM 11N, paired with the 2021 high-density
 # LiDAR (DP1.30003.001, ~20 pts/m^2).
@@ -26,7 +39,7 @@ args <- strsplit(commandArgs(TRUE), "=")
 A    <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
 site <- if (is.null(A$SITE)) "SOAP" else A$SITE
 
-d   <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
+d   <- .job_dir()
 nd  <- file.path(d, "neon", site); dir.create(nd, showWarnings = FALSE, recursive = TRUE)
 
 ## ---- 1. Load woody-veg structure (all years, RELEASE-2026) ----------------

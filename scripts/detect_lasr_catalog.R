@@ -1,9 +1,22 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # lasR streaming demo on the retiled AOI tiles from tile_aoi.R.
 # lasR automatically buffers between tiles for stages that need it
 # (triangulate, normalize, region_growing, etc.) — see approach §3.
 suppressMessages(library(lasR))
-d <- Sys.getenv("CLAUDE_JOB_DIR")
+d <- .job_dir()
 if (!nzchar(d)) stop("Set CLAUDE_JOB_DIR to a writable directory")
 tdir <- file.path(d, "tiles")
 if (!dir.exists(tdir) || length(list.files(tdir, "\\.laz$")) == 0L)

@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Native USGS 3DEP QL2 cross-check for the density-ladder sweep (issue #4).
 #
 # The density-ladder sweep DECIMATES a dense NEON cloud to simulate sparse
@@ -49,7 +62,7 @@ if (is.na(src_dir) || !nzchar(src_dir)) src_dir <- "scripts"
 source(file.path(src_dir, "sweep_lib.R"))     # detect_lasr, score_plot, plot_half
 source(file.path(src_dir, "ept_discovery.R")) # discover_ept (for auto-resolution)
 
-JOB <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
+JOB <- .job_dir()
 NEON_EPSG <- 32611                            # SOAP/SJER/TEAK = UTM 11N
 
 ## ---- args ----------------------------------------------------------------

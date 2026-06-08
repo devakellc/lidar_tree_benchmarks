@@ -21,6 +21,16 @@ test_that("pool sums counts: recall = sum(TP)/sum(n_ref)", {
   expect_equal(p$precision, 44 / 56)
 })
 
+test_that("pool reports NA precision when no core detections exist", {
+  df <- rbind(mk_row("SOAP", "p1", "8", "ams3d", 10, 0, 0, 0),
+              mk_row("SOAP", "p2", "8", "ams3d", 20, 0, 0, 0))
+  p <- pool(df)
+  expect_equal(p$n_det, 0)
+  expect_equal(p$recall, 0)
+  expect_true(is.na(p$precision))
+  expect_true(is.na(p$F1))
+})
+
 test_that("equal_set_guard drops (site,plot,rung) missing any arm", {
   df <- rbind(mk_row("SOAP","p1","8","ams3d",10,5,6,4),
               mk_row("SOAP","p1","8","li2012",10,6,7,5),

@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # AMS3D (adaptive mean shift, crownsegmentr) arm of the NEON model benchmark.
 # Walking skeleton (#B1): runs segment_tree_crowns on the normalized clip per
 # plot x density rung, collapses each crown_id to its max-Z apex (x,y,z), and
@@ -12,7 +25,7 @@
 suppressMessages({ library(lidR); library(sf); library(data.table)
                    library(parallel); library(crownsegmentr) })
 options(lidR.progress = FALSE)
-d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
+d <- .job_dir()
 # Locate sweep_lib.R robustly across run contexts: `Rscript scripts/foo.R`
 # (cwd = repo root), `Rscript tests/run_tests.R` and `testthat::test_file`
 # (cwd = tests/testthat during tests). Use the first candidate that exists.

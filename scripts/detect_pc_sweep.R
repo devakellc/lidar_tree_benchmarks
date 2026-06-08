@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Point-cloud-detector vs CHM-VWF comparison at NATIVE density (issue #6).
 #
 # The density-ladder sweep (run_sweep.R) is CHM-VWF only. A 2.5-D canopy height
@@ -31,8 +44,8 @@
 suppressMessages({ library(lidR); library(lasR); library(sf)
                    library(data.table); library(parallel) })
 options(lidR.progress = FALSE)
-d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
-source(file.path("scripts", "sweep_lib.R"))
+d <- .job_dir()
+source(.find("sweep_lib.R"))
 
 ## ---- args ----------------------------------------------------------------
 args  <- strsplit(commandArgs(TRUE), "=")
@@ -244,7 +257,7 @@ pool <- function(df) {
     frdens    = round(mean(df$frdens), 2),
     n_ref     = sum(df$n_ref), n_det = sum(df$n_det), TP = sum(df$TP),
     recall    = sum(df$TP) / sum(df$n_ref),
-    precision = sum(df$tp_core, na.rm = TRUE) / sum(df$n_det),
+    precision = if (sum(df$n_det) > 0) sum(df$tp_core, na.rm = TRUE) / sum(df$n_det) else NA_real_,
     secs_med  = round(median(df$secs), 2))
   out$F1 <- if (!is.na(out$recall) && !is.na(out$precision) &&
                 (out$recall + out$precision) > 0)

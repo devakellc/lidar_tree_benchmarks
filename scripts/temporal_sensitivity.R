@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Temporal-sensitivity cut for the NEON density-ladder sweep (issue #5).
 #
 # Ground truth pairs each field stem with the apparentindividual measurement
@@ -24,7 +37,7 @@
 args  <- strsplit(commandArgs(TRUE), "=")
 A     <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
 SITES <- strsplit(if (is.null(A$SITES)) "TEAK,SOAP" else A$SITES, ",")[[1]]
-d     <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
+d     <- .job_dir()
 
 RES <- 0.5; AA <- 0.10                     # modal detection parameters
 rung_lab <- c("native", "8", "4", "2", "1")
@@ -34,7 +47,7 @@ pool <- function(df) {
   if (!nrow(df)) return(NULL)
   tp_core <- round(df$precision * df$n_det)   # recover per-plot core TP
   recall    <- sum(df$TP) / sum(df$n_ref)
-  precision <- sum(tp_core, na.rm = TRUE) / sum(df$n_det)
+  precision <- if (sum(df$n_det) > 0) sum(tp_core, na.rm = TRUE) / sum(df$n_det) else NA_real_
   f1 <- if (!is.na(recall) && !is.na(precision) && (recall + precision) > 0)
     2 * recall * precision / (recall + precision) else NA_real_
   hrmse <- if (sum(df$TP) > 0)

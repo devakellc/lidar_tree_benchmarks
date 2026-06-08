@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Full lasR-native AOI pipeline on remote USGS EPT (no PDAL extraction step).
 # Requires lasR pre-devel EPT improvements and variable-window local maximum.
 suppressMessages(library(lasR))
@@ -83,7 +96,7 @@ dt <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
 tops <- ans[[length(ans)]]
 xy   <- sf::st_coordinates(tops)
 out  <- data.frame(x = xy[, 1], y = xy[, 2], z = xy[, 3])
-write.csv(out, file.path(Sys.getenv("CLAUDE_JOB_DIR"), "tops_lasr_ept_aoi.csv"),
+write.csv(out, file.path(.job_dir(), "tops_lasr_ept_aoi.csv"),
           row.names = FALSE)
 cat(sprintf("lasR EPT: %d treetops in %.1f s; height range %.1f-%.1f m\n",
             nrow(out), dt, min(out$z), max(out$z)))

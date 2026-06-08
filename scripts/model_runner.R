@@ -8,12 +8,18 @@
 # the equal-set guard drops the cell (never a fake 0-row from a stale/partial or
 # malformed file). Only a VALID `x y z` CSV with no data rows -> a 0-row frame
 # (legit ran-but-empty -> recall 0).
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
 bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
   file.path("scripts", "bootstrap.R"),
   file.path("..", "..", "scripts", "bootstrap.R"),
   file.path(getwd(), "scripts", "bootstrap.R")))
 if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
-source(bs[1]); rm(bs)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 source(.find("model_bench_lib.R"))
 
 .log_python_failure <- function(label, out, st) {

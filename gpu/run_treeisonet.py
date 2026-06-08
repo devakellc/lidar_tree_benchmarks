@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # #M7 headless driver (apex-only). treeLoc -> postPeakExtraction -> tops CSV in
-# UTM with ABSOLUTE Z (R converts to height-above-ground via ground_dtm.tif).
+# the input clip coordinate frame. The benchmark passes normalized clips, so z is
+# already height-above-ground for score_plot().
 # Usage: run_treeisonet.py <input.laz> <out.csv> <loc.pth> <loc.json> [voxel] [conf]
 #   voxel <= 0 -> checkpoint native [0.1,0.1,0.2]; >0 -> isotropic override.
 import os, sys, numpy as np, laspy

@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Analyse the NEON SOAP density-ladder sweep: pool stems across plots (sum TP /
 # sum n_ref -- NOT a mean of per-plot rates, which over-weights small plots),
 # produce the density-sensitivity table by crown class, the best-parameter
@@ -6,7 +19,7 @@
 args <- strsplit(commandArgs(TRUE), "=")
 A    <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
 SITE <- if (is.null(A$SITE)) "SOAP" else A$SITE
-d  <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
+d  <- .job_dir()
 nd <- file.path(d, "neon", SITE)
 r  <- read.csv(file.path(nd, "sweep_results.csv"), stringsAsFactors = FALSE)
 
@@ -33,7 +46,7 @@ pool <- function(df) {
     frdens    = round(mean(df$frdens), 2),
     n_ref     = sum(df$n_ref), n_det = sum(df$n_det), TP = sum(df$TP),
     recall    = sum(df$TP) / sum(df$n_ref),
-    precision = sum(df$tp_core, na.rm = TRUE) / sum(df$n_det),
+    precision = if (sum(df$n_det) > 0) sum(df$tp_core, na.rm = TRUE) / sum(df$n_det) else NA_real_,
     height_rmse = if (sum(df$TP) > 0)
       sqrt(weighted.mean(df$height_rmse^2, df$TP, na.rm = TRUE)) else NA_real_)
   out$F1 <- if (!is.na(out$recall) && !is.na(out$precision) &&

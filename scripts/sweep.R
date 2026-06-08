@@ -1,10 +1,23 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # How close can we get to the 205-tree reference, and at what cost?
 # 1) Extract reference tree positions (apex per treeID) as pseudo-truth.
 # 2) Sweep the sensitivity knobs (window scale, hmin, CHM res) in lidR.
 # 3) Report count, recall, precision vs the reference -- not just count.
 suppressMessages(library(lidR))
-d <- Sys.getenv("CLAUDE_JOB_DIR")
+d <- .job_dir()
 f <- system.file("extdata", "MixedConifer.las", package = "lasR")
 
 las <- readLAS(f)                      # has treeID from the bundled segmentation

@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Crown-diameter comparison (#20): union the five CHM segmenters from #7
 # (crown_metrics_results.csv) with the TreeisoNet treeOff arm
 # (treeisonet_crown_metrics.csv) and score pooled crown-diameter RMSE/MAE/bias/R2
@@ -11,7 +24,7 @@
 args <- strsplit(commandArgs(TRUE), "=")
 A    <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
 SITE <- if (is.null(A$SITE)) "SOAP" else A$SITE
-d    <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
+d    <- .job_dir()
 nd   <- file.path(d, "neon", SITE)
 
 # Mirrors crown_metrics_sweep.R::err_stats (pooled SSE, never a mean of per-plot

@@ -68,17 +68,11 @@ run_main <- function() {
   site_cols <- c(SJER = "#1b9e77", SOAP = "#d95f02", TEAK = "#7570b3")
   sites_present <- names(site_pooled)
 
-  ## per-arm PNGs
-  arms_in_comb <- intersect(ARMS, unique(comb$detector))
-  for (arm in arms_in_comb) {
-    png(file.path(fig, paste0("model_structure_gradient_", arm, ".png")),
-        1050, 760, res = 130)
-    par(mar = c(4.2, 4.2, 2.5, 1))
-    sub <- comb[comb$detector == arm, ]
+  .draw_sites <- function(sub, main_label, cex = 1.0) {
     xlim <- range(sub$frdens, na.rm = TRUE)
     plot(NA, xlim = xlim, ylim = c(0, 1), log = "x",
          xlab = "first-return density (pulses/m^2)", ylab = "recall",
-         main = paste0(arm, ": overstory (solid) vs understory (dashed) by site"))
+         main = main_label)
     for (st in sites_present) {
       s <- sub[sub$site == st, ]
       if (!nrow(s)) next
@@ -86,43 +80,37 @@ run_main <- function() {
       lines(s$frdens[o], s$recall[o], type = "o", pch = 19,
             col = site_cols[st], lwd = 2)
       uu <- s$rec_understory[o]
-      uu[s$n_understory[o] < 5] <- NA
+      uu[is.na(s$n_understory[o]) | s$n_understory[o] < 5] <- NA
       lines(s$frdens[o], uu, type = "o", pch = 1,
             col = site_cols[st], lwd = 2, lty = 2)
     }
     legend("topright", sites_present, col = site_cols[sites_present],
-           lwd = 2, pch = 19, bty = "n")
-    dev.off()
+           lwd = 2, pch = 19, bty = "n", cex = cex)
+  }
+
+  ## per-arm PNGs
+  arms_in_comb <- intersect(ARMS, unique(comb$detector))
+  for (arm in arms_in_comb) {
+    local({
+      png(file.path(fig, paste0("model_structure_gradient_", arm, ".png")),
+          1050, 760, res = 130); on.exit(dev.off())
+      par(mar = c(4.2, 4.2, 2.5, 1))
+      .draw_sites(comb[comb$detector == arm, ],
+                  paste0(arm, ": overall (solid) vs understory (dashed) by site"))
+    })
   }
 
   ## overall summary PNG: one panel per arm in a grid
   n_arms <- length(arms_in_comb)
   nr <- if (n_arms <= 3) 1L else if (n_arms <= 6) 2L else 3L
   nc <- ceiling(n_arms / nr)
-  png(file.path(fig, "model_structure_gradient.png"),
-      width = 500 * nc, height = 440 * nr, res = 130)
-  par(mfrow = c(nr, nc), mar = c(4.0, 4.0, 2.2, 0.8))
-  for (arm in arms_in_comb) {
-    sub <- comb[comb$detector == arm, ]
-    xlim <- range(sub$frdens, na.rm = TRUE)
-    plot(NA, xlim = xlim, ylim = c(0, 1), log = "x",
-         xlab = "first-return density (pulses/m^2)", ylab = "recall",
-         main = arm)
-    for (st in sites_present) {
-      s <- sub[sub$site == st, ]
-      if (!nrow(s)) next
-      o <- order(s$frdens)
-      lines(s$frdens[o], s$recall[o], type = "o", pch = 19,
-            col = site_cols[st], lwd = 2)
-      uu <- s$rec_understory[o]
-      uu[s$n_understory[o] < 5] <- NA
-      lines(s$frdens[o], uu, type = "o", pch = 1,
-            col = site_cols[st], lwd = 2, lty = 2)
-    }
-    legend("topright", sites_present, col = site_cols[sites_present],
-           lwd = 2, pch = 19, bty = "n", cex = 0.75)
-  }
-  dev.off()
+  local({
+    png(file.path(fig, "model_structure_gradient.png"),
+        width = 500 * nc, height = 440 * nr, res = 130); on.exit(dev.off())
+    par(mfrow = c(nr, nc), mar = c(4.0, 4.0, 2.2, 0.8))
+    for (arm in arms_in_comb)
+      .draw_sites(comb[comb$detector == arm, ], main_label = arm, cex = 0.75)
+  })
 
   cat(sprintf("\ncombined -> %s\nfigs     -> %s\n",
               file.path(d, "neon", "model_cross_site_summary.csv"), fig))

@@ -149,6 +149,7 @@ Rscript scripts/compare_model_sites.R
 # Deep GPU arms (SOAP only; TreeisoNet CONF defaults to calibrated 0.22)
 Rscript scripts/detect_li2012_native.R     SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_treeisonet_sweep.R  VOXEL=0.8,0.8,2.0
+Rscript scripts/analyze_model_benchmark.R  SITE=SOAP  # re-synthesize with GPU arms added
 
 # Toy tile (no data download needed; uses lasR's bundled MixedConifer.las)
 Rscript scripts/detect_lasr.R

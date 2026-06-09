@@ -158,9 +158,9 @@ run_main <- function() {
     legend("topleft", arms, col = pal[arms], lwd = 2, pch = 19, bty = "n", cex = 0.85)
   }
   draw("model_recall_vs_density.png", "recall", "recall (overall)",
-       "SOAP cross-model recall vs density")
+       paste(SITE, "cross-model recall vs density"))
   draw("model_understory_vs_density.png", "rec_understory", "understory recall",
-       "SOAP understory recall vs density")
+       paste(SITE, "understory recall vs density"))
 
   ## generated markdown fragment (tables only; narrative is authored separately)
   cols_l <- c("detector","rung","frdens","n_plots","n_ref","recall","precision",

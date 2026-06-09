@@ -128,15 +128,16 @@ last for `det_to_agl`). Per plot × rung in `{native, 8}`:
    core (`plot_half(plotType)`); `lidR::clip_circle(radius = 16)` each from the
    raw clip; write `cyl_NNN.laz` into a per-cell temp `in_dir`.
 3. **Infer**: `run_docker_arm(image = IMAGE, input = in_dir, out_csv = out_laz,
-   cmd = c("bash", ENTRY_SH), extra = c(CKPT_ABS),
-   mounts = c(FF3D_REPO, dirname(CKPT_ABS), dirname(ENTRY_SH)),
-   reader = <closure>, gpus = "all", timeout)`. `ENTRY_SH` cds to `FF3D_REPO`,
-   applies `ff3d_repo.patch` idempotently, then `exec python ff3d_arm.py "$@"`
-   (so the container receives `<in_dir> <out_laz> <ckpt>`). The **reader
-   closure** `lidR::readLAS(out_laz)` → `(X, Y, Z, inst = PointSourceID,
-   block = UserData)` → `dedup_blocks()` → `reduce_instances(id_col =
-   "global_id")` → UTM apexes `det(x, y, z)`. `run_docker_arm` keeps its
-   single-file contract and asserts `det`.
+   cmd = c("bash", ENTRY_SH), extra = c(CKPT, REPO, PATCH, DRIVER),
+   mounts = c(REPO, dirname(CKPT), dirname(ENTRY_SH)), reader = <closure>,
+   gpus = "all", timeout)`. `run_docker_arm` propagates **no env**, so the
+   repo/patch/driver paths ride in `extra` as positional args (all
+   identity-mounted); `ENTRY_SH` reads them, cds to `REPO`, applies
+   `ff3d_repo.patch` idempotently, then `exec python ff3d_arm.py <in_dir>
+   <out_laz> <ckpt>`. The **reader closure** `lidR::readLAS(out_laz)` →
+   `(X, Y, Z, inst = PointSourceID, block = UserData)` → `dedup_blocks()` →
+   `reduce_instances(id_col = "global_id")` → UTM apexes `det(x, y, z)`.
+   `run_docker_arm` keeps its single-file contract and asserts `det`.
 4. **Score** (with the off-DTM guard):
    - `det_abs <- run_docker_arm(...)`; if `is.null(det_abs)` → skip (crash/schema).
    - `nrow(det_abs) == 0` → genuine ran-but-empty → score a **0-row** (legit

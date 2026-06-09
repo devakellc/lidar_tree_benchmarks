@@ -24,7 +24,10 @@ RUN pip install --no-cache-dir \
     -f ${PYG_INDEX} \
  && pip install --no-cache-dir "torch-geometric==2.3.1"
 
-# torch-points-kernels pins numpy<1.20; patch and compile for sm_120.
+# torch-points-kernels pins numpy<1.20; patch and compile for sm_120. NOTE: this
+# is a ~7-10 min single-threaded compile -- one heavy CUDA translation unit for a
+# single arch, which nvcc/ninja cannot parallelize (MAX_JOBS only splits across
+# files/arches, of which there is effectively one here).
 RUN git clone --depth 1 https://github.com/nicolas-chaulet/torch-points-kernels.git /tmp/tpk \
  && sed -i 's/"numpy<1.20"/"numpy>=1.21"/' /tmp/tpk/setup.py \
  && cd /tmp/tpk \

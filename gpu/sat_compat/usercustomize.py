@@ -84,7 +84,8 @@ def _patch_tensor_getitem_cross_device():
     # 2023 code indexes CPU tensors with GPU index/mask tensors (and vice versa)
     # in several places (region_grow, PointGroup _compute_score, ...). Restore
     # the old leniency once: when a Tensor key's device != the tensor's, move the
-    # key to the tensor's device. Fast path (non-Tensor keys) is untouched.
+    # key to the tensor's device, including tuple/list indexing forms such as
+    # x[idx, :] and x[:, mask]. Fast path (non-Tensor keys) is untouched.
     try:
         import torch
     except Exception:
@@ -93,10 +94,17 @@ def _patch_tensor_getitem_cross_device():
         return
     _orig = torch.Tensor.__getitem__
 
+    def _normalize_key(key, device):
+        if isinstance(key, torch.Tensor) and key.device != device:
+            return key.to(device)
+        if isinstance(key, tuple):
+            return tuple(_normalize_key(k, device) for k in key)
+        if isinstance(key, list):
+            return [_normalize_key(k, device) for k in key]
+        return key
+
     def _getitem(self, key):
-        if type(key) is torch.Tensor and key.device != self.device:
-            key = key.to(self.device)
-        return _orig(self, key)
+        return _orig(self, _normalize_key(key, self.device))
 
     torch.Tensor.__getitem__ = _getitem
     torch.Tensor._sat_compat_getitem = True

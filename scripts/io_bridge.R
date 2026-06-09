@@ -45,6 +45,37 @@ det_to_agl <- function(det, dtm_path) {
   out
 }
 
+## ---- ForestFormer3D arm helpers (#M8) ------------------------------------
+# Reader for the merged per-plot LAZ ff3d_arm.py writes: UserData = cylinder
+# (block), PointSourceID = per-cylinder instance id, coords UTM. Cross-block
+# dedup -> canonical reduce -> apex det(x,y,z). NULL on an unreadable file
+# (schema failure -> run_docker_arm skips the cell); a valid empty cloud -> a
+# legit 0-row frame.
+ff3d_collapse <- function(out_laz, merge_tol = 2.0) {
+  empty <- data.frame(x = numeric(), y = numeric(), z = numeric())
+  las <- tryCatch(lidR::readLAS(out_laz), error = function(e) NULL)
+  if (is.null(las)) return(NULL)
+  if (lidR::is.empty(las)) return(empty)
+  d <- las@data
+  if (!all(c("UserData", "PointSourceID") %in% names(d))) return(NULL)
+  pts <- data.frame(block = as.integer(d$UserData),
+                    inst  = as.integer(d$PointSourceID),
+                    X = d$X, Y = d$Y, Z = d$Z)
+  reduce_instances(dedup_blocks(pts, merge_tol = merge_tol), id_col = "global_id")
+}
+
+# z -> AGL with a wholesale-off-DTM backstop. The FF3D centering-offset restore
+# is the fragile step; a frame bug puts every apex off the DTM. Empty in -> empty
+# out (legit ran-but-empty, recall 0). Non-empty in but ALL apexes dropped
+# off-DTM -> NULL so the driver SKIPS the cell (a frame bug must not masquerade as
+# a valid 0-recall row). Partial drops (edge apexes) are legitimate.
+agl_guard <- function(det_abs, dtm_path) {
+  if (!nrow(det_abs)) return(det_abs)
+  det <- det_to_agl(det_abs, dtm_path)
+  if (!nrow(det) && isTRUE(attr(det, "n_dropped") > 0)) return(NULL)
+  det
+}
+
 ## ---- binary little-endian PLY bridge (#19) -------------------------------
 # Hand-rolled vertex-scalar PLY I/O (no ascii, no faces, no list properties) so
 # the LAZ<->PLY conversions the SAT (#M6) / FF3D (#M8) Docker arms need stay

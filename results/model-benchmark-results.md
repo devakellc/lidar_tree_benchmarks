@@ -255,8 +255,9 @@ understory recall.
 The earlier scalar-voxel run was a configuration failure: `VOXEL=0.8` was passed
 as `[0.8,0.8,0.8]`, while TreeAIBox's ALS guidance uses a coarser vertical
 resolution (e.g. 0.8 m horizontal by 2.0 m vertical). With the anisotropic path,
-the deep arm clears the CHM floor and becomes a credible zero-shot baseline for
-the heavier deep arms (SegmentAnyTree #M6, ForestFormer3D #M8) to beat.
+TreeisoNet clears the CHM floor and becomes the stronger of the two currently
+reported zero-shot deep arms on SOAP; SegmentAnyTree (#M6) remains the deferred
+deep arm to add.
 
 ## ForestFormer3D (#M8) — zero-shot, native + 8 only
 
@@ -298,10 +299,10 @@ with a canopy-trained model.
 
 ## Appendix: zero-shot ledger
 
-Every arm except TreeisoNet is **classical / parameter-derived**, applied
-zero-shot with no NEON-specific fitting; the only knobs are the density-first
-parameters the repo already derives (CHM resolution and the VWF window from
-measured first-return density — see
+Every reported arm except TreeisoNet and ForestFormer3D is **classical /
+parameter-derived**, applied zero-shot with no NEON-specific fitting; the only
+knobs are the density-first parameters the repo already derives (CHM resolution
+and the VWF window from measured first-return density — see
 [treetop-detection-approach.md](../docs/treetop-detection-approach.md)), plus
 literature-default crown allometry for AMS3D (Ferraz 2016). TreeisoNet and
 ForestFormer3D are the **pretrained deep** arms, also zero-shot: published

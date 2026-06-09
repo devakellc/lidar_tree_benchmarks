@@ -12,6 +12,9 @@ tiles_norm/
 work/
 Rplots.pdf
 .rumdl_cache/
+# Python bytecode cache (containers run as root and leave these in mounts).
+__pycache__/
+*.pyc
 # GPU arm: large payloads + venv + upstream clone are regenerated; the
 # checksum manifest and pinned commit are versioned (NOT ignored).
 gpu/store/

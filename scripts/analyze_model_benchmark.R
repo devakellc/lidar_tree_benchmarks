@@ -1,9 +1,10 @@
 #!/usr/bin/env Rscript
 # Cross-model density-ladder synthesis (#R10). Unifies every arm scored on the
-# shared frozen SOAP clips (AMS3D, lmfauto, multichm, ptrees, CHM-VWF, and the
-# native-only Li 2012) into per-class + per-height-band recall tables, density-
-# robustness curves, and head-to-head deltas vs CHM-VWF. Pools with the canonical
-# pool() (sum counts, never average rates) over equal_set_guard common cells.
+# shared frozen SOAP clips (AMS3D, lmfauto, multichm, ptrees, CHM-VWF,
+# TreeisoNet, SegmentAnyTree, and the native-only Li 2012) into per-class +
+# per-height-band recall tables, density-robustness curves, and head-to-head
+# deltas vs CHM-VWF. Pools with the canonical pool() (sum counts, never average
+# rates) over equal_set_guard common cells.
 #
 # Usage:  Rscript scripts/analyze_model_benchmark.R [SITE=SOAP]
 # Reads:  $CLAUDE_JOB_DIR/neon/<SITE>/{ams3d,lidrplugins,li2012}_results.csv
@@ -73,8 +74,10 @@ require_chm_vwf_baseline <- function(u) {
   invisible(TRUE)
 }
 
-LADDER_ARMS <- c("ams3d", "lmfauto", "multichm", "ptrees", "chm_vwf", "treeisonet")
-NATIVE_ARMS <- c("chm_vwf", "ptrees", "ams3d", "li2012", "treeisonet")
+LADDER_ARMS <- c("ams3d", "lmfauto", "multichm", "ptrees", "chm_vwf",
+                 "treeisonet", "segmentanytree")
+NATIVE_ARMS <- c("chm_vwf", "ptrees", "ams3d", "li2012", "treeisonet",
+                 "segmentanytree")
 
 # FF3D (#M8) is native+8-only: compare it against the baselines in its OWN pool so
 # it never enters LADDER_ARMS' equal-set guard (which would drop rungs 4/2/1 for
@@ -112,7 +115,8 @@ run_main <- function() {
 
   arm_files <- c(ams3d = "ams3d_results.csv", lidrplugins = "lidrplugins_results.csv",
                  li2012 = "li2012_results.csv", treeisonet = "treeisonet_results.csv",
-                 forestformer3d = "forestformer3d_results.csv")
+                 forestformer3d = "forestformer3d_results.csv",
+                 segmentanytree = "segmentanytree_results.csv")
   dfs <- lapply(file.path(nd, arm_files), function(f)
     if (file.exists(f)) read.csv(f, stringsAsFactors = FALSE) else NULL)
   dfs <- Filter(Negate(is.null), dfs)
@@ -142,7 +146,8 @@ run_main <- function() {
   ## figures: recall and understory recall vs first-return density, per arm
   fig <- file.path(nd, "figs"); dir.create(fig, showWarnings = FALSE)
   arms <- intersect(LADDER_ARMS, unique(ladder$detector))
-  pal_src <- c("#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#666666", "#e6ab02")
+  pal_src <- c("#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#666666", "#e6ab02",
+               "#1f78b4")
   pal  <- setNames(pal_src[seq_along(arms)], arms)
   draw <- function(file, ycol, ylab, main) {
     png(file.path(fig, file), 1000, 750, res = 130); on.exit(dev.off())

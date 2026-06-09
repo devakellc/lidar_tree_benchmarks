@@ -1,15 +1,15 @@
 # Cross-model density-ladder benchmark (SOAP)
 
 Cross-model synthesis (#R10) of every tree detector currently runnable on the
-NEON SOAP density ladder, scored on the **same frozen clips** by the **same**
-field-stem harness, so the arms are directly comparable. It unifies the AMS3D
-instance segmenter (`crownsegmentr`), the lidRplugins competitors (`lmfauto`,
-`multichm`, `ptrees`), the CHM-VWF baseline (`detect_lasr`), a native-only
-Li 2012 point segmenter, and two **deep GPU models** run zero-shot on the
-RTX 5090 — the TreeisoNet-ALS instance segmenter (#M7) and ForestFormer3D
-(#M8, native + 8 only; see its section below). SegmentAnyTree (#M6) stays
-deferred behind a remaining sm_120 inference blocker and will slot in as a
-further arm.
+NEON SOAP density ladder, scored on the same frozen clips by the same field-stem
+harness. The five-rung equal-set ladder now includes seven full arms:
+AMS3D, `lmfauto`, `multichm`, `ptrees`, CHM-VWF, TreeisoNet, and
+SegmentAnyTree. Li 2012 is reported native-only, and ForestFormer3D is reported
+as an additive native + 8 pts/m2 comparison.
+
+SegmentAnyTree (#M6 / #17) is no longer deferred: the rebuilt sm_120 Docker arm
+completed the full SOAP ladder and wrote 90 rows to
+`work/neon/SOAP/segmentanytree_results.csv` (18 plots x 5 rungs).
 
 Regenerate:
 
@@ -18,44 +18,53 @@ export CLAUDE_JOB_DIR=$(pwd)/work
 Rscript scripts/detect_ams3d_sweep.R       SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_lidrplugins_sweep.R SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_li2012_native.R     SITE=SOAP PLOTS=ALL CORES=12
-Rscript scripts/detect_treeisonet_sweep.R  VOXEL=0.8,0.8,2.0  # GPU, serial; CONF=0.22 default
-Rscript scripts/detect_forestformer3d_sweep.R SITE=SOAP REPO=<FF3D repo>  # GPU, serial; native+8 (~8 min)
+Rscript scripts/detect_treeisonet_sweep.R  VOXEL=0.8,0.8,2.0
+Rscript scripts/detect_segmentanytree_sweep.R SITE=SOAP IMAGE=sat-sm120-test CORES=2
+Rscript scripts/detect_forestformer3d_sweep.R SITE=SOAP REPO=<FF3D repo>
 Rscript scripts/analyze_model_benchmark.R  SITE=SOAP
 ```
 
 ## What this is
 
-- **Population.** 18 SOAP plots, 232 field stems pooled, five density rungs —
-  the undecimated native cloud plus all-return decimation targets of 8/4/2/1
-  pts/m² (the `lidR::homogenize` unit), i.e. first-return ≈ 11.8 / 5.8 / 3.0 /
-  1.5 / 0.8 pulses/m² as reported in the `frdens` column and used as the
-  density-curve x-axis. Every arm runs on the byte-identical frozen normalized
-  clip per (plot, rung), so differences are the detector, not the input.
+- **Population.** 18 SOAP plots, 232 field stems pooled, five density rungs:
+  native plus all-return decimation targets of 8/4/2/1 pts/m2. The `frdens`
+  column is first-return density and is used as the density-curve x-axis.
 - **Scoring.** Each detector is reduced to apex detections `(x, y, z)` and
-  scored by the unchanged `score_plot`/`greedy_match` (global nearest-distance
-  1:1 with a height-consistency gate) against field stems in the plot core.
-  Pooling sums counts (recall = ΣTP / Σn_ref), never averages per-plot rates.
-- **Equal-set guard.** The density-ladder comparison keeps only (plot, rung)
-  cells scored by **all six** ladder arms; here that dropped **0** cells (every
-  arm returned a row for every cell, a 0-row table where it found nothing —
-  TreeisoNet included), so all six arms are compared on the identical 18-plot
-  population at each rung, and the five classical arms' numbers are unchanged by
-  adding the deep model.
-- **Why Li 2012 is a separate table.** It is run native-only (a point segmenter
-  is meaningless at 1–2 pts/m²), so including it in the ladder guard would drop
-  every decimated cell. It appears only in the native point-segmenter
-  head-to-head below.
+  scored by the unchanged `score_plot`/`greedy_match` 1:1 field-stem harness.
+  Pooling sums counts, so recall is total true positives divided by total
+  reference stems, never an average of per-plot rates.
+- **Equal-set guard.** The ladder keeps only `(plot, rung)` cells scored by all
+  seven ladder arms. This run dropped 0 cells, so every full-ladder arm is
+  compared on the same 18-plot population at each rung.
+- **Li 2012 and ForestFormer3D.** Li 2012 is native-only because the point
+  segmenter is not meaningful at 1-2 pts/m2. ForestFormer3D is native + 8 only,
+  so it stays outside the five-rung equal-set guard.
 
-## Read recall and precision together
+## Readings
 
-Reducing an instance/point segmenter to apex detections **flatters it on
-recall**: AMS3D and ptrees post the highest recall at native density (0.79 and
-0.85) precisely because they emit many more apexes (precision 0.11 and 0.15)
-than the CHM detectors. Recall alone therefore rewards over-segmentation; F1 is
-the honest single-number summary, and per-class/precision columns are reported
-alongside throughout.
+- **SegmentAnyTree is the strongest native point/instance arm by F1.** Native
+  recall/precision/F1 are 0.66/0.38/0.48, with understory recall 0.49. That
+  beats CHM-VWF by +0.19 recall, +0.10 F1, and +0.22 understory recall at
+  native density.
+- **SegmentAnyTree is density-sensitive.** It remains competitive at 8 and
+  4 pts/m2 (F1 0.43 and 0.45), then drops below CHM-VWF at 2 and 1 pts/m2.
+  The lowest rung has high precision but very low recall.
+- **`multichm` is still the most stable classical ladder arm.** It beats CHM-VWF
+  on F1 at every rung and keeps recall nearly flat across density.
+- **TreeisoNet is now a real competitor rather than the old failed run shown in
+  stale report text.** With the current result CSV it stays near F1 0.39-0.41
+  through native/8/4/2 and only weakens at rung 1.
+- **ForestFormer3D remains additive and weaker zero-shot on SOAP.** It trails
+  CHM-VWF and TreeisoNet in the native + 8 comparison, so the full-ladder
+  conclusions should not be inferred from FF3D.
 
-## Per-crown-class recall, density ladder
+## Generated Tables
+
+The tables below are copied from
+`work/neon/SOAP/model_bench_tables.md`, generated by
+`scripts/analyze_model_benchmark.R`.
+
+### Density ladder, per crown class (pooled, equal-set)
 
 | detector | rung | frdens | n_plots | n_ref | recall | precision | F1 | rec_dominant | rec_codominant | rec_understory |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -84,37 +93,18 @@ alongside throughout.
 | ptrees | 4 | 3.00 | 18 | 232 | 0.50 | 0.34 | 0.41 | 0.58 | 0.54 | 0.27 |
 | ptrees | 2 | 1.53 | 18 | 232 | 0.31 | 0.37 | 0.34 | 0.45 | 0.28 | 0.11 |
 | ptrees | 1 | 0.78 | 18 | 232 | 0.21 | 0.38 | 0.27 | 0.28 | 0.21 | 0.07 |
+| segmentanytree | native | 11.78 | 18 | 232 | 0.66 | 0.38 | 0.48 | 0.65 | 0.73 | 0.49 |
+| segmentanytree | 8 | 5.79 | 18 | 232 | 0.56 | 0.35 | 0.43 | 0.59 | 0.61 | 0.36 |
+| segmentanytree | 4 | 3.00 | 18 | 232 | 0.51 | 0.41 | 0.45 | 0.65 | 0.49 | 0.36 |
+| segmentanytree | 2 | 1.53 | 18 | 232 | 0.27 | 0.41 | 0.33 | 0.31 | 0.30 | 0.13 |
+| segmentanytree | 1 | 0.78 | 18 | 232 | 0.07 | 0.59 | 0.13 | 0.11 | 0.06 | 0.04 |
 | treeisonet | native | 11.78 | 18 | 232 | 0.60 | 0.29 | 0.39 | 0.72 | 0.62 | 0.33 |
 | treeisonet | 8 | 5.79 | 18 | 232 | 0.61 | 0.29 | 0.39 | 0.73 | 0.63 | 0.33 |
 | treeisonet | 4 | 3.00 | 18 | 232 | 0.62 | 0.30 | 0.41 | 0.76 | 0.65 | 0.31 |
 | treeisonet | 2 | 1.53 | 18 | 232 | 0.60 | 0.31 | 0.41 | 0.76 | 0.60 | 0.31 |
 | treeisonet | 1 | 0.78 | 18 | 232 | 0.52 | 0.33 | 0.40 | 0.66 | 0.53 | 0.24 |
 
-Reading it:
-
-- **multichm is the standout classical competitor** — the only arm that beats
-  CHM-VWF on pooled F1 at **every** rung, while also lifting understory recall.
-  Its recall is the most density-stable of all (0.60–0.65 across the whole
-  ladder).
-- **AMS3D** trades precision for recall: top-tier recall and understory recall
-  (0.69–0.71 at the dense rungs) but precision 0.11–0.18, so its F1 trails
-  CHM-VWF until the sparse rungs, where the field thins and precision recovers.
-- **ptrees** is the native-density recall leader (0.85) but the least
-  density-robust — recall collapses to 0.21 by 1 pt/m² as the point segmenter is
-  starved of returns.
-- **lmfauto inverts** the usual trend: recall *rises* as density falls
-  (0.51 → 0.81) because its parameter-free window grows coarser and locks onto
-  dominant crowns; precision falls in step.
-- **CHM-VWF** holds the best precision (0.32–0.48) and the most even
-  precision/recall trade, the reference every other arm is measured against.
-- **TreeisoNet (the deep model)** is now a competitive zero-shot arm when run
-  with TreeAIBox's anisotropic ALS voxel override (`VOXEL=0.8,0.8,2.0`): recall
-  is 0.52-0.62 across the ladder and F1 stays near 0.39-0.41. It trades lower
-  precision than CHM-VWF for materially higher recall and understory recall.
-
-## Per-height-band recall
-
-Bands: short < 8 m, mid 8–15 m, tall ≥ 15 m.
+### Density ladder, per height band
 
 | detector | rung | rec_h_tall | n_h_tall | rec_h_mid | n_h_mid | rec_h_short | n_h_short |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -143,38 +133,18 @@ Bands: short < 8 m, mid 8–15 m, tall ≥ 15 m.
 | ptrees | 4 | 0.62 | 60 | 0.38 | 90 | 0.54 | 79 |
 | ptrees | 2 | 0.45 | 60 | 0.24 | 90 | 0.25 | 79 |
 | ptrees | 1 | 0.37 | 60 | 0.13 | 90 | 0.16 | 79 |
+| segmentanytree | native | 0.80 | 60 | 0.62 | 90 | 0.59 | 79 |
+| segmentanytree | 8 | 0.72 | 60 | 0.57 | 90 | 0.42 | 79 |
+| segmentanytree | 4 | 0.68 | 60 | 0.50 | 90 | 0.39 | 79 |
+| segmentanytree | 2 | 0.35 | 60 | 0.30 | 90 | 0.18 | 79 |
+| segmentanytree | 1 | 0.05 | 60 | 0.09 | 90 | 0.08 | 79 |
 | treeisonet | native | 0.67 | 60 | 0.60 | 90 | 0.53 | 79 |
 | treeisonet | 8 | 0.70 | 60 | 0.59 | 90 | 0.54 | 79 |
 | treeisonet | 4 | 0.75 | 60 | 0.56 | 90 | 0.58 | 79 |
 | treeisonet | 2 | 0.63 | 60 | 0.60 | 90 | 0.56 | 79 |
 | treeisonet | 1 | 0.53 | 60 | 0.49 | 90 | 0.53 | 79 |
 
-The short-tree band is where density bites hardest. AMS3D and ptrees own short
-trees at native density (0.94 and 0.85) but both collapse on the sparse rungs
-(AMS3D short 0.94 → 0.24; ptrees 0.85 → 0.16). CHM-VWF short recall is flat and
-mediocre (~0.23–0.46) at all densities. lmfauto's tall-tree recall climbs to
-0.92 at 1 pt/m² — the coarse-window effect again, now visibly concentrated in
-the dominant canopy. Corrected TreeisoNet is much more balanced than the CHM:
-short-tree recall stays ~0.53-0.58 through the ladder, and tall-tree recall is
-0.53-0.75.
-
-## Density-robustness curves
-
-Two figures under `work/neon/SOAP/figs/` (regenerated, gitignored):
-
-- `model_recall_vs_density.png` — overall recall vs first-return density, one
-  line per ladder arm. The shapes summarise the table: multichm flat, CHM-VWF
-  flat-and-low, AMS3D a gentle decline, ptrees a steep collapse, lmfauto rising
-  into low density.
-- `model_understory_vs_density.png` — understory recall (intermediate +
-  suppressed) vs density. AMS3D and ptrees lead at the top of the ladder and
-  converge down toward CHM-VWF at the bottom.
-
-## Native point-segmenter head-to-head
-
-The report's central claim is that point/instance methods reach sub-canopy stems
-the CHM cannot. At native density, on the identical 18-plot / 45-understory-stem
-population:
+### Native point-segmenter head-to-head
 
 | detector | n_plots | n_ref | recall | precision | F1 | rec_understory | n_understory |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -182,20 +152,10 @@ population:
 | chm_vwf | 18 | 232 | 0.48 | 0.32 | 0.38 | 0.27 | 45 |
 | li2012 | 18 | 232 | 0.59 | 0.26 | 0.36 | 0.33 | 45 |
 | ptrees | 18 | 232 | 0.85 | 0.15 | 0.26 | 0.78 | 45 |
+| segmentanytree | 18 | 232 | 0.66 | 0.38 | 0.48 | 0.49 | 45 |
 | treeisonet | 18 | 232 | 0.60 | 0.29 | 0.39 | 0.33 | 45 |
 
-The *classical* point/instance segmenters beat CHM-VWF on understory recall —
-ptrees 0.78 and AMS3D 0.69 emphatically, Li 2012 0.33 modestly — confirming the
-thesis, all paying for it in precision (only Li 2012 stays near CHM-VWF on F1).
-TreeisoNet now clears the CHM-VWF baseline on native recall (0.60 vs 0.48) and
-slightly on F1 (0.39 vs 0.38), but its native understory recall (0.33) remains
-far below ptrees and AMS3D. The sub-canopy gain is still strongest for the
-classical point methods.
-
-## Head-to-head deltas vs CHM-VWF
-
-Each arm minus the CHM-VWF baseline at the same rung (positive = the arm beats
-the baseline):
+### Head-to-head deltas vs CHM-VWF (recall/F1/understory)
 
 | detector | rung | d_recall | d_F1 | d_understory |
 | --- | --- | --- | --- | --- |
@@ -219,121 +179,36 @@ the baseline):
 | ptrees | 4 | 0.16 | 0.00 | 0.11 |
 | ptrees | 2 | -0.03 | -0.05 | -0.02 |
 | ptrees | 1 | -0.12 | -0.12 | -0.11 |
+| segmentanytree | native | 0.19 | 0.10 | 0.22 |
+| segmentanytree | 8 | 0.22 | 0.04 | 0.22 |
+| segmentanytree | 4 | 0.16 | 0.05 | 0.20 |
+| segmentanytree | 2 | -0.06 | -0.06 | 0.00 |
+| segmentanytree | 1 | -0.26 | -0.26 | -0.13 |
 | treeisonet | native | 0.12 | 0.01 | 0.07 |
 | treeisonet | 8 | 0.28 | -0.00 | 0.20 |
 | treeisonet | 4 | 0.27 | 0.00 | 0.16 |
 | treeisonet | 2 | 0.26 | 0.02 | 0.18 |
 | treeisonet | 1 | 0.18 | 0.02 | 0.07 |
 
-The *classical* arms beat CHM-VWF on recall and understory recall at the denser
-rungs, but **only multichm beats it on F1 at every rung** (+0.03 to +0.08): the
-others buy recall with precision the CHM keeps. ptrees crosses below the
-baseline by 1–2 pts/m², the clearest "point segmenter needs points" signal among
-them. TreeisoNet now beats CHM-VWF on recall and understory at every rung and is
-essentially tied on F1 (−0.00 to +0.02), so the corrected deep arm clears the
-classical CHM floor but not the best classical competitor (`multichm`).
+### ForestFormer3D (#M8) native + 8, vs baselines
 
-## Deep model: TreeisoNet zero-shot (#M7)
-
-TreeisoNet-ALS (`treeisonet_als_reclamation`, esegformer3D, NRCan/TreeAIBox) is
-the first deep instance segmenter in the benchmark, run zero-shot on the RTX
-5090 (Blackwell sm_120, torch cu128) via `gpu/run_treeisonet.py`: TreeLoc →
-`postPeakExtraction` tops → snap each apex z to the local canopy max (the same
-canopy-surface height the CHM arms use). The corrected run uses TreeAIBox's
-ALS-style anisotropic voxel override (`VOXEL=0.8,0.8,2.0`), not the earlier
-scalar isotropic override. One fixed confidence threshold (`conf = 0.22`) is
-applied unchanged across the ladder — no per-plot tuning, postPeakExtraction
-defaults otherwise.
-
-The corrected result is no longer a zero-shot collapse. TreeisoNet posts native
-recall 0.60 / precision 0.29 / F1 0.39 and stays density-stable through the
-decimated rungs (F1 0.39-0.41; recall 0.52-0.62). It beats CHM-VWF on recall
-and understory recall at every rung and is essentially tied on F1, but it still
-trails `multichm` on F1 at every rung and trails ptrees/AMS3D on native
-understory recall.
-
-The earlier scalar-voxel run was a configuration failure: `VOXEL=0.8` was passed
-as `[0.8,0.8,0.8]`, while TreeAIBox's ALS guidance uses a coarser vertical
-resolution (e.g. 0.8 m horizontal by 2.0 m vertical). With the anisotropic path,
-TreeisoNet clears the CHM floor and becomes the stronger of the two currently
-reported zero-shot deep arms on SOAP; SegmentAnyTree (#M6) remains the deferred
-deep arm to add.
-
-## ForestFormer3D (#M8) — zero-shot, native + 8 only
-
-ForestFormer3D (ICCV 2025), ported to the RTX 5090 (sm_120; torch 2.7 / cu128 —
-see [`gpu/forestformer3d-sm120/`](../gpu/forestformer3d-sm120/README.md)), run
-zero-shot on the **top of the ladder only** (native + 8 pts/m²; it is the
-heaviest arm, ~8 min for a full SOAP run on one GPU). Each plot core is tiled into
-16 m-radius cylinders on an even-spread grid (`SPACING = 24` m bounds the grid
-step; the even spread gives a **20 m** step → 12 m overlap, 9 cylinders per tower
-plot, 4 per distributed), with one model pass per plot; cross-block instances are
-then merged by apex-cluster union-find (`MERGE_TOL = 2` m, **different blocks
-only**, so a model's within-cylinder over-segmentation is scored honestly) before
-the shared apex reducer. It is reported as its **own** native+8 pool against the
-CHM-VWF baseline and the other deep arm over the identical 18-plot / 232-stem
-set, and is **not** part of the five-rung ladder above (an additive comparison,
-so it cannot shrink the ladder's equal-set population).
-
-| detector | rung | recall | precision | F1 | rec_dominant | rec_understory |
-| --- | --- | --- | --- | --- | --- | --- |
-| forestformer3d | native | 0.44 | 0.20 | 0.28 | 0.45 | 0.24 |
-| forestformer3d | 8 | 0.44 | 0.24 | 0.31 | 0.54 | 0.22 |
-| chm_vwf | native | 0.48 | 0.32 | 0.38 | 0.54 | 0.27 |
-| chm_vwf | 8 | 0.33 | 0.48 | 0.39 | 0.44 | 0.13 |
-| treeisonet | native | 0.60 | 0.29 | 0.39 | 0.72 | 0.33 |
-| treeisonet | 8 | 0.61 | 0.29 | 0.39 | 0.73 | 0.33 |
-
-Two readings. (1) **Zero-shot, FF3D trails the tuned classical CHM-VWF baseline**
-(F1 0.28–0.31 vs 0.38–0.39) — the expected dense-ULS/TLS → sparse-ALS domain
-gap. (2) With the corrected anisotropic voxel path, TreeisoNet is the stronger
-zero-shot deep arm on these SOAP detections (F1 0.39 at native and 8), while
-FF3D still provides a useful independent transformer baseline. Notably FF3D's
-F1 *rises* from native to rung 8
-(0.28 → 0.31): the
-denser native cloud yields more spurious instances (precision 0.20), and
-decimating toward its training density sharpens both precision and recall — a
-mild signal its sweet spot sits below NEON-native density. Understory recall
-(~0.22–0.24) is non-trivial but well under the canopy-class recall, consistent
-with a canopy-trained model.
-
-## Appendix: zero-shot ledger
-
-Every reported arm except TreeisoNet and ForestFormer3D is **classical /
-parameter-derived**, applied zero-shot with no NEON-specific fitting; the only
-knobs are the density-first parameters the repo already derives (CHM resolution
-and the VWF window from measured first-return density — see
-[treetop-detection-approach.md](../docs/treetop-detection-approach.md)), plus
-literature-default crown allometry for AMS3D (Ferraz 2016). TreeisoNet and
-ForestFormer3D are the **pretrained deep** arms, also zero-shot: published
-weights, no fine-tuning. TreeisoNet additionally uses a fixed anisotropic ALS
-voxel override (`0.8,0.8,2.0`) and fixed confidence. The triage, zero-shot
-protocol, and weights-mirror policy are in
-[model-benchmark-plan.md](../docs/model-benchmark-plan.md) (#A0). SegmentAnyTree
-(#M6) remains deferred behind a remaining sm_120 inference blocker and will be
-added as a further arm in this same synthesis.
+| detector | rung | frdens | n_plots | n_ref | recall | precision | F1 | rec_dominant | rec_codominant | rec_understory |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| chm_vwf | native | 11.78 | 18 | 232 | 0.48 | 0.32 | 0.38 | 0.54 | 0.51 | 0.27 |
+| chm_vwf | 8 | 5.79 | 18 | 232 | 0.33 | 0.48 | 0.39 | 0.44 | 0.33 | 0.13 |
+| forestformer3d | native | 11.78 | 18 | 232 | 0.44 | 0.20 | 0.28 | 0.45 | 0.50 | 0.24 |
+| forestformer3d | 8 | 5.79 | 18 | 232 | 0.44 | 0.24 | 0.31 | 0.54 | 0.46 | 0.22 |
+| treeisonet | native | 11.78 | 18 | 232 | 0.60 | 0.29 | 0.39 | 0.72 | 0.62 | 0.33 |
+| treeisonet | 8 | 5.79 | 18 | 232 | 0.61 | 0.29 | 0.39 | 0.73 | 0.63 | 0.33 |
 
 ## Caveats
 
-- **Decimation is not native low density.** The sparse rungs are decimated from
-  the native cloud, which removes returns but preserves the native scan geometry
-  and pulse pattern; a genuinely low-density acquisition differs. Carry the
-  native USGS 3DEP cross-check
-  ([native-ql2-crosscheck-results.md](native-ql2-crosscheck-results.md), #4) as
-  the precedent for how much this matters.
-- **Discrete-return ALS vs ULS/UAS.** The instance segmenters in the source
-  report were developed/trained largely on dense ULS/UAS or TLS point clouds;
-  NEON is discrete-return airborne LiDAR at far lower density. These results
-  characterise zero-shot transfer to ALS, not the methods at their design
-  density; TreeisoNet is now competitive only after using TreeAIBox's
-  anisotropic ALS voxel geometry, while ForestFormer3D's sub-baseline F1 shows
-  the remaining dense-ULS/TLS -> sparse-ALS domain risk. #M6 is expected to
-  share that risk.
-- **Field-stem ground truth reduces every model to detections.** Scoring is
-  apex recall/precision against mapped stems, not point-level instance IoU; an
-  over-segmenter is penalised only through precision, and a model that recovers
-  crown shape well but misses the stem location is not credited for the shape.
-- **Single site, partial Li 2012.** SOAP only; the cross-site structure gradient
-  (SJER, TEAK) and a full-ladder Li 2012 are deferred (#E11). The native-only Li
-  2012 here answers the dense-input sub-canopy question, not its density
-  response.
+- The sparse rungs are decimated from the native cloud, so they remove returns
+  without changing the original acquisition geometry.
+- Deep arms are zero-shot on NEON ALS. These results measure transfer to sparse
+  discrete-return airborne LiDAR, not performance at the dense ULS/UAS/TLS
+  densities many source models were designed for.
+- Scoring reduces every model to apex detections against mapped stems. It does
+  not evaluate point-level instance IoU or crown-shape quality.
+- SOAP is a single site. The cross-site structure-gradient extension remains a
+  separate benchmark step.

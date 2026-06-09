@@ -76,3 +76,8 @@ test_that("pool_ff3d compares native+8 without shrinking the full ladder", {
   expect_true("forestformer3d" %in% ff$detector)
   expect_setequal(as.character(unique(ff$rung)), c("native", "8"))
 })
+
+test_that("SegmentAnyTree is a full-ladder synthesis arm", {
+  expect_true("segmentanytree" %in% LADDER_ARMS)
+  expect_true("segmentanytree" %in% NATIVE_ARMS)
+})

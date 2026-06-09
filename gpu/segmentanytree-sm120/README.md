@@ -6,13 +6,16 @@ cannot run on sm_120.
 
 ## Status
 
-**Inference runs end-to-end on the 5090** (verified 2026-06-09, SOAP-native
-frozen clip): full pipeline → merged `.laz` with per-point `PredInstance`
-(0=non-tree, 1..N) → host-side `read_instances_laz` → `reduce_instances` →
-`det_to_agl` gave 35 tree apexes at AGL 3.9–53.5 m. The sm_120 MinkowskiEngine
-build was always sound (zero `no kernel image` errors); the work was porting the
-2023-era SAT/torch_points3d code to the modern torch-2.7 / cu128 / py3.11 stack
-Blackwell forces — a set of dep pins + compat shims (see **Inference bring-up**).
+**Inference runs end-to-end on the 5090** (verified 2026-06-09, full SOAP
+density ladder): the pipeline produces merged `.laz` outputs with per-point
+`PredInstance` (0=non-tree, 1..N), then the host bridge reads instances, reduces
+them to apexes, converts absolute Z to AGL, and scores them with the shared
+field-stem harness. The full SOAP run wrote 90 result rows
+(18 plots x native/8/4/2/1) to `work/neon/SOAP/segmentanytree_results.csv`.
+The sm_120 MinkowskiEngine build was always sound (zero `no kernel image`
+errors); the work was porting the 2023-era SAT/torch_points3d code to the
+modern torch-2.7 / cu128 / py3.11 stack Blackwell forces: dep pins plus compat
+shims (see **Inference bring-up**).
 
 | Layer | Status |
 |---|---|
@@ -71,11 +74,15 @@ Fixes 2, 3, 5 live in `gpu/sat_compat/usercustomize.py` (auto-applied via
 PYTHONPATH by the driver — upstream files stay unmodified); fix 1 + the output
 glob are in the driver; fix 4 is in the Dockerfile.
 
-## Remaining to ship the arm
+## Closeout
 
-- [ ] Rebuild the image so the pins are baked: `bash gpu/segmentanytree-sm120/build.sh`
-  (the current local `sat-sm120-test` predates the Dockerfile pins; bring-up used
-  runtime `pip install`).
-- [ ] Run `scripts/detect_segmentanytree_sweep.R SITE=SOAP` (one cell ≈ 4 min).
-- [ ] Add `"segmentanytree"` to `LADDER_ARMS` in `analyze_model_benchmark.R`
-  *after* a results CSV exists (the equal-set guard drops all cells otherwise).
+- [x] Rebuild/import-smoke the `sat-sm120-test` image with torch 2.7 / cu128,
+  MinkowskiEngine 0.5.4, and sm_120 kernels.
+- [x] Run the full SOAP ladder with checkpoint/resume:
+  `Rscript scripts/detect_segmentanytree_sweep.R SITE=SOAP \
+  IMAGE=sat-sm120-test CORES=2`.
+  `CORES=2` is the tested RTX 5090 throughput setting; it reduced a 5-rung test
+  plot from about 21 minutes serial to about 13 minutes.
+- [x] Add `segmentanytree` to the model benchmark ladder/native arms and
+  regenerate `model_bench_{ladder,native,dl}.csv`, figures, and
+  `results/model-benchmark-results.md`.

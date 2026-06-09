@@ -40,7 +40,8 @@ in [`results/`](results/).
   detection accuracy).
 - [`results/model-benchmark-results.md`](results/model-benchmark-results.md)
   — cross-model density-ladder synthesis (#R10): AMS3D, lmfauto/multichm/ptrees,
-  CHM-VWF and native Li 2012 on shared frozen clips, by crown class and height
+  CHM-VWF, TreeisoNet, SegmentAnyTree, native Li 2012, and the native+8
+  ForestFormer3D comparison on shared frozen clips, by crown class and height
   band, with head-to-head deltas vs CHM-VWF.
 
 ## Headline findings
@@ -113,6 +114,7 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `detect_lidrplugins_sweep.R` | lidRplugins competitor arm (#C9): lmfauto/multichm (locate_trees) + ptrees (segment_trees) vs the CHM-VWF baseline over the density ladder. |
 | `detect_li2012_native.R` | Native-only Li 2012 arm (#R10): lidR `li2012` point segmenter on the native frozen clip, reduced to detections via the bridge; the point-segmenter leg of the head-to-head. Writes `neon/<SITE>/li2012_results.csv`. |
 | `detect_treeisonet_sweep.R` | TreeisoNet deep-model arm (#M7): runs the headless GPU driver (`gpu/run_treeisonet.py`, cu128/sm_120) on the normalized frozen clip per plot x rung, serially (one GPU), apex-only with a local-canopy-max z-snap, at the calibrated zero-shot `CONF=0.22` default. `VOXEL` accepts either a scalar isotropic override or an anisotropic `x,y,z` vector. Writes `neon/<SITE>/treeisonet_results.csv`. See `docs/superpowers/plans/2026-06-08-gpu-arm-infra-m7-first.md`. |
+| `detect_segmentanytree_sweep.R` | SegmentAnyTree deep-model arm (#M6): runs the rebuilt sm_120 Docker image on raw-with-ground frozen clips per plot x rung, reduces `PredInstance` labels to apexes, converts absolute Z to AGL with each clip DTM, and writes checkpointed `neon/<SITE>/segmentanytree_results.csv` rows. `CORES=2` is the tested RTX 5090 throughput setting. See `gpu/segmentanytree-sm120/README.md`. |
 | `analyze_model_benchmark.R` | Cross-model synthesis (#R10): unions every arm on the shared frozen clips, equal-set-guards across arms, pools per (detector, rung) by crown class + height band, and writes the density-robustness figures + table fragment behind [`model-benchmark-results.md`](results/model-benchmark-results.md). |
 | `gpu/setup_treeisonet_env.sh` + `gpu/mirror_weights.sh` | GPU arm prerequisites: create the pinned TreeisoNet venv, mirror weights/configs, and verify the tracked checksum manifest. |
 | `tests/run_tests.R` | Unit-test harness for benchmark library code, model runners, extractors, I/O helpers, pooling guards, and synthesis helpers. |
@@ -138,6 +140,7 @@ Rscript scripts/detect_ams3d_sweep.R       SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_lidrplugins_sweep.R SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_li2012_native.R     SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_treeisonet_sweep.R  VOXEL=0.8,0.8,2.0
+Rscript scripts/detect_segmentanytree_sweep.R SITE=SOAP IMAGE=sat-sm120-test CORES=2
 Rscript scripts/analyze_model_benchmark.R  SITE=SOAP
 
 # Toy tile (no data download needed; uses lasR's bundled MixedConifer.las)
@@ -169,9 +172,11 @@ Rscript scripts/detect_lasr_catalog.R
 Rscript scripts/detect_lidr_catalog.R
 ```
 
-Run the library tests with `Rscript tests/run_tests.R`. The TreeisoNet commands
-need the GPU prerequisites from `gpu/setup_treeisonet_env.sh` and
-`gpu/mirror_weights.sh` before the first run.
+Run the library tests with `Rscript tests/run_tests.R`. The GPU arms need their
+own prerequisites before the first run: TreeisoNet uses
+`gpu/setup_treeisonet_env.sh` plus `gpu/mirror_weights.sh`, SegmentAnyTree uses
+the Docker image from `gpu/segmentanytree-sm120/`, and ForestFormer3D uses the
+ported runtime described under `gpu/forestformer3d-sm120/`.
 
 Data (`*.laz`, `*.tif`, `*.csv`, `*.gpkg`, and `tiles/`) is gitignored —
 regenerate it with the steps above.

@@ -28,3 +28,22 @@ synth_las_normalized <- function() {
   las
 }
 
+# Block-labelled points for cross-block dedup. Columns block, inst, X, Y, Z.
+# A (b0,10,10,18) & B (b0,11,10,15): SAME block, 1 m apart -> must stay distinct.
+# C (b0,40,40,12) & C' (b1,40.1,40,11.8): DIFFERENT blocks, ~0.1 m -> must merge
+# (merged apex = max-Z = 12). D (b1,60,60,10): isolated. inst 0 = unassigned.
+synth_block_points <- function() {
+  rows <- function(block, inst, x, y, ztop, zmid)
+    data.table(block = as.integer(block), inst = as.integer(inst),
+               X = c(x, x + 0.1, x), Y = c(y, y, y + 0.1),
+               Z = c(ztop, zmid, zmid - 3))
+  dt <- rbind(
+    rows(0, 1, 10,   10,   18, 12),
+    rows(0, 2, 11,   10,   15, 10),
+    rows(0, 3, 40,   40,   12,  8),
+    rows(1, 1, 40.1, 40.0, 11.8, 7),
+    rows(1, 2, 60,   60,   10,  6))
+  noise <- data.table(block = 1L, inst = 0L, X = 25, Y = 25, Z = 1)
+  rbind(dt, noise)
+}
+

@@ -23,6 +23,44 @@ reduce_instances <- function(pts, id_col = "crown_id",
   data.frame(x = ap$x, y = ap$y, z = ap$z)
 }
 
+## ---- cross-block apex-cluster dedup (#M8) --------------------------------
+# Stacked per-cylinder labelled points (block, inst, X, Y, Z; inst 0/NA =
+# unassigned) -> the SAME table relabelled with a globally-consistent integer
+# `global_id`. Per (block, inst) apex (max-Z); union-find over apexes restricted
+# to pairs in DIFFERENT blocks within horizontal `merge_tol` (so the model's own
+# within-cylinder over-segmentation is NEVER laundered). The driver then calls
+# reduce_instances(id_col = "global_id"). Returns a 0-row frame (with global_id)
+# when nothing is assigned.
+dedup_blocks <- function(pts, merge_tol = 2.0, block = "block", id = "inst",
+                         x = "X", y = "Y", z = "Z") {
+  empty <- data.frame(block = integer(), inst = integer(), X = numeric(),
+                      Y = numeric(), Z = numeric(), global_id = integer())
+  dt <- as.data.table(pts)
+  if (!nrow(dt) || !all(c(block, id, x, y, z) %in% names(dt))) return(empty)
+  ids <- dt[[id]]
+  dt <- dt[!is.na(ids) & ids != 0, c(block, id, x, y, z), with = FALSE]
+  if (!nrow(dt)) return(empty)
+  setnames(dt, c(block, id, x, y, z), c("block", "inst", "X", "Y", "Z"))
+  dt[, key := .GRP, by = .(block, inst)]
+  ap <- dt[, .(blk = block[1L], cx = X[which.max(Z)], cy = Y[which.max(Z)]),
+           by = key][order(key)]
+  n <- nrow(ap)
+  parent <- seq_len(n)
+  find <- function(i) { r <- i; while (parent[r] != r) r <- parent[r]
+                        while (parent[i] != r) { nx <- parent[i]; parent[i] <<- r; i <- nx }
+                        r }
+  if (n > 1L) for (i in seq_len(n - 1L)) for (j in (i + 1L):n)
+    if (ap$blk[i] != ap$blk[j] &&
+        (ap$cx[i] - ap$cx[j])^2 + (ap$cy[i] - ap$cy[j])^2 <= merge_tol^2) {
+      ri <- find(i); rj <- find(j); if (ri != rj) parent[rj] <- ri
+    }
+  roots <- vapply(seq_len(n), find, integer(1))
+  ap[, global_id := match(roots, sort(unique(roots)))]
+  dt <- merge(dt, ap[, .(key, global_id)], by = "key")
+  dt[, key := NULL]
+  as.data.frame(dt)
+}
+
 ## ---- optional crown-diameter side metric (NOT in the detection contract) -
 # Per instance: d_eq = 2*sqrt(area/pi) from the 2-D convex hull area;
 # d_caliper = max pairwise distance among the instance's points. Both NA when

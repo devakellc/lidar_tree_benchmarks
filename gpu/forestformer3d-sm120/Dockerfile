@@ -36,14 +36,19 @@ RUN git clone --depth 1 --branch v2.0.0 https://github.com/open-mmlab/mmcv.git /
 RUN $PIP --no-build-isolation "torch-scatter==2.1.2" "torch-cluster==1.6.3" \
       "torch-points-kernels==0.7.0"
 
-# support + viz + dataset-SDK deps that mmdet3d/oneformer3d import eagerly
-RUN $PIP "opencv-python-headless==4.7.0.72" "open3d==0.19.0" plotly tenacity \
-      "laspy[lazrs]" && \
+# support + viz + dataset-SDK deps that mmdet3d/oneformer3d import eagerly.
+# Pin to ff3d_freeze.txt: unpinned, these resolve too-new and break the mm-stack
+# at runtime (e.g. yapf>=0.40 drops FormatCode(verify=) that mmengine 0.7.3's
+# cfg.pretty_text calls). dash stays unpinned (not in the hot path).
+RUN $PIP "opencv-python-headless==4.7.0.72" "open3d==0.19.0" \
+      "plotly==6.8.0" "tenacity==9.1.4" "laspy[lazrs]" && \
     pip install --no-cache-dir dash && $PIP "numpy==1.26.4" && \
-    $PIP "lyft-dataset-sdk==0.0.8" "nuscenes-devkit==1.1.10" Pillow descartes fire \
-      addict yapf termcolor "Shapely==1.8.5" "scipy==1.10.1" terminaltables \
-      pyquaternion "pandas==2.0.1" matplotlib scikit-learn trimesh plyfile \
-      tensorboard pycocotools cachetools
+    $PIP "lyft-dataset-sdk==0.0.8" "nuscenes-devkit==1.1.10" "Pillow==11.0.0" \
+      "descartes==1.1.0" "fire==0.7.1" "addict==2.4.0" "yapf==0.33.0" \
+      "termcolor==2.3.0" "Shapely==1.8.5" "scipy==1.10.1" terminaltables \
+      pyquaternion "pandas==2.0.1" "matplotlib==3.5.2" "scikit-learn==1.2.2" \
+      "trimesh==3.21.6" "plyfile==1.0.2" "tensorboard==2.15.1" \
+      "pycocotools==2.0.6" "cachetools==5.3.0"
 
 # Transitive deps the --no-deps installs above skip but that fail at IMPORT:
 # pybind11 + nvidia-arch (spconv/cumm), rich (mmengine + whole mm-stack), and the

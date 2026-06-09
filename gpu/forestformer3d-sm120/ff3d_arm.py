@@ -6,7 +6,7 @@ instance score in an extra dim). Run from the FF3D repo root.
 
 Usage: python ff3d_arm.py <in_dir> <out_laz> <ckpt>
 """
-import os, sys, glob, shutil, subprocess
+import os, sys, glob, shutil
 import numpy as np
 import laspy
 
@@ -16,6 +16,10 @@ def _load(*a, **k):
 __import__("torch").load = _load
 
 IN_DIR, OUT_LAZ, CKPT = sys.argv[1], sys.argv[2], sys.argv[3]
+# This driver is mounted from outside the repo, so sys.path[0] is its own dir,
+# not the repo root. Add the repo root (cwd, set by ff3d_entry.sh `cd $repo`) so
+# the repo-local `oneformer3d` package + tools/ helpers import.
+sys.path.insert(0, os.getcwd()); sys.path.insert(0, os.path.join(os.getcwd(), "tools"))
 ROOT = "data/ForAINetV2"                       # relative to repo CWD (ephemeral)
 INST = os.path.join(ROOT, "forainetv2_instance_data")
 META = os.path.join(ROOT, "meta_data")
@@ -49,10 +53,17 @@ if not scans:
     print("no usable cylinders"); laspy.LasData(laspy.LasHeader(point_format=3,
         version="1.2")).write(OUT_LAZ); print("ARM_DONE"); sys.exit(0)
 
-# 2. build points/*.bin + the test pkl (subprocess list form, no shell). A
-# nonzero exit aborts -> run_docker_arm sees the failure and skips the cell.
-subprocess.run([sys.executable, "tools/create_data_forainetv2.py", "forainetv2",
-                "--root-path", ROOT], check=True)
+# 2. build points/*.bin + the test pkl IN-PROCESS, updating ONLY the test pkl.
+# The stock tools/create_data_forainetv2.py also runs update_pkl_infos on the
+# train/val pkls, which UnboundLocalErrors on our empty train/val splits (#27
+# note). Replicate just create_info_file + the test-pkl update.
+from mmdet3d.utils import register_all_modules
+register_all_modules()
+from converter_forainetv2 import create_info_file
+from update_infos_to_v2 import update_pkl_infos
+create_info_file(ROOT, "forainetv2", ROOT, workers=4)
+update_pkl_infos("forainetv2", out_dir=ROOT,
+                 pkl_path=os.path.join(ROOT, "forainetv2_oneformer3d_infos_test.pkl"))
 
 # 3. one runner; iterate all scenes; collect UTM-restored labelled points
 from mmengine.config import Config, ConfigDict

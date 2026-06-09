@@ -263,7 +263,8 @@ ForestFormer3D (ICCV 2025), ported to the RTX 5090 (sm_120; torch 2.7 / cu128 �
 see [`gpu/forestformer3d-sm120/`](../gpu/forestformer3d-sm120/README.md)), run
 zero-shot on the **top of the ladder only** (native + 8 pts/m²; it is the
 heaviest arm, ~8 min for a full SOAP run on one GPU). Each plot core is tiled into
-16 m-radius cylinders (`SPACING = 24` m → 8 m overlap; 9 cylinders per tower
+16 m-radius cylinders on an even-spread grid (`SPACING = 24` m bounds the grid
+step; the even spread gives a **20 m** step → 12 m overlap, 9 cylinders per tower
 plot, 4 per distributed), with one model pass per plot; cross-block instances are
 then merged by apex-cluster union-find (`MERGE_TOL = 2` m, **different blocks
 only**, so a model's within-cylinder over-segmentation is scored honestly) before
@@ -284,9 +285,10 @@ so it cannot shrink the ladder's equal-set population).
 Two readings. (1) **Zero-shot, FF3D trails the tuned classical CHM-VWF baseline**
 (F1 0.25–0.32 vs 0.38–0.39) — the expected dense-ULS/TLS → sparse-ALS domain gap,
 the same story as TreeisoNet but on a query-based transformer. (2) But FF3D
-**clears the TreeisoNet floor comfortably** (F1 0.32 vs 0.07 at rung 8; ~4× the
-dominant-tree recall), so among pretrained deep arms it transfers far better to
-NEON ALS. Notably FF3D's F1 *rises* from native to rung 8 (0.25 → 0.32): the
+**clears the TreeisoNet floor comfortably** (F1 0.32 vs 0.07 at rung 8; ~8× the
+dominant-tree recall, 0.55 vs 0.07), so among pretrained deep arms it transfers
+far better to NEON ALS. Notably FF3D's F1 *rises* from native to rung 8
+(0.25 → 0.32): the
 denser native cloud yields more spurious instances (precision 0.19), and
 decimating toward its training density sharpens both precision and recall — a
 mild signal its sweet spot sits below NEON-native density. Understory recall

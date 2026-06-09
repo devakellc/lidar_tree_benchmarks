@@ -40,11 +40,17 @@ RADIUS   <- 16; RUNGS <- c(8); MINTREES <- 6
 REPO  <- if (is.null(A$REPO)) file.path(.ROOT, "gpu/store/forestformer3d/ForestFormer3D") else A$REPO
 CKPT  <- if (is.null(A$CKPT)) file.path(REPO, "work_dirs/clean_forestformer/epoch_3000_fix.pth") else A$CKPT
 ENTRY <- file.path(.ROOT, "gpu/forestformer3d-sm120/ff3d_entry.sh")
-PATCH <- file.path(REPO, "ff3d_repo.patch")          # the #27 patch, shipped in the repo
+# Vendored in THIS repo (not the external FF3D checkout); dirname(ENTRY) — which is
+# mounted below — is the same dir, so the container can read it.
+PATCH <- file.path(.ROOT, "gpu/forestformer3d-sm120/ff3d_repo.patch")
 DRIVER<- file.path(.ROOT, "gpu/forestformer3d-sm120/ff3d_arm.py")
 
-# Cylinder centers on a square grid covering [-ph, ph]^2 about the plot center,
-# spacing SPACING; each cylinder processes radius RADIUS (overlap = 2*RADIUS-SPACING).
+# Cylinder centers on a square grid that EVENLY covers [-ph, ph]^2 about the plot
+# center. `spacing` sets the grid density — an UPPER BOUND on the step: k =
+# ceil(2*ph/spacing)+1 columns, then seq() spreads them evenly, so the actual step
+# is 2*ph/(k-1) <= spacing. With spacing=24: tower ph=20 -> 3 cols, 20 m step
+# (9 cylinders); distributed ph=10 -> 2 cols, 20 m step (4). Each cylinder
+# processes radius RADIUS, so the actual overlap is 2*RADIUS - step (12 m here).
 cyl_centers <- function(cx, cy, ph, spacing) {
   k <- max(1L, ceiling((2 * ph) / spacing) + 1L)
   off <- seq(-ph, ph, length.out = k)

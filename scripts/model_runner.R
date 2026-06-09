@@ -108,6 +108,7 @@ run_python_crown_arm <- function(venv_python, script, input, out_csv,
 # result is asserted against the detection contract.
 run_docker_arm <- function(image, input, out_csv, extra = character(),
                            cmd = character(), mounts = NULL, gpus = "all",
+                           extra_docker = character(),
                            docker = "docker", timeout = 1800, label = NULL,
                            reader = NULL) {
   if (is.null(cmd) || !length(cmd))
@@ -121,7 +122,9 @@ run_docker_arm <- function(image, input, out_csv, extra = character(),
                     if (length(mounts)) normalizePath(mounts, mustWork = FALSE)))
   vol <- as.vector(rbind("-v", paste0(mdirs, ":", mdirs)))   # identity mounts
   gpu <- if (!is.null(gpus) && nzchar(gpus)) c("--gpus", gpus) else character()
-  args <- c("run", "--rm", gpu, vol, image, cmd, in_abs, out_abs, extra)
+  # extra_docker: extra `docker run` flags before the image (e.g. --shm-size=8g
+  # --ipc=host, which SAT's spawn-based clustering Pool needs).
+  args <- c("run", "--rm", gpu, extra_docker, vol, image, cmd, in_abs, out_abs, extra)
   out <- tryCatch(suppressWarnings(system2(docker, shQuote(args), stdout = TRUE,
                                            stderr = TRUE, timeout = timeout)),
                   error = function(e) NULL)

@@ -1,0 +1,5 @@
+# SmartForest-no/SegmentAnyTree commit pinned for the sm_120 (#M6) image.
+# The Dockerfile clones with ARG SAT_REF (default `main`); pass this SHA to
+# freeze the arm:  ME_BASE=me-sm120-test SAT_REF=a3561ed8447bbb7938f059ba65a3e9c97d6e2ee9 \
+#   bash gpu/segmentanytree-sm120/build.sh sat-sm120-test
+a3561ed8447bbb7938f059ba65a3e9c97d6e2ee9

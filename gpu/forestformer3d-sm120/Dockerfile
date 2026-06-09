@@ -13,11 +13,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libusb-1.0-0 git ninja-build cmake build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# numpy<2 track + sparse-conv backends (spconv backbone). cumm-cu128 MUST come
-# from rathaROG (PyPI is ABI-stale); ccimport/pccm must stay current for cumm.
+# numpy<2 track + sparse-conv backends (spconv backbone). cumm-cu128/spconv-cu128
+# MUST come from rathaROG (PyPI is ABI-stale), so pin it as the primary --index-url
+# (--no-deps means only those two wheels are fetched); ccimport/pccm must stay
+# current for cumm. (--index-strategy is a uv-only flag; plain pip rejects it.)
 RUN $PIP "numpy==1.26.4" "numba==0.59.1" "llvmlite==0.42.0" && \
-    pip install --no-cache-dir --no-deps --index-strategy unsafe-best-match \
-      --extra-index-url https://ratharog.github.io/cumm-spconv/ \
+    pip install --no-cache-dir --no-deps \
+      --index-url https://ratharog.github.io/cumm-spconv/ \
       "cumm-cu128==0.9.1" "spconv-cu128==2.4.1" && \
     $PIP -U "ccimport==0.4.4" "pccm==0.4.16"
 
@@ -42,6 +44,17 @@ RUN $PIP "opencv-python-headless==4.7.0.72" "open3d==0.19.0" plotly tenacity \
       addict yapf termcolor "Shapely==1.8.5" "scipy==1.10.1" terminaltables \
       pyquaternion "pandas==2.0.1" matplotlib scikit-learn trimesh plyfile \
       tensorboard pycocotools cachetools
+
+# Transitive deps the --no-deps installs above skip but that fail at IMPORT:
+# pybind11 + nvidia-arch (spconv/cumm), rich (mmengine + whole mm-stack), and the
+# leaf deps of matplotlib/sklearn/laspy. Versions per ff3d_freeze.txt. Installed
+# WITH deps so rich's own deps (markdown-it-py) come along; none touch the pinned
+# GPU wheels.
+RUN pip install --no-cache-dir \
+      "pybind11==2.10.4" "nvidia-arch==7.1.0" "rich==13.3.5" "joblib==1.2.0" \
+      "threadpoolctl==3.1.0" "cycler==0.11.0" "kiwisolver==1.4.4" \
+      "pyparsing==3.0.9" "lark==1.1.5" "lazrs==0.8.1" "packaging==23.1" \
+      "portalocker==3.2.0" "zipp==3.17.0" "python-dateutil==2.8.2"
 
 # Runtime: mount the FF3D repo at /workspace with replace_mmdetection_files/ and
 # apply the four code patches (ff3d_repo.patch) + the mmengine/mmdet3d file swaps:

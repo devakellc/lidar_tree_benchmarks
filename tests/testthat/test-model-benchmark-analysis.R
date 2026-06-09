@@ -76,3 +76,46 @@ test_that("pool_ff3d compares native+8 without shrinking the full ladder", {
   expect_true("forestformer3d" %in% ff$detector)
   expect_setequal(as.character(unique(ff$rung)), c("native", "8"))
 })
+
+test_that("cross-site pooling keeps per-site equal-set guard independent", {
+  # Build minimal arm data for two sites: SOAP (p1+p2, both arms) and SJER
+  # (p3 chm_vwf-only, p4 both arms). mk_arm() defaults to site="SOAP", so we
+  # patch the site column for SJER rows.
+  mk_sjer <- function(det, plot, with_extra) {
+    r <- mk_arm(det, "native", plot, 10, 6, 8, with_extra)
+    r$site <- "SJER"
+    r
+  }
+
+  soap_rows <- list(
+    mk_arm("chm_vwf", "native", "p1", 10, 6, 8, TRUE),
+    mk_arm("ams3d",   "native", "p1", 10, 5, 9, FALSE),
+    mk_arm("chm_vwf", "native", "p2", 10, 7, 9, TRUE),
+    mk_arm("ams3d",   "native", "p2", 10, 4, 8, FALSE)
+  )
+  sjer_rows <- list(
+    mk_sjer("chm_vwf", "p3", TRUE),   # p3: chm_vwf only -> guard must drop it
+    mk_sjer("chm_vwf", "p4", TRUE),
+    mk_sjer("ams3d",   "p4", FALSE)   # p4: both arms -> guard keeps it
+  )
+
+  # Pool each site independently (as compare_model_sites.R does).
+  u_soap <- harmonize_union(soap_rows)
+  u_sjer <- harmonize_union(sjer_rows)
+
+  arms <- c("chm_vwf", "ams3d")
+  pooled_soap <- pool_arms(u_soap, arms = arms, rungs = "native")
+  pooled_sjer <- pool_arms(u_sjer, arms = arms, rungs = "native")
+
+  # SOAP: both p1 and p2 have both arms -> guard keeps 2 plots.
+  soap_chm <- pooled_soap[pooled_soap$detector == "chm_vwf", ]
+  expect_equal(soap_chm$n_plots, 2L)
+
+  # SJER: p3 lacks ams3d -> guard drops it; only p4 survives -> 1 plot.
+  sjer_chm <- pooled_sjer[pooled_sjer$detector == "chm_vwf", ]
+  expect_equal(sjer_chm$n_plots, 1L)
+
+  # Sanity: ams3d is present in both pooled outputs.
+  expect_true("ams3d" %in% pooled_soap$detector)
+  expect_true("ams3d" %in% pooled_sjer$detector)
+})

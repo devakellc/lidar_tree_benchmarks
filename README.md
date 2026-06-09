@@ -114,6 +114,7 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `detect_li2012_native.R` | Native-only Li 2012 arm (#R10): lidR `li2012` point segmenter on the native frozen clip, reduced to detections via the bridge; the point-segmenter leg of the head-to-head. Writes `neon/<SITE>/li2012_results.csv`. |
 | `detect_treeisonet_sweep.R` | TreeisoNet deep-model arm (#M7): runs the headless GPU driver (`gpu/run_treeisonet.py`, cu128/sm_120) on the normalized frozen clip per plot x rung, serially (one GPU), apex-only with a local-canopy-max z-snap, at the calibrated zero-shot `CONF=0.22` default. `VOXEL` accepts either a scalar isotropic override or an anisotropic `x,y,z` vector. Writes `neon/<SITE>/treeisonet_results.csv`. See `docs/superpowers/plans/2026-06-08-gpu-arm-infra-m7-first.md`. |
 | `analyze_model_benchmark.R` | Cross-model synthesis (#R10): unions every arm on the shared frozen clips, equal-set-guards across arms, pools per (detector, rung) by crown class + height band, and writes the density-robustness figures + table fragment behind [`model-benchmark-results.md`](results/model-benchmark-results.md). |
+| `compare_model_sites.R` | Cross-site structure gradient for the classical model-benchmark arms (#E11): pools per-site ams3d + lidRplugins results across SJER → SOAP → TEAK, writes `model_cross_site_summary.csv` + per-arm structure-gradient figures. |
 | `gpu/setup_treeisonet_env.sh` + `gpu/mirror_weights.sh` | GPU arm prerequisites: create the pinned TreeisoNet venv, mirror weights/configs, and verify the tracked checksum manifest. |
 | `tests/run_tests.R` | Unit-test harness for benchmark library code, model runners, extractors, I/O helpers, pooling guards, and synthesis helpers. |
 
@@ -133,12 +134,21 @@ source clone with those stripped from DESCRIPTION (see
 ```sh
 export CLAUDE_JOB_DIR=$(pwd)/work && mkdir -p "$CLAUDE_JOB_DIR"
 
-# Model benchmark (SOAP; TreeisoNet CONF defaults to calibrated 0.22)
+# Model benchmark — classical arms per site (SOAP + SJER + TEAK)
 Rscript scripts/detect_ams3d_sweep.R       SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_lidrplugins_sweep.R SITE=SOAP PLOTS=ALL CORES=12
+Rscript scripts/detect_ams3d_sweep.R       SITE=SJER PLOTS=ALL CORES=12
+Rscript scripts/detect_lidrplugins_sweep.R SITE=SJER PLOTS=ALL CORES=12
+Rscript scripts/detect_ams3d_sweep.R       SITE=TEAK PLOTS=ALL CORES=12
+Rscript scripts/detect_lidrplugins_sweep.R SITE=TEAK PLOTS=ALL CORES=12
+# Synthesize per site, then cross-site
+Rscript scripts/analyze_model_benchmark.R  SITE=SOAP
+Rscript scripts/analyze_model_benchmark.R  SITE=SJER
+Rscript scripts/analyze_model_benchmark.R  SITE=TEAK
+Rscript scripts/compare_model_sites.R
+# Deep GPU arms (SOAP only; TreeisoNet CONF defaults to calibrated 0.22)
 Rscript scripts/detect_li2012_native.R     SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_treeisonet_sweep.R  VOXEL=0.8,0.8,2.0
-Rscript scripts/analyze_model_benchmark.R  SITE=SOAP
 
 # Toy tile (no data download needed; uses lasR's bundled MixedConifer.las)
 Rscript scripts/detect_lasr.R

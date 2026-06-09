@@ -275,25 +275,25 @@ so it cannot shrink the ladder's equal-set population).
 
 | detector | rung | recall | precision | F1 | rec_dominant | rec_understory |
 | --- | --- | --- | --- | --- | --- | --- |
-| forestformer3d | native | 0.40 | 0.19 | 0.25 | 0.46 | 0.20 |
-| forestformer3d | 8 | 0.45 | 0.25 | 0.32 | 0.55 | 0.22 |
+| forestformer3d | native | 0.44 | 0.20 | 0.28 | 0.45 | 0.24 |
+| forestformer3d | 8 | 0.44 | 0.24 | 0.31 | 0.54 | 0.22 |
 | chm_vwf | native | 0.48 | 0.32 | 0.38 | 0.54 | 0.27 |
 | chm_vwf | 8 | 0.33 | 0.48 | 0.39 | 0.44 | 0.13 |
 | treeisonet | native | 0.27 | 0.08 | 0.12 | 0.25 | 0.27 |
 | treeisonet | 8 | 0.06 | 0.10 | 0.07 | 0.07 | 0.07 |
 
 Two readings. (1) **Zero-shot, FF3D trails the tuned classical CHM-VWF baseline**
-(F1 0.25–0.32 vs 0.38–0.39) — the expected dense-ULS/TLS → sparse-ALS domain gap,
+(F1 0.28–0.31 vs 0.38–0.39) — the expected dense-ULS/TLS → sparse-ALS domain gap,
 the same story as TreeisoNet but on a query-based transformer. (2) But FF3D
-**clears the TreeisoNet floor comfortably** (F1 0.32 vs 0.07 at rung 8; ~8× the
-dominant-tree recall, 0.55 vs 0.07), so among pretrained deep arms it transfers
+**clears the TreeisoNet floor comfortably** (F1 0.31 vs 0.07 at rung 8; ~8× the
+dominant-tree recall, 0.54 vs 0.07), so among pretrained deep arms it transfers
 far better to NEON ALS. Notably FF3D's F1 *rises* from native to rung 8
-(0.25 → 0.32): the
-denser native cloud yields more spurious instances (precision 0.19), and
+(0.28 → 0.31): the
+denser native cloud yields more spurious instances (precision 0.20), and
 decimating toward its training density sharpens both precision and recall — a
 mild signal its sweet spot sits below NEON-native density. Understory recall
-(~0.20) is non-trivial but well under the canopy-class recall, consistent with a
-canopy-trained model.
+(~0.22–0.24) is non-trivial but well under the canopy-class recall, consistent
+with a canopy-trained model.
 
 ## Appendix: zero-shot ledger
 

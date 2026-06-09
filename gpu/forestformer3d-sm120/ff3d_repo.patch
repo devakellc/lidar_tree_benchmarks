@@ -1,0 +1,53 @@
+diff --git a/configs/oneformer3d_qs_radius16_qp300_2many.py b/configs/oneformer3d_qs_radius16_qp300_2many.py
+index 2b8f93e..534a7e1 100644
+--- a/configs/oneformer3d_qs_radius16_qp300_2many.py
++++ b/configs/oneformer3d_qs_radius16_qp300_2many.py
+@@ -241,8 +241,7 @@ default_hooks = dict(
+         logger=dict(type='LoggerHook', interval=20),
+         visualization=dict(type='Det3DVisualizationHook', draw=False))
+ 
+-vis_backends = [dict(type='LocalVisBackend'),
+-                dict(type='TensorboardVisBackend')]
++vis_backends = [dict(type='LocalVisBackend')]
+ visualizer = dict(
+     type='Det3DLocalVisualizer', vis_backends=vis_backends, name='visualizer')
+ 
+diff --git a/tools/test.py b/tools/test.py
+index 5c6cf00..a153f40 100644
+--- a/tools/test.py
++++ b/tools/test.py
+@@ -3,6 +3,17 @@ import argparse
+ import os
+ import os.path as osp
+ 
++import torch
++
++# torch>=2.6 flips torch.load default to weights_only=True; the FF3D checkpoint
++# and mmengine 0.7.3's internal loader store non-tensor globals. Restore the
++# pre-2.6 behavior for this trusted official checkpoint (covers mmengine too).
++_orig_torch_load = torch.load
++def _torch_load_compat(*args, **kwargs):
++    kwargs.setdefault('weights_only', False)
++    return _orig_torch_load(*args, **kwargs)
++torch.load = _torch_load_compat
++
+ from mmengine.config import Config, ConfigDict, DictAction
+ from mmengine.registry import RUNNERS
+ from mmengine.runner import Runner
+@@ -128,11 +139,11 @@ def main():
+ 
+     checkpoint_to_fix = checkpoint[key_to_fix]
+ 
+-    for layer in list(checkpoint_to_fix.keys()):
+-        if (layer.startswith('unet') or layer.startswith('input_conv')) \
+-            and layer.endswith('weight') \
+-            and len(checkpoint_to_fix[layer].shape) == 5:
+-            checkpoint_to_fix[layer] = checkpoint_to_fix[layer].permute(1, 2, 3, 4, 0)
++    # NOTE: epoch_3000_fix.pth is already stored in the spconv-cu128 2.4.1 weight
++    # layout (out, K, K, K, in). The upstream in-memory permute(1,2,3,4,0) targets
++    # an older spconv convention and *re-breaks* it (size mismatch on every
++    # unet.* / input_conv weight). Load the checkpoint as-is for spconv 2.4.x.
++    _ = checkpoint_to_fix
+     
+     import tempfile
+     with tempfile.NamedTemporaryFile(delete=False, suffix='.pth') as tmp_checkpoint_file:

@@ -121,7 +121,7 @@ pool <- function(df, classes = POOL_CLASSES) {
     n_plots = length(unique(paste(df$site, df$plot, df$rung, sep = "::"))),
     n_ref = sum(df$n_ref), n_det = sum(df$n_det), TP = sum(df$TP),
     recall = sum(df$TP) / sum(df$n_ref),
-    precision = sum(df$tp_core, na.rm = TRUE) / sum(df$n_det))
+    precision = if (sum(df$n_det) > 0) sum(df$tp_core, na.rm = TRUE) / sum(df$n_det) else NA_real_)
   out$F1 <- if (!is.na(out$recall) && !is.na(out$precision) &&
                 (out$recall + out$precision) > 0)
     2 * out$recall * out$precision / (out$recall + out$precision) else NA_real_

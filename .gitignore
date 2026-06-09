@@ -15,6 +15,7 @@ Rplots.pdf
 # Python bytecode cache (containers run as root and leave these in mounts).
 __pycache__/
 *.pyc
+.claude/
 # GPU arm: large payloads + venv + upstream clone are regenerated; the
 # checksum manifest and pinned commit are versioned (NOT ignored).
 gpu/store/

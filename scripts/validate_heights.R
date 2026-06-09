@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Validate detected treetop apex HEIGHT against NEON field-measured tree height.
 # Matches stems to treetops on 2D POSITION ONLY (no height gate -> unbiased
 # height comparison) within a tight tolerance, at native density, modal params.
@@ -13,8 +26,8 @@
 # baseline height_pairs.csv); OUT overrides the path explicitly.
 suppressMessages({ library(lidR); library(lasR); library(terra); library(sf) })
 options(lidR.progress = FALSE)
-d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
-source(file.path("scripts", "sweep_lib.R"))
+d <- .job_dir()
+source(.find("sweep_lib.R"))
 
 args <- strsplit(commandArgs(TRUE), "="); A <- setNames(lapply(args,`[`,2), sapply(args,`[`,1))
 SITES <- strsplit(if (is.null(A$SITES)) "SJER,SOAP,TEAK" else A$SITES, ",")[[1]]

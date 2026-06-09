@@ -10,12 +10,18 @@
 # Writes: summary CSVs + figs/ + a generated markdown table fragment under the
 #         same dir; the narrative results/model-benchmark-results.md is authored.
 suppressMessages({ library(data.table) })
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
 bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
   file.path("scripts", "bootstrap.R"),
   file.path("..", "..", "scripts", "bootstrap.R"),
   file.path(getwd(), "scripts", "bootstrap.R")))
 if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
-source(bs[1]); rm(bs)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 source(.find("model_bench_lib.R"))
 
 RUNG_LEVELS <- c("native", "8", "4", "2", "1")
@@ -91,7 +97,7 @@ run_main <- function() {
   args <- strsplit(commandArgs(TRUE), "=")
   A    <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
   SITE <- if (is.null(A$SITE)) "SOAP" else A$SITE
-  d    <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
+  d    <- .job_dir()
   nd   <- file.path(d, "neon", SITE)
 
   arm_files <- c(ams3d = "ams3d_results.csv", lidrplugins = "lidrplugins_results.csv",

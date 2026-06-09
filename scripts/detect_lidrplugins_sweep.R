@@ -1,4 +1,17 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # lidRplugins competitor arm (#C9) of the NEON model benchmark.
 # Runs three classical LiDAR-native detectors (lmfauto + multichm via
 # locate_trees; ptrees via segment_trees + reduce_instances) plus the CHM-VWF
@@ -17,7 +30,7 @@
 suppressMessages({ library(lidR); library(lidRplugins); library(sf)
                    library(data.table); library(parallel) })
 options(lidR.progress = FALSE)
-d <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
+d <- .job_dir()
 # Locate the two libs robustly across run contexts (Rscript from root vs
 # source()-d under testthat where cwd = tests/testthat).
 .find <- function(rel) Find(file.exists, c(file.path("scripts", rel),

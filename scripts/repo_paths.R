@@ -14,3 +14,10 @@
                                            file.path("scripts", rel),
                                            file.path("..", "..", "scripts", rel),
                                            file.path(getwd(), "scripts", rel)))
+.job_dir <- function(create = TRUE) {
+  d <- Sys.getenv("CLAUDE_JOB_DIR", unset = "")
+  if (!nzchar(d)) d <- file.path(.ROOT, "work")
+  d <- path.expand(d)
+  if (create) dir.create(d, recursive = TRUE, showWarnings = FALSE)
+  normalizePath(d, mustWork = FALSE)
+}

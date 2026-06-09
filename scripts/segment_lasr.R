@@ -1,10 +1,23 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Step 6 (crown segmentation) + Step 7 (crown metrics) in lasR on the toy tile.
 # Mirrors detect_lasr.R for Steps 0/4/5, then adds region_growing (Dalponte
 # 2016) and polygonizes the crown raster for per-tree metrics.
 suppressMessages(library(lasR))
 f <- system.file("extdata", "MixedConifer.las", package = "lasR")
-d <- Sys.getenv("CLAUDE_JOB_DIR")
+d <- .job_dir()
 if (!nzchar(d)) stop("Set CLAUDE_JOB_DIR to a writable directory")
 
 ## Step 0 -- first-return density

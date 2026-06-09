@@ -1,8 +1,21 @@
 #!/usr/bin/env Rscript
+.bs_ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+.bs_file <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+bs <- Find(file.exists, c(
+  if (!is.null(.bs_ofile) && length(.bs_ofile) && nzchar(.bs_ofile))
+    file.path(dirname(.bs_ofile), "bootstrap.R"),
+  if (length(.bs_file)) file.path(dirname(sub("^--file=", "", .bs_file[1])),
+                                  "bootstrap.R"),
+  file.path("scripts", "bootstrap.R"),
+  file.path("..", "..", "scripts", "bootstrap.R"),
+  file.path(getwd(), "scripts", "bootstrap.R")))
+if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
+source(bs[1]); rm(bs, .bs_ofile, .bs_file)
+
 # Cross-site structure-gradient comparison: pools each site's sweep and reports
 # the density-sensitivity of detection by crown class for SJER (open oak) ->
 # SOAP (mixed conifer) -> TEAK (red fir). Writes a combined CSV + figure.
-d  <- Sys.getenv("CLAUDE_JOB_DIR", file.path(getwd(), "work"))
+d  <- .job_dir()
 sites <- strsplit(if (length(commandArgs(TRUE))) commandArgs(TRUE)[1] else
                   "SJER,SOAP,TEAK", ",")[[1]]
 classes <- c("dominant","codominant","intermediate","suppressed")
@@ -14,8 +27,9 @@ pool_rung <- function(r, rl) {
   o <- data.frame(rung = rl, frdens = round(mean(s$frdens), 2),
                   n_ref = sum(s$n_ref),
                   recall = sum(s$TP)/sum(s$n_ref),
-                  precision = sum(s$tp_core, na.rm=TRUE)/sum(s$n_det))
-  o$F1 <- 2*o$recall*o$precision/(o$recall+o$precision)
+                  precision = if (sum(s$n_det) > 0) sum(s$tp_core, na.rm=TRUE)/sum(s$n_det) else NA_real_)
+  o$F1 <- if (!is.na(o$precision) && (o$recall + o$precision) > 0)
+    2 * o$recall * o$precision / (o$recall + o$precision) else NA_real_
   for (cl in classes) {
     nc <- sum(s[[paste0("n_",cl)]], na.rm=TRUE)
     tp <- sum(ifelse(s[[paste0("n_",cl)]]>0, round(s[[paste0("rec_",cl)]]*s[[paste0("n_",cl)]]),0), na.rm=TRUE)

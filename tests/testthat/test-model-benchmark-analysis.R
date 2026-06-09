@@ -59,3 +59,20 @@ test_that("model synthesis fails explicitly without the CHM-VWF baseline", {
                "chm_vwf missing - run detect_lidrplugins_sweep.R first",
                fixed = TRUE)
 })
+
+test_that("pool_ff3d compares native+8 without shrinking the full ladder", {
+  rows <- list()
+  for (rg in c("native", "8", "4", "2", "1")) for (p in c("p1", "p2"))
+    rows[[length(rows) + 1]] <- mk_arm("chm_vwf", rg, p, 10, 6, 8, TRUE)
+  rows[[length(rows) + 1]] <- mk_arm("forestformer3d", "native", "p1", 10, 5, 9, TRUE)
+  rows[[length(rows) + 1]] <- mk_arm("forestformer3d", "8", "p1", 10, 5, 9, TRUE)
+  u <- harmonize_union(rows)
+  # FF3D is native+8-only but is NOT in LADDER_ARMS, so the full ladder keeps
+  # all 5 rungs (this is the regression the additive design guards against).
+  ladder <- pool_arms(u, arms = intersect(LADDER_ARMS, unique(u$detector)))
+  expect_setequal(as.character(unique(ladder$rung)), c("native", "8", "4", "2", "1"))
+  # FF3D has its own native+8 comparison pool.
+  ff <- pool_ff3d(u)
+  expect_true("forestformer3d" %in% ff$detector)
+  expect_setequal(as.character(unique(ff$rung)), c("native", "8"))
+})

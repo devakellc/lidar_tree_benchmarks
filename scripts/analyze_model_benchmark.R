@@ -76,6 +76,16 @@ require_chm_vwf_baseline <- function(u) {
 LADDER_ARMS <- c("ams3d", "lmfauto", "multichm", "ptrees", "chm_vwf", "treeisonet")
 NATIVE_ARMS <- c("chm_vwf", "ptrees", "ams3d", "li2012", "treeisonet")
 
+# FF3D (#M8) is native+8-only: compare it against the baselines in its OWN pool so
+# it never enters LADDER_ARMS' equal-set guard (which would drop rungs 4/2/1 for
+# every arm). Self-contained -> FF3D's plot coverage affects only this table.
+FF3D_CMP_ARMS <- c("forestformer3d", "chm_vwf", "treeisonet")
+pool_ff3d <- function(u) {
+  arms <- intersect(FF3D_CMP_ARMS, unique(u$detector))
+  if (!"forestformer3d" %in% arms) return(NULL)
+  pool_arms(u, arms = arms, rungs = c("native", "8"))
+}
+
 # Render a long pooled table to a GitHub-markdown block (selected columns).
 # Format numeric columns BEFORE apply() (which would coerce the whole frame to a
 # character matrix and silently drop the rounding); integer-valued columns
@@ -101,7 +111,8 @@ run_main <- function() {
   nd   <- file.path(d, "neon", SITE)
 
   arm_files <- c(ams3d = "ams3d_results.csv", lidrplugins = "lidrplugins_results.csv",
-                 li2012 = "li2012_results.csv", treeisonet = "treeisonet_results.csv")
+                 li2012 = "li2012_results.csv", treeisonet = "treeisonet_results.csv",
+                 forestformer3d = "forestformer3d_results.csv")
   dfs <- lapply(file.path(nd, arm_files), function(f)
     if (file.exists(f)) read.csv(f, stringsAsFactors = FALSE) else NULL)
   dfs <- Filter(Negate(is.null), dfs)
@@ -121,6 +132,12 @@ run_main <- function() {
   if (length(attr(ladder, "dropped")))
     cat(sprintf("ladder guard dropped %d (plot,rung) cells\n",
                 length(attr(ladder, "dropped"))))
+
+  ff3d <- pool_ff3d(u)                       # additive: never shrinks the ladder
+  if (!is.null(ff3d)) {
+    write.csv(ff3d, file.path(nd, "model_bench_ff3d.csv"), row.names = FALSE)
+    cat("forestformer3d native+8 comparison written\n")
+  }
 
   ## figures: recall and understory recall vs first-return density, per arm
   fig <- file.path(nd, "figs"); dir.create(fig, showWarnings = FALSE)
@@ -161,7 +178,10 @@ run_main <- function() {
             "#### Native point-segmenter head-to-head", "",
             .md_table(native[order(native$detector), ], cols_n), "",
             "#### Head-to-head deltas vs CHM-VWF (recall/F1/understory)", "",
-            .md_table(dl[order(dl$detector, dl$rung), ], cols_d))
+            .md_table(dl[order(dl$detector, dl$rung), ], cols_d),
+            if (!is.null(ff3d)) c("",
+              "#### ForestFormer3D (#M8) native + 8, vs baselines", "",
+              .md_table(ff3d[order(ff3d$detector, ff3d$rung), ], cols_l)) else NULL)
   writeLines(frag, file.path(nd, "model_bench_tables.md"))
   cat(sprintf("synthesis -> %s {ladder,native,dl}.csv, figs/, model_bench_tables.md\n", nd))
 }

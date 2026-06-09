@@ -73,3 +73,24 @@ python run_infer_save.py                        # -> work_dirs/infer/pred_instan
 
 `ff3d_repo.patch` carries the four `tools/test.py` + config edits. `ff3d_freeze.txt`
 is the authoritative version lock (177 packages) for the working container.
+
+## Benchmark arm (#M8)
+
+The headless arm is
+[`scripts/detect_forestformer3d_sweep.R`](../../scripts/detect_forestformer3d_sweep.R):
+it tiles each NEON plot into 16 m-radius cylinders, runs FF3D once per plot via
+[`ff3d_arm.py`](ff3d_arm.py) + [`ff3d_entry.sh`](ff3d_entry.sh) in this image
+(`run_docker_arm`), cross-block-dedups the instances (apex-cluster, different
+blocks only), and scores apexes against field stems. SOAP native + 8 results
+(zero-shot) are in
+[results/model-benchmark-results.md](../../results/model-benchmark-results.md).
+
+```sh
+Rscript scripts/detect_forestformer3d_sweep.R SITE=SOAP REPO=<FF3D repo>   # ~8 min, one GPU
+```
+
+The `Dockerfile` here builds clean: the three `replace_mmdetection_files`
+site-packages swaps are baked at build, and `ff3d_repo.patch` is applied to the
+mounted repo at container start by `ff3d_entry.sh` (idempotent). `ff3d_arm.py` is
+the multi-cylinder, single-model-pass driver; `run_infer_save.py` remains the
+single-plot demo.

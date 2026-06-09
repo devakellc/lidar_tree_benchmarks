@@ -5,10 +5,11 @@ NEON SOAP density ladder, scored on the **same frozen clips** by the **same**
 field-stem harness, so the arms are directly comparable. It unifies the AMS3D
 instance segmenter (`crownsegmentr`), the lidRplugins competitors (`lmfauto`,
 `multichm`, `ptrees`), the CHM-VWF baseline (`detect_lasr`), a native-only
-Li 2012 point segmenter, and the first **deep GPU model** — the zero-shot
-TreeisoNet-ALS instance segmenter (#M7, run on the RTX 5090). The remaining deep
-models (SegmentAnyTree #M6, ForestFormer3D #M8) stay deferred behind the sm_120
-Docker rebuild and will slot into these tables as further arms.
+Li 2012 point segmenter, and two **deep GPU models** run zero-shot on the
+RTX 5090 — the TreeisoNet-ALS instance segmenter (#M7) and ForestFormer3D
+(#M8, native + 8 only; see its section below). SegmentAnyTree (#M6) stays
+deferred behind a remaining sm_120 inference blocker and will slot in as a
+further arm.
 
 Regenerate:
 
@@ -18,6 +19,7 @@ Rscript scripts/detect_ams3d_sweep.R       SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_lidrplugins_sweep.R SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_li2012_native.R     SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_treeisonet_sweep.R                       # GPU, serial; CONF=0.22 default
+Rscript scripts/detect_forestformer3d_sweep.R SITE=SOAP REPO=<FF3D repo>  # GPU, serial; native+8 (~8 min)
 Rscript scripts/analyze_model_benchmark.R  SITE=SOAP
 ```
 
@@ -251,7 +253,45 @@ This is the zero-shot domain-shift failure made concrete: a model trained on
 dense ULS/UAV/TLS (its published ALS auto-mIoU is ~0.59) does not transfer to
 sparse discrete-return NEON ALS without fine-tuning, and at NEON densities it is
 beaten by a tuned classical CHM detector. Read it as a *floor* the heavier deep
-arms (SegmentAnyTree #M6, ForestFormer3D #M8) must clear to justify their cost.
+arms must clear to justify their cost — ForestFormer3D (#M8, next section) clears
+it comfortably but still trails the classical baseline; SegmentAnyTree (#M6)
+remains to be run.
+
+## ForestFormer3D (#M8) — zero-shot, native + 8 only
+
+ForestFormer3D (ICCV 2025), ported to the RTX 5090 (sm_120; torch 2.7 / cu128 —
+see [`gpu/forestformer3d-sm120/`](../gpu/forestformer3d-sm120/README.md)), run
+zero-shot on the **top of the ladder only** (native + 8 pts/m²; it is the
+heaviest arm, ~8 min for a full SOAP run on one GPU). Each plot core is tiled into
+16 m-radius cylinders (`SPACING = 24` m → 8 m overlap; 9 cylinders per tower
+plot, 4 per distributed), with one model pass per plot; cross-block instances are
+then merged by apex-cluster union-find (`MERGE_TOL = 2` m, **different blocks
+only**, so a model's within-cylinder over-segmentation is scored honestly) before
+the shared apex reducer. It is reported as its **own** native+8 pool against the
+CHM-VWF baseline and the other deep arm over the identical 18-plot / 232-stem
+set, and is **not** part of the five-rung ladder above (an additive comparison,
+so it cannot shrink the ladder's equal-set population).
+
+| detector | rung | recall | precision | F1 | rec_dominant | rec_understory |
+| --- | --- | --- | --- | --- | --- | --- |
+| forestformer3d | native | 0.40 | 0.19 | 0.25 | 0.46 | 0.20 |
+| forestformer3d | 8 | 0.45 | 0.25 | 0.32 | 0.55 | 0.22 |
+| chm_vwf | native | 0.48 | 0.32 | 0.38 | 0.54 | 0.27 |
+| chm_vwf | 8 | 0.33 | 0.48 | 0.39 | 0.44 | 0.13 |
+| treeisonet | native | 0.27 | 0.08 | 0.12 | 0.25 | 0.27 |
+| treeisonet | 8 | 0.06 | 0.10 | 0.07 | 0.07 | 0.07 |
+
+Two readings. (1) **Zero-shot, FF3D trails the tuned classical CHM-VWF baseline**
+(F1 0.25–0.32 vs 0.38–0.39) — the expected dense-ULS/TLS → sparse-ALS domain gap,
+the same story as TreeisoNet but on a query-based transformer. (2) But FF3D
+**clears the TreeisoNet floor comfortably** (F1 0.32 vs 0.07 at rung 8; ~4× the
+dominant-tree recall), so among pretrained deep arms it transfers far better to
+NEON ALS. Notably FF3D's F1 *rises* from native to rung 8 (0.25 → 0.32): the
+denser native cloud yields more spurious instances (precision 0.19), and
+decimating toward its training density sharpens both precision and recall — a
+mild signal its sweet spot sits below NEON-native density. Understory recall
+(~0.20) is non-trivial but well under the canopy-class recall, consistent with a
+canopy-trained model.
 
 ## Appendix: zero-shot ledger
 
@@ -260,13 +300,12 @@ zero-shot with no NEON-specific fitting; the only knobs are the density-first
 parameters the repo already derives (CHM resolution and the VWF window from
 measured first-return density — see
 [treetop-detection-approach.md](../docs/treetop-detection-approach.md)), plus
-literature-default crown allometry for AMS3D (Ferraz 2016). TreeisoNet is the one
-**pretrained deep** arm, also zero-shot: published ALS weights, a single
-calibrated confidence, no fine-tuning. The triage, zero-shot protocol, and
-weights-mirror policy are in
-[model-benchmark-plan.md](../docs/model-benchmark-plan.md) (#A0). SegmentAnyTree
-(#M6) and ForestFormer3D (#M8) remain deferred behind the sm_120 Docker rebuild
-and will be added as further arms in this same synthesis.
+literature-default crown allometry for AMS3D (Ferraz 2016). TreeisoNet and
+ForestFormer3D are the **pretrained deep** arms, also zero-shot: published
+weights, no fine-tuning. The triage, zero-shot protocol, and weights-mirror
+policy are in [model-benchmark-plan.md](../docs/model-benchmark-plan.md) (#A0).
+SegmentAnyTree (#M6) remains deferred behind a remaining sm_120 inference blocker
+and will be added as a further arm in this same synthesis.
 
 ## Caveats
 
@@ -280,8 +319,8 @@ and will be added as further arms in this same synthesis.
   report were developed/trained largely on dense ULS/UAS or TLS point clouds;
   NEON is discrete-return airborne LiDAR at far lower density. These results
   characterise zero-shot transfer to ALS, not the methods at their design
-  density — TreeisoNet's collapse (above) is the concrete evidence, and #M6/#M8
-  are expected to share the risk.
+  density — TreeisoNet's collapse and ForestFormer3D's sub-baseline F1 (both
+  above) are the concrete evidence, and #M6 is expected to share the risk.
 - **Field-stem ground truth reduces every model to detections.** Scoring is
   apex recall/precision against mapped stems, not point-level instance IoU; an
   over-segmenter is penalised only through precision, and a model that recovers

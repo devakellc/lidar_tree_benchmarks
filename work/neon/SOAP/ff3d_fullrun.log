@@ -1,0 +1,21 @@
+[SOAP] forestformer3d plots: 18 (image=ff3d-sm120 spacing=24 merge_tol=2)
+  SOAP_001: 2 cells
+  SOAP_002: 2 cells
+  SOAP_003: 2 cells
+  SOAP_004: 2 cells
+  SOAP_008: 2 cells
+  SOAP_009: 2 cells
+  SOAP_013: 2 cells
+  SOAP_015: 2 cells
+  SOAP_017: 2 cells
+  SOAP_020: 2 cells
+  SOAP_021: 2 cells
+  SOAP_031: 2 cells
+  SOAP_046: 2 cells
+  SOAP_048: 2 cells
+  SOAP_049: 2 cells
+  SOAP_050: 2 cells
+  SOAP_055: 2 cells
+  SOAP_057: 2 cells
+[SOAP] forestformer3d DONE: 36 rows -> /home/alex/projects/lidar_tree_benchmarks/work/neon/SOAP/forestformer3d_results.csv
+There were 50 or more warnings (use warnings() to see the first 50)

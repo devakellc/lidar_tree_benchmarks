@@ -43,7 +43,7 @@ Settled during brainstorming and a follow-up design review:
 | Coordinate frame | **Container restores per-cylinder centering offset → emits UTM** | `prep_test_data` centers by (mean-x, mean-y, min-z); the driver re-adds the saved per-scene offset so output is UTM. Matches the #19 "emit in the frame you received" contract. The driver adds a wholesale-off-DTM guard (§4) so a frame bug becomes a *skipped* cell, not a fake 0-recall row. |
 | Checkpoint path | **Explicit absolute arg + identity-mounted weights dir** | `run_infer_save.py`'s relative `load_from` won't resolve under an identity mount. `ff3d_arm.py` takes the checkpoint as a 3rd positional arg (`cfg.load_from = argv[3]`); the driver passes it via `run_docker_arm(extra=)` and mounts its dir via `mounts=`. |
 | Input variant | **Raw-with-ground clip** (`clip_rawground.laz`) | FF3D has its own `ground` semantic class; feed the raw clip, then z→AGL via `det_to_agl` + the frozen clip's DTM (exactly as SAT does). |
-| Image packaging | **Bake FF3D repo code + #27 patches + `ff3d_arm.py`; mount weights + data** | Repeated calls must not `git apply` per run. `ff3d_arm.py` lives under `gpu/forestformer3d-sm120/` (version-controlled) and is `COPY`-ed in. Per-call staging writes to the container's ephemeral layer (`--rm`). |
+| Image packaging | **Mount FF3D repo + weights at runtime; bake only the 3 mm-stack site-packages swaps; mount driver + entry script** | The FF3D repo is gitignored runtime data — baking it couples the image to a data dir. The 3 `replace_mmdetection_files` swaps modify *site-packages* (in the image), so they're baked at build (vendored under `gpu/forestformer3d-sm120/`). `ff3d_arm.py` + `ff3d_entry.sh` are version-controlled there and mounted; the entry script applies `ff3d_repo.patch` to the mounted repo **idempotently** (`git apply --check` guard) so repeated `--rm` calls are safe. Staging writes to the ephemeral layer. |
 | Analyzer integration | **Register the CSV; report FF3D in a dedicated native+8 comparison; DO NOT add it to `LADDER_ARMS`/`NATIVE_ARMS`** | The full-ladder `equal_set_guard` requires every arm at every rung; a native+8-only arm would silently drop rungs 4/2/1 for all arms. FF3D gets its own self-contained pooled table. |
 | Results | **Un-defer #M8 inside `results/model-benchmark-results.md`** | One arm = consistent with the other model arms already in that doc; no standalone result file. |
 
@@ -82,9 +82,11 @@ at `/workspace/ff3d_arm.py` (source under `gpu/forestformer3d-sm120/`).
 cylinder is absent from the merge). A total failure (no output file, non-zero
 exit) is caught by `run_docker_arm` → cell skipped.
 
-The four #27 correctness patches (disable the `tools/test.py` spconv `permute`,
-drop the tensorboard hook, the two mmengine/mmdet3d file swaps) are applied **at
-image-build time**, not per run.
+The #27 correctness patches split by what they touch: the two mmengine/mmdet3d
+**site-packages** swaps are baked at **build time**; `ff3d_repo.patch` (the
+`tools/test.py` spconv-`permute` disable + tensorboard-hook drop) is applied to
+the **mounted repo** at container start by `ff3d_entry.sh`, idempotently
+(`git apply --check` guard).
 
 ## 3. Component: cross-block dedup `dedup_blocks()` (in `model_bench_lib.R`)
 
@@ -126,9 +128,12 @@ last for `det_to_agl`). Per plot × rung in `{native, 8}`:
    core (`plot_half(plotType)`); `lidR::clip_circle(radius = 16)` each from the
    raw clip; write `cyl_NNN.laz` into a per-cell temp `in_dir`.
 3. **Infer**: `run_docker_arm(image = IMAGE, input = in_dir, out_csv = out_laz,
-   cmd = c("python", "/workspace/ff3d_arm.py"), extra = c(CKPT_ABS),
-   mounts = dirname(CKPT_ABS), reader = <closure>, gpus = "all", timeout)`. The
-   **reader closure** `lidR::readLAS(out_laz)` → `(X, Y, Z, inst = PointSourceID,
+   cmd = c("bash", ENTRY_SH), extra = c(CKPT_ABS),
+   mounts = c(FF3D_REPO, dirname(CKPT_ABS), dirname(ENTRY_SH)),
+   reader = <closure>, gpus = "all", timeout)`. `ENTRY_SH` cds to `FF3D_REPO`,
+   applies `ff3d_repo.patch` idempotently, then `exec python ff3d_arm.py "$@"`
+   (so the container receives `<in_dir> <out_laz> <ckpt>`). The **reader
+   closure** `lidR::readLAS(out_laz)` → `(X, Y, Z, inst = PointSourceID,
    block = UserData)` → `dedup_blocks()` → `reduce_instances(id_col =
    "global_id")` → UTM apexes `det(x, y, z)`. `run_docker_arm` keeps its
    single-file contract and asserts `det`.
@@ -146,8 +151,10 @@ last for `det_to_agl`). Per plot × rung in `{native, 8}`:
    `work/neon/SOAP/forestformer3d_results.csv`.
 
 Args (KEY=VALUE): `SITE=SOAP PLOTS=ALL MERGE_TOL=2.0 SPACING=24 TOL=4.0
-IMAGE=ff3d-sm120 CKPT=<abs path> TIMEOUT=3600`. `RUNGS <- c(8); MINTREES <- 6`;
-loop `c(NA, RUNGS)`.
+IMAGE=ff3d-sm120 REPO=<abs FF3D repo> CKPT=<abs .pth> TIMEOUT=3600`. `REPO`/`CKPT`
+default to the `gpu/store/forestformer3d/ForestFormer3D` checkout + its
+`work_dirs/clean_forestformer/epoch_3000_fix.pth`. `RUNGS <- c(8);
+MINTREES <- 6`; loop `c(NA, RUNGS)`.
 
 ## 5. Coordinate & contract chain (end to end)
 

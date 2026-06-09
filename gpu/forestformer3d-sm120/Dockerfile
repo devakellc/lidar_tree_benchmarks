@@ -56,11 +56,18 @@ RUN pip install --no-cache-dir \
       "pyparsing==3.0.9" "lark==1.1.5" "lazrs==0.8.1" "packaging==23.1" \
       "portalocker==3.2.0" "zipp==3.17.0" "python-dateutil==2.8.2"
 
-# Runtime: mount the FF3D repo at /workspace with replace_mmdetection_files/ and
-# apply the four code patches (ff3d_repo.patch) + the mmengine/mmdet3d file swaps:
-#   cp replace_mmdetection_files/loops.py       <site>/mmengine/runner/
-#   cp replace_mmdetection_files/base_model.py  <site>/mmengine/model/base_model/
-#   cp replace_mmdetection_files/transforms_3d.py <site>/mmdet3d/datasets/transforms/
-#   git -C /workspace apply ff3d_repo.patch     # test.py + config (drop tensorboard)
+# Bake the mmengine/mmdet3d site-packages swaps (FF3D's replace_mmdetection_files)
+# into the image so they are present for every --rm run. SITE is conda's
+# site-packages. ff3d_repo.patch (which edits the mounted REPO, not site-packages)
+# is applied at container start by ff3d_entry.sh — see the FF3D arm (#M8).
+COPY replace_mmdetection_files/ /opt/replace_mmdetection_files/
+RUN SITE="$(python -c 'import site; print(site.getsitepackages()[0])')" && \
+    cp /opt/replace_mmdetection_files/loops.py        "$SITE/mmengine/runner/loops.py" && \
+    cp /opt/replace_mmdetection_files/base_model.py   "$SITE/mmengine/model/base_model/base_model.py" && \
+    cp /opt/replace_mmdetection_files/transforms_3d.py "$SITE/mmdet3d/datasets/transforms/transforms_3d.py"
+
+# Runtime: the #M8 arm mounts the FF3D repo + weights and runs ff3d_entry.sh,
+# which applies ff3d_repo.patch (tools/test.py spconv-permute + tensorboard drop)
+# to the mounted repo idempotently. The site-packages swaps above are already baked.
 WORKDIR /workspace
 CMD ["bash"]

@@ -11,6 +11,7 @@
 # Usage:
 #   Rscript scripts/detect_treeisonet_sweep.R [SITE=SOAP] [PLOTS=ALL]
 #       [CONF=0.22] [VOXEL=0] [TOL=4]
+#   VOXEL may be a scalar isotropic override or "x,y,z" (e.g. 0.8,0.8,2.0).
 # Requires the venv + weights from gpu/setup_treeisonet_env.sh + gpu/mirror_weights.sh.
 # Output: $CLAUDE_JOB_DIR/neon/<SITE>/treeisonet_results.csv (one row per
 #         plot x rung).

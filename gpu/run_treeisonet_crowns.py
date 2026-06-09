@@ -7,6 +7,8 @@
 #
 # Usage: run_treeisonet_crowns.py <input.laz> <out.csv> <loc.pth> <loc.json>
 #            <off.pth> <off.json> [voxel] [conf] [hmin]
+#   voxel <= 0 -> checkpoint native; scalar >0 -> isotropic override;
+#   "x,y,z" -> anisotropic override.
 import os, sys, numpy as np, laspy
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "TreeAIBox"))
 from modules.treeisonet.treeLoc import treeLoc, postPeakExtraction
@@ -16,13 +18,22 @@ if len(sys.argv) < 7:
     sys.exit("Usage: run_treeisonet_crowns.py <input.laz> <out.csv> <loc.pth> "
              "<loc.json> <off.pth> <off.json> [voxel] [conf] [hmin]")
 inp, out, loc_pth, loc_cfg, off_pth, off_cfg = sys.argv[1:7]
-voxel = float(sys.argv[7]) if len(sys.argv) > 7 else 0.0
+voxel = sys.argv[7] if len(sys.argv) > 7 else "0"
 conf  = float(sys.argv[8]) if len(sys.argv) > 8 else 0.22
 hmin  = float(sys.argv[9]) if len(sys.argv) > 9 else 2.0
 HEADER = "x y z crown_id"
 def write_empty():
     with open(out, "w") as f:
         f.write(HEADER + "\n")
+
+def voxel_resolution(arg):
+    vals = [float(v) for v in str(arg).split(",")]
+    if len(vals) == 1:
+        v = vals[0]
+        return np.array([v, v, v]) if v > 0 else np.zeros(3)
+    if len(vals) == 3 and all(v > 0 for v in vals):
+        return np.array(vals)
+    raise SystemExit("ERROR: voxel must be <=0, a positive scalar, or 'x,y,z'")
 
 las = laspy.read(inp)
 try:
@@ -35,7 +46,7 @@ pcd = np.transpose([np.asarray(las.x), np.asarray(las.y), np.asarray(las.z)]).as
 if pcd.shape[0] == 0:
     write_empty(); sys.exit(0)
 pmin = pcd.min(0); pcd[:, :3] -= pmin
-cr = np.array([voxel, voxel, voxel]) if voxel > 0 else np.zeros(3)
+cr = voxel_resolution(voxel)
 preds_raw = treeLoc(loc_cfg, pcd, loc_pth, use_cuda=True,
                     if_stem=False, custom_resolution=cr)
 if preds_raw is None:

@@ -26,6 +26,10 @@ test_that("pc_rungs_for drops everything when native density is unknown", {
   expect_equal(pc_rungs_for(NA, 8), numeric(0))
 })
 
+test_that("pc_rungs_for drops everything on a non-scalar native density", {
+  expect_equal(pc_rungs_for(c(10, 12), 8), numeric(0))   # defensive length!=1 guard
+})
+
 ## ---- extractor characterization smoke tests -------------------------------
 # The fixture has two well-separated apexes at (10,10,18) and (40,12,12).
 
@@ -38,19 +42,34 @@ test_that("det_lidr_lmf_pc returns a contract-valid x,y,z frame with apexes", {
   expect_gte(nrow(det), 1L)
 })
 
-test_that("det_lidr_li2012 returns a contract-valid x,y,z frame", {
+test_that("det_lidr_li2012 returns a contract-valid x,y,z frame with apexes", {
   las <- synth_las_normalized()
   det <- det_lidr_li2012(las)
   expect_s3_class(det, "data.frame")
   expect_identical(names(det), c("x", "y", "z"))
   expect_true(all(vapply(det, is.numeric, logical(1))))
+  expect_gte(nrow(det), 1L)
 })
 
-test_that("empty / sub-canopy input yields a 0-row x,y,z frame, never NULL", {
-  empty <- suppressWarnings(lidR::LAS(data.frame(X = numeric(), Y = numeric(),
-                                                 Z = numeric())))
-  det <- det_lidr_lmf_pc(empty, ws_factory(0.10))
+test_that("det_lasr_lmax_pc returns a contract-valid x,y,z frame from a file", {
+  las <- synth_las_normalized()
+  f <- tempfile(fileext = ".laz")
+  on.exit(unlink(f))
+  lidR::writeLAS(las, f)
+  det <- det_lasr_lmax_pc(f, ws_factory(0.10))
   expect_s3_class(det, "data.frame")
   expect_identical(names(det), c("x", "y", "z"))
-  expect_equal(nrow(det), 0L)
+  expect_true(all(vapply(det, is.numeric, logical(1))))
+  expect_gte(nrow(det), 1L)
+})
+
+test_that("empty input yields a 0-row x,y,z frame (never NULL) for both lidR arms", {
+  empty <- suppressWarnings(lidR::LAS(data.frame(X = numeric(), Y = numeric(),
+                                                 Z = numeric())))
+  for (det in list(det_lidr_lmf_pc(empty, ws_factory(0.10)),
+                   det_lidr_li2012(empty))) {
+    expect_s3_class(det, "data.frame")
+    expect_identical(names(det), c("x", "y", "z"))
+    expect_equal(nrow(det), 0L)
+  }
 })

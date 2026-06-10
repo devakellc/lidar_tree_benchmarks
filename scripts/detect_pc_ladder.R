@@ -48,8 +48,13 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 # failed on).
 #
 # Usage:
-#   Rscript scripts/detect_pc_ladder.R [SITES=SJER,SOAP,TEAK] [CORES=6]
+#   Rscript scripts/detect_pc_ladder.R [SITES=SJER,SOAP,TEAK] [CORES=1]
 #                                      [TOL=4] [A=0.10] [RUNG=8]
+# CORES defaults to 1 on purpose: lasR `exec` (chm_vwf + lasr_lmax_pc) can
+# transiently fail under mclapply fork on the dense native clips, and a failed
+# arm makes equal_set_guard drop the whole (plot,rung) cell -- silently shrinking
+# the pooled population. CORES>1 is faster but only safe if the run reports
+# 0 dropped cells; the canonical numbers are produced single-threaded.
 # Output:
 #   $CLAUDE_JOB_DIR/neon/<SITE>/pc_detect_ladder_results.csv  (one row per
 #       plot x rung x detector)
@@ -67,7 +72,7 @@ args  <- strsplit(commandArgs(TRUE), "=")
 A     <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
 SITES <- if (is.null(A$SITES)) c("SJER","SOAP","TEAK") else
            strsplit(A$SITES, ",")[[1]]
-CORES <- as.integer(if (is.null(A$CORES)) 6 else A$CORES)
+CORES <- as.integer(if (is.null(A$CORES)) 1 else A$CORES)
 TOL   <- as.numeric(if (is.null(A$TOL))  4.0  else A$TOL)
 A_VWF <- as.numeric(if (is.null(A$A))    0.10 else A$A)
 RUNG  <- as.numeric(if (is.null(A$RUNG)) 8    else A$RUNG)
@@ -213,6 +218,10 @@ report <- function(all) {
       s <- sub[sub$detector == a, ]; if (!nrow(s)) return(NULL)
       cbind(rung = rg, detector = a, pool(s),
             secs_med = round(median(s$secs), 2)) }))
+    # every arm must pool over the identical plot count within a rung (the guard
+    # guarantees this by construction; assert it before printing any delta, as
+    # the #6 sweep does -- a mismatch means a degraded/non-reproducible run).
+    stopifnot(length(unique(pr$n_plots)) == 1L)
     np <- length(unique(paste(sub$site, sub$plot)))
     cat(sprintf("\n=== Rung %s: pooled across all sites (%d plots) ===\n",
                 rg, np))
@@ -246,6 +255,8 @@ report <- function(all) {
   }
 
   pooled <- do.call(rbind, pooled_all)
+  pooled$cores <- CORES                  # provenance: 1 = canonical/reproducible
+  pooled$n_dropped_cells <- length(dropped)   # >0 => degraded run, treat warily
   outp <- file.path(d, "neon", "pc_detect_ladder_pooled.csv")
   write.csv(pooled, outp, row.names = FALSE)
   cat(sprintf("\npooled -> %s\n", outp))

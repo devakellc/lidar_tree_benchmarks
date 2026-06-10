@@ -1,0 +1,9 @@
+{
+"type": "FeatureCollection",
+"name": "sites",
+"features": [
+{ "type": "Feature", "properties": { "site": "SJER", "domain": "D17", "utm_zone": "11N", "epsg": 32611, "n_plots": 40, "n_plots_swept": 8, "n_stems_total": 287, "n_live_total": 113, "frdens_native_mean": 8.62, "pdens_native_mean": 15.59, "mean_live_height_m": 8.43, "structure_rank": 1 }, "geometry": { "type": "Polygon", "coordinates": [ [ [ -119.716137, 37.077219 ], [ -119.717536, 37.107458 ], [ -119.727986, 37.115869 ], [ -119.749395, 37.128635 ], [ -119.759842, 37.127266 ], [ -119.743324, 37.082813 ], [ -119.716137, 37.077219 ] ] ] } },
+{ "type": "Feature", "properties": { "site": "SOAP", "domain": "D17", "utm_zone": "11N", "epsg": 32611, "n_plots": 38, "n_plots_swept": 18, "n_stems_total": 1166, "n_live_total": 268, "frdens_native_mean": 11.78, "pdens_native_mean": 18.12, "mean_live_height_m": 12.78, "structure_rank": 2 }, "geometry": { "type": "Polygon", "coordinates": [ [ [ -119.2815661, 37.025056 ], [ -119.243605, 37.028985 ], [ -119.242317, 37.030901 ], [ -119.251658, 37.038264 ], [ -119.273529, 37.037898 ], [ -119.276172, 37.036227 ], [ -119.281763, 37.030703 ], [ -119.2815661, 37.025056 ] ] ] } },
+{ "type": "Feature", "properties": { "site": "TEAK", "domain": "D17", "utm_zone": "11N", "epsg": 32611, "n_plots": 40, "n_plots_swept": 20, "n_stems_total": 1299, "n_live_total": 483, "frdens_native_mean": 11.65, "pdens_native_mean": 19.14, "mean_live_height_m": 13.45, "structure_rank": 3 }, "geometry": { "type": "Polygon", "coordinates": [ [ [ -119.009213, 36.97377 ], [ -119.001514, 36.99931 ], [ -118.988578, 37.058229 ], [ -119.042558, 37.022379 ], [ -119.049096, 37.014434 ], [ -119.055283, 36.994069 ], [ -119.057146, 36.975638 ], [ -119.041671, 36.974821 ], [ -119.009213, 36.97377 ] ] ] } }
+]
+}

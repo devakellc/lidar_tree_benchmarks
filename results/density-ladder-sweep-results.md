@@ -60,7 +60,9 @@ written **only** on `pre-devel`.
 **LiDAR.** NEON discrete-return point cloud `DP1.30003.001`, 2021 acquisitions
 (D17, UTM 11N / EPSG:32611), downloaded per-site with `byTileAOP` restricted to
 the 1 km tiles overlapping field plots (≈1 GB/site instead of the full
-~69 GB/site):
+~69 GB/site). Full site metadata, all portal acquisition dates, and the USGS 3DEP
+EPT cross-check projects are in
+[`docs/neon-lidar-sites.md`](../docs/neon-lidar-sites.md).
 
 | Site | Forest type | Acq. | native pts/m² | native first-returns/m² | plots / live stems |
 |---|---|---|---|---|---|

@@ -12,6 +12,9 @@ in [`results/`](results/).
 - [`docs/treetop-detection-approach.md`](docs/treetop-detection-approach.md)
   — the recommended, density-driven pipeline (pit-free CHM -> variable-window
   local-maximum -> segmentation), tooling, accuracy expectations, and pitfalls.
+- [`docs/neon-lidar-sites.md`](docs/neon-lidar-sites.md)
+  — NEON benchmark sites (SJER, SOAP, TEAK): field-ground-truth counts, NEON AOP
+  LiDAR acquisition dates, and USGS 3DEP EPT cross-check projects.
 - [`results/treetop-lasr-vs-lidr-comparison.md`](results/treetop-lasr-vs-lidr-comparison.md)
   — implementation and head-to-head results: toy tile, real 25 ha 3DEP AOI, a
   controlled same-CHM test, a CHM-vs-point-cloud test at high density, crown
@@ -106,6 +109,7 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `neon_ground_truth.R` | Build NEON field-stem ground truth (`DP1.10098.001`); writes `ground_truth_stems.csv` with `meas_year`/`dist21` for exact-year filtering. |
 | `run_sweep.R` + `sweep_lib.R` | NEON density-ladder sweep: per plot x rung x `chm_res` x `vwf_a`, scored vs stems. `MEAS_YEAR=2021` restricts to exact-year stems (issue #5); use a distinct `OUT=` to keep the +/-4 yr baseline. |
 | `analyze_sweep.R` / `compare_sites.R` | Pool the sweep (sum TP / sum n_ref) + figures; cross-site structure gradient SJER -> SOAP -> TEAK. |
+| `export_geojson.R` | Export benchmark geography as WGS84 GeoJSON: `sites` (convex-hull footprints), `plots` (scoring-box polygons with a `swept` flag + native density, null where unswept), `stems` (field points, `is_tree`); writes the tracked `data/{sites,plots,stems}.geojson`. |
 | `validate_heights.R` | Apex-vs-field height bias/RMSE at native density; `MEAS_YEAR=2021` writes a distinct `height_pairs_2021.csv` for the temporal cut. |
 | `temporal_sensitivity.R` | Pool baseline (+/-4 yr) vs exact-2021 sweeps at modal params per rung; recall/precision/F1/height deltas + height-bias comparison (issue #5). |
 | `detect_pc_sweep.R` | Issue #6: point-cloud detectors (lidR lmf-on-points, Li 2012, lasR point `local_maximum`) vs the CHM-VWF baseline at native density, scored on field stems by crown class; quantifies understory-recall deltas and the occlusion floor. Writes `neon/<SITE>/pc_detect_results.csv`. |

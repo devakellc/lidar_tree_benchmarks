@@ -113,7 +113,8 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `export_geojson.R` | Export benchmark geography as WGS84 GeoJSON: `sites` (convex-hull footprints), `plots` (scoring-box polygons with a `swept` flag + native density, null where unswept), `stems` (field points, `is_tree`); writes the tracked `data/{sites,plots,stems}.geojson`. |
 | `validate_heights.R` | Apex-vs-field height bias/RMSE at native density; `MEAS_YEAR=2021` writes a distinct `height_pairs_2021.csv` for the temporal cut. |
 | `temporal_sensitivity.R` | Pool baseline (+/-4 yr) vs exact-2021 sweeps at modal params per rung; recall/precision/F1/height deltas + height-bias comparison (issue #5). |
-| `detect_pc_sweep.R` | Issue #6: point-cloud detectors (lidR lmf-on-points, Li 2012, lasR point `local_maximum`) vs the CHM-VWF baseline at native density, scored on field stems by crown class; quantifies understory-recall deltas and the occlusion floor. Writes `neon/<SITE>/pc_detect_results.csv`. |
+| `detect_pc_sweep.R` + `pc_detect_lib.R` | Issue #6: point-cloud detectors (lidR lmf-on-points, Li 2012, lasR point `local_maximum`) vs the CHM-VWF baseline at native density, scored on field stems by crown class; quantifies understory-recall deltas and the occlusion floor. The three point-cloud apex extractors live in `pc_detect_lib.R` (shared with `detect_pc_ladder.R`). Writes `neon/<SITE>/pc_detect_results.csv`. |
+| `detect_pc_ladder.R` | Issue #38: the point-cloud-detector **density ladder** — the same four arms as #6 (`chm_vwf`, `lidr_lmf_pc`, `lidr_li2012`, `lasr_lmax_pc`) at the **native + 8 pts/m²** rungs only on SJER + SOAP + TEAK (4/2/1 out of scope: point segmenters are noise below ~3 first-ret/m²). Uses the seeded `frozen_clip` provider so all arms score identical bytes per (plot, rung); pools by rung with the canonical `pool`/`equal_set_guard`. Writes `neon/<SITE>/pc_detect_ladder_results.csv` + `neon/pc_detect_ladder_pooled.csv`. Run with `CORES=1` for reproducible pooling (lasR `exec` can drop the odd dense-native cell under fork). |
 | `model_bench_lib.R` | Shared bridge for the model benchmark (#B2): reduce_instances, crown_diameter_table, seed_for/frozen_clip, pool/equal_set_guard, assert_detection_contract. |
 | `detect_ams3d_sweep.R` | AMS3D (crownsegmentr) arm (#B1): adaptive mean-shift crowns over the density ladder, reduced to detections and scored by crown class. |
 | `detect_lidrplugins_sweep.R` | lidRplugins competitor arm (#C9): lmfauto/multichm (locate_trees) + ptrees (segment_trees) vs the CHM-VWF baseline over the density ladder. |
@@ -167,6 +168,11 @@ Rscript scripts/detect_multichm_sweep.R  SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_multichm_sweep.R  SITE=SJER PLOTS=ALL CORES=12
 Rscript scripts/detect_multichm_sweep.R  SITE=TEAK PLOTS=ALL CORES=12
 Rscript scripts/analyze_multichm_sweep.R SITES=SJER,SOAP,TEAK
+
+# Point-cloud-detector density ladder (#38): native + 8 pts/m^2 only, 3 sites.
+# CORES=1 keeps the pooling reproducible (no transient lasR fork-drops); the
+# script writes the per-site CSVs and prints + writes the pooled rung table.
+Rscript scripts/detect_pc_ladder.R       SITES=SJER,SOAP,TEAK CORES=1
 
 # Toy tile (no data download needed; uses lasR's bundled MixedConifer.las)
 Rscript scripts/detect_lasr.R

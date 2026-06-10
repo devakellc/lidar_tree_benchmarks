@@ -255,7 +255,94 @@ stand-in. A true public native ~2-pulse validation over these NEON sites is
 this note were an artefact of an unmatched CHM resolution between the two arms,
 now corrected.
 
-## 5. Reproduce
+## 5. multichm detector cross-check (issue #39)
+
+[Issue #39](https://github.com/agrigoriev/lidar_tree_benchmarks/issues/39) asks
+the same question for the stronger classical arm, **multichm**
+(`lidRplugins::multichm`, the density-ladder §8 / model-benchmark winner at
+SOAP): does its advantage survive on **real** (3DEP-sourced) sparse data, not
+just decimated NEON? The script now runs **both detectors on the same per-plot
+native clip** and tests each against its **own** cached NEON dec2 baseline —
+CHM-VWF vs `sweep_results.csv` (§3 above), multichm vs the #37
+`multichm_sweep_results.csv` rung — so the native-vs-decimated equivalence is
+judged **within detector, never across**. multichm uses its ladder-arm res rule
+(0.25 m if first-returns ≥ 8 else 0.5 m); at the decimated `pdens = 2` arm the
+first-return density is < 8, so it lands at 0.5 m — already matching its cached
+dec2 rung, the same resolution-consistency the CHM-VWF arm gets by pinning 0.5 m.
+
+The acquisition status (§1–2) is unchanged: **no native ~2-pulse QL2 cloud** is
+available, so the equivalence is the same cross-source decimation check —
+`native_dec2` (the native 3DEP survey thinned to all-return `pdens = 2`) vs
+`neon_dec2` (the cached NEON dec2 rung), both at `res = 0.5`, different source
+sensor. `*_dec2` carries ±1–2 TP of decimation randomness run-to-run.
+
+### Is decimation faithful for multichm? (native_dec2 vs neon_dec2)
+
+Pooled overall recall, multichm vs CHM-VWF, native_dec2 → neon_dec2:
+
+| Site | multichm native_dec2 | multichm neon_dec2 | Δ (mc) | CHM-VWF Δ |
+|------|:--------------------:|:------------------:|:------:|:---------:|
+| SOAP | 0.608 | 0.622 | **−0.014** | −0.036 |
+| SJER | 0.620 | 0.718 | **−0.099** | −0.028 |
+| TEAK | 0.444 | 0.472 | **−0.028** | +0.015 |
+
+Decimation predicts multichm's pooled sparse recall to within **~0.03 at the
+conifer sites** (SOAP −0.014, TEAK −0.028) — as faithful as for CHM-VWF — and to
+**−0.10 at SJER**, the largest gap for *both* detectors (71 stems over 8 plots,
+where ±1–2 TP of decimation jitter moves the rate several points). Per crown
+class the multichm gap concentrates, as for CHM-VWF, in the overstory at SJER
+(dominant −0.17, codominant −0.25 on a handful of stems) and is small at SOAP
+(dominant 0.00, codominant −0.06) and TEAK (dominant 0.00, codominant −0.02).
+
+### Does multichm's advantage survive on the sparse 3DEP proxy?
+
+On the **decimated-2** arm — the closest available sparse proxy — multichm keeps
+the large recall advantage over CHM-VWF it showed on the NEON ladder, on *both*
+the native-sourced and NEON-sourced clouds:
+
+| Site | native_dec2 recall (mc / vwf) | neon_dec2 recall (mc / vwf) |
+|------|:-----------------------------:|:---------------------------:|
+| SOAP | **0.608 / 0.297** | 0.622 / 0.333 |
+| SJER | **0.620 / 0.380** | 0.718 / 0.408 |
+| TEAK | **0.444 / 0.240** | 0.472 / 0.224 |
+
+multichm recovers **+0.31 (SOAP), +0.24 (SJER), +0.20 (TEAK)** more stems than
+CHM-VWF on the native-sourced sparse cloud, at the §8 precision cost (SOAP
+native_dec2 precision mc 0.33 vs vwf 0.39). So multichm's recall-first advantage
+is **not an artifact of NEON decimation** — it reproduces on a *different sensor*
+thinned to the same density. (SJER's higher multichm recall is again mostly
+commission — precision mc 0.21 vs vwf 0.31 — the open-savanna pattern of §8.)
+
+### Native-full context and a high-density caveat
+
+At full native density (`native_full`, context only — these surveys are dense,
+not QL2) multichm recall is **0.405 (SOAP, ~44 ppsm), 0.662 (SJER, ~5.5 ppsm),
+0.446 (TEAK, ~31 ppsm)**. Note SOAP: at ~44 ppsm with `res = 0.25` multichm
+**under-performs its own decimated-2 arm** (0.405 vs 0.608) and CHM-VWF native
+(0.486), at very low precision (0.15) — a high-density / fine-resolution artifact
+(the multi-layer CHM over-fragments and the 1:1 height-gated matcher loses true
+apexes among spurious neighbours). It is not seen at SJER/TEAK and does not touch
+the equivalence test, which uses the decimated-2 arm. It is a genuine note for
+operators: multichm should be run at a density-appropriate resolution, not a fine
+CHM on a very dense cloud.
+
+### Verdict (issue #39, native-3DEP arm)
+
+**multichm's SOAP/TEAK advantage survives on real (3DEP-sourced) sparse data, and
+decimation predicts it faithfully.** With no true native ~2-pulse cloud
+available, the test is the same cross-source decimation check as for CHM-VWF: on
+the native 3DEP cloud thinned to `pdens = 2`, multichm beats CHM-VWF on recall by
+**+0.31 / +0.24 / +0.20** (SOAP / SJER / TEAK), the recall-first edge of §8; and
+its native_dec2 recall matches its NEON neon_dec2 rung to **−0.014 (SOAP),
+−0.028 (TEAK)** — as faithful as CHM-VWF — with the familiar larger SJER wobble
+(−0.10 on 71 stems). The one caveat is the dense `native_full` SOAP point above,
+which is a fine-CHM-on-dense-cloud artifact, not a sparse-data result. Combined
+with the cal/val arm
+([calibration-validation-results.md](calibration-validation-results.md), #39),
+multichm's conifer-site advantage holds **both out-of-sample and on real sparse
+3DEP-sourced data**.
+
+## 6. Reproduce
 
 ```sh
 export CLAUDE_JOB_DIR=/path/to/work        # NEON ground truth + sweep_results live here
@@ -263,15 +350,19 @@ export CLAUDE_JOB_DIR=/path/to/work        # NEON ground truth + sweep_results l
 # 1. discover covering EPT projects (writes neon/<SITE>/ql2/ept_candidates.csv)
 Rscript scripts/ept_discovery.R SITES=SOAP,SJER,TEAK
 
-# 2. pull native AOIs via PDAL, detect, score, compare to decimated-2 rung
+# 2. pull native AOIs via PDAL, run BOTH detectors (chm_vwf + multichm, #39),
+#    score, compare each to its own cached decimated-2 rung
 Rscript scripts/native_ql2_crosscheck.R SITES=SOAP,SJER,TEAK
-#   per-site:   neon/<SITE>/ql2/ql2_detect_results.csv  (+ <plot>.laz + .laz.json)
-#   combined:   neon/native_ql2_vs_decimated.csv
+#   per-site:   neon/<SITE>/ql2/ql2_detect_results.csv  (detector column; +laz +json)
+#   combined:   neon/native_ql2_vs_decimated.csv         (detector column)
 # Override a site's EPT:  EPT_SJER=https://.../ept.json
 # Tune the QL2 band classifier: QL2_LO=1.5 QL2_HI=4
 ```
 
 All `*.laz` / `*.csv` outputs are gitignored — regenerate them. The cache is
 provenance-gated (`<plot>.laz.json` records ept_url/pad/outcrs); a detection-only
-re-run reuses the cached LAZ. Numbers above are from the 2026-06-05 run; `*_dec2`
-rows carry ±1–2 TP of decimation randomness.
+re-run reuses the cached LAZ (no EPT re-pull), so adding the multichm arm did
+**not** re-pull any LAZ. CHM-VWF §1–4 numbers are from the 2026-06-05 run; the
+§5 multichm arm is from a 2026-06-10 re-run on the same cached LAZ. The
+deterministic `native_full` rows reproduce exactly; `*_dec2` rows carry ±1–2 TP
+of decimation randomness.

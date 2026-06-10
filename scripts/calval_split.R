@@ -68,8 +68,9 @@ FRAC  <- if (is.null(A$FRAC)) 0.5 else as.numeric(A$FRAC)   # calibration fracti
 SEEDS <- if (is.null(A$SEEDS)) 1:5 else as.integer(strsplit(A$SEEDS, ",")[[1]])
 
 d  <- .job_dir()
-rung_lab <- c("native","8","4","2","1")
-classes  <- c("dominant","codominant","intermediate","suppressed")
+# rung_lab, classes, plot_table(), assign_split() are the shared split definition
+# (single source of truth in calval_lib.R; also used by calval_multichm.R, #39).
+source(.find("calval_lib.R"))
 
 ## ---- pooling (copied/adapted from analyze_sweep.R::pool) ------------------
 # Adds the per-plot true-positive and per-class TP columns the pooler needs.
@@ -93,47 +94,10 @@ pool <- function(df) {
   out
 }
 
-## ---- per-plot stratification covariates ----------------------------------
-# Each plot is one row of a sweep parameter combo; crown-class counts are
-# identical across combos for a plot (they describe the ground truth), so we
-# read them from the native / res=0.5 / a=0.10 slice for a stable per-plot view.
-plot_table <- function(r) {
-  # crown-class counts + plotType are constant per plot across all sweep combos
-  # (verified empirically), so one row per plot suffices and captures EVERY plot
-  # even if a plot is missing a specific (chm_res, vwf_a) slice in the grid.
-  ref <- r[!duplicated(r$plot), ]
-  os <- ref$n_dominant + ref$n_codominant            # overstory stems
-  us <- ref$n_intermediate + ref$n_suppressed         # understory stems
-  data.frame(
-    plot     = ref$plot,
-    plotType = ref$plotType,
-    n_over   = os, n_under = us,
-    # understory-present iff understory stems strictly outnumber-or-equal a
-    # nontrivial share: classify as "understory" when us > 0 AND us >= os/4,
-    # else "overstory". (At SJER understory is near-absent -- handled below.)
-    crown_mix = ifelse(us > 0 & us >= os / 4, "understory", "overstory"),
-    stringsAsFactors = FALSE)
-}
-
-## ---- deterministic stratified calib/valid assignment ---------------------
-# Strata = plotType x crown_mix. Within each stratum, a deterministic shuffle
-# (set.seed) then take ceil(FRAC * n) to calibration. If a stratum has a single
-# plot it goes to calibration (so validation never silently borrows tuning data
-# from an unrepresented stratum -- documented as a caveat for tiny sites).
-assign_split <- function(pt, seed, frac) {
-  set.seed(seed)
-  pt$stratum <- paste(pt$plotType, pt$crown_mix, sep = "/")
-  pt$split <- NA_character_
-  for (st in unique(pt$stratum)) {
-    idx <- which(pt$stratum == st)
-    idx <- idx[sample.int(length(idx))]          # deterministic shuffle
-    n_cal <- max(1L, ceiling(frac * length(idx)))
-    if (length(idx) == 1L) n_cal <- 1L            # singleton -> calibration
-    pt$split[idx[seq_len(n_cal)]] <- "calib"
-    if (n_cal < length(idx)) pt$split[idx[(n_cal + 1):length(idx)]] <- "valid"
-  }
-  pt
-}
+# plot_table() (per-plot stratification covariates) and assign_split()
+# (deterministic plotType x crown_mix calib/valid assignment) now live in
+# calval_lib.R, sourced above -- the single source of truth shared with
+# calval_multichm.R so both studies use the IDENTICAL held-out plot splits.
 
 ## ---- pick best (chm_res, vwf_a) per rung by pooled F1 on a plot subset ----
 best_per_rung <- function(r, plots) {

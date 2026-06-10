@@ -12,14 +12,22 @@ bs <- Find(file.exists, c(
 if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
 source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 
-# Native USGS 3DEP QL2 cross-check for the density-ladder sweep (issue #4).
+# Native USGS 3DEP QL2 cross-check for the density-ladder sweep (issues #4, #39).
 #
 # The density-ladder sweep DECIMATES a dense NEON cloud to simulate sparse
 # acquisitions ("decimation-as-simulation", a stated caveat). This script pulls
-# the *native* USGS 3DEP cloud over the same NEON plots, runs the SAME CHM-VWF
-# detection pipeline (detect_lasr + score_plot from sweep_lib), and compares it
-# to the cached DECIMATED 2-pts/m^2 rung by crown class. Deliverable: does
-# decimation faithfully predict native-sparse (QL2 ~2 pulses/m^2) behaviour?
+# the *native* USGS 3DEP cloud over the same NEON plots, runs the SAME detection
+# pipeline natively, and compares it to the cached DECIMATED 2-pts/m^2 rung by
+# crown class. Deliverable: does decimation faithfully predict native-sparse
+# (QL2 ~2 pulses/m^2) behaviour?
+#
+# Two detectors are run on the SAME per-plot native clip (issue #39):
+#   * chm_vwf  -- the CHM-VWF baseline (detect_lasr + score_plot), compared to
+#     the cached NEON dec2 rung in sweep_results.csv (issue #4, original arm).
+#   * multichm -- lidRplugins::multichm (detect_on_multichm), compared to the
+#     cached NEON dec2 rung in multichm_sweep_results.csv (#37 ladder arm).
+# Each detector is tested against its OWN cached NEON dec2 baseline, so the
+# native-vs-decimated equivalence is judged within detector, never across.
 #
 # HONESTY ON COVERAGE. The entwine/USGS public catalog does NOT have a QL2
 # acquisition over every NEON site. Each site's covering EPT is verified by its
@@ -52,7 +60,8 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 # If EPT_<SITE> is not given, the script auto-discovers via ept_discovery.R
 # (writes work/neon/<SITE>/ql2/ept_candidates.csv) and uses the preferred one.
 suppressMessages({
-  library(lidR); library(lasR); library(terra); library(sf); library(jsonlite)
+  library(lidR); library(lasR); library(lidRplugins); library(terra)
+  library(sf); library(jsonlite)
 })
 options(lidR.progress = FALSE)
 
@@ -231,6 +240,41 @@ detect_on <- function(src_las, rung, pad, res_override = NA_real_) {
   list(det = det, res = res, pdens = pdn, frdens = frdn)
 }
 
+# multichm counterpart of detect_on (issue #39): the SAME decimate/normalize/
+# density prep, but detection is lidRplugins::multichm (Eysn-style multi-layer
+# CHM local maxima) at the multichm ladder-arm res rule (0.25 m if first-returns
+# >= 8 else 0.5 m -- detect_multichm_sweep.R::run_plot) with the clamped window
+# ws_factory(AVWF). No res_override is needed: at the decimated pdens=2 arm the
+# first-return density falls below 8, so the rule lands at 0.5 m -- already
+# matching the cached multichm dec2 rung (multichm_sweep_results.csv rung==2,
+# which is itself density-derived at 0.5 m), so the equivalence test stays
+# resolution-consistent the same way the CHM-VWF arm is res-pinned to 0.5 m.
+detect_on_multichm <- function(src_las, rung, pad) {
+  l <- src_las
+  area0 <- (2 * pad)^2
+  pdens_native <- npoints(src_las) / area0
+  if (!is.na(rung)) {
+    if (pdens_native <= rung) return(NULL)             # never upsample
+    l <- decimate_points(l, homogenize(density = rung, res = 5))
+  }
+  if (sum(l$Classification == 2L) < 10) return(NULL)
+  nrm <- tryCatch(normalize_height(l, tin(), na.rm = TRUE),
+                  error = function(e) NULL)
+  if (is.null(nrm)) return(NULL)
+  nrm  <- filter_poi(nrm, Z >= -1, Z < 80)
+  a2   <- (2 * pad)^2
+  pdn  <- npoints(nrm) / a2
+  frdn <- sum(nrm$ReturnNumber == 1L) / a2
+  res  <- if (frdn >= 8) 0.25 else 0.5
+  tt <- tryCatch(lidR::locate_trees(nrm, lidRplugins::multichm(res = res,
+                   ws = ws_factory(AVWF))), error = function(e) NULL)
+  if (is.null(tt) || nrow(tt) == 0) return(NULL)
+  co <- sf::st_coordinates(tt)                          # 2-D tops; apex z from Z
+  z  <- if (ncol(co) >= 3) co[, 3] else if (!is.null(tt$Z)) tt$Z else co[, 2] * 0
+  list(det = data.frame(x = co[, 1], y = co[, 2], z = z),
+       res = res, pdens = pdn, frdens = frdn)
+}
+
 ## ---- per-site run ---------------------------------------------------------
 run_site <- function(site) {
   ept_url <- resolve_ept(site)
@@ -307,23 +351,32 @@ run_site <- function(site) {
     variants <- list(native_full = list(rung = NA_real_, res = NA_real_),
                      native_dec2 = list(rung = 2,        res = 0.5))
     got_any <- FALSE
+    # Two detectors per variant (issue #39): the CHM-VWF baseline (detect_on, res
+    # pinned per the variant) and multichm (detect_on_multichm). Each detector
+    # decimates its OWN realization for native_dec2 (homogenize is random) and is
+    # compared only to its OWN cached NEON dec2 rung downstream -- a within-
+    # detector equivalence test, never cross-detector.
     for (vn in names(variants)) {
-      v <- detect_on(las, variants[[vn]]$rung, PAD,
-                     res_override = variants[[vn]]$res)
-      if (is.null(v)) { cat(sprintf("  %s [%s]: skip\n", pid, vn)); next }
-      sc <- score_plot(stems_o, v$det, tol_xy = TOL, core_cx = cx_o,
-                       core_cy = cy_o, core_half = ph)
-      sc <- cbind(data.frame(site = site, plot = pid, plotType = ci$plotType,
-                             variant = vn,
-                             native_pdens = round(pdens_n, 2),
-                             native_frdens = round(frdens_n, 2),
-                             pdens = round(v$pdens, 2), frdens = round(v$frdens, 2),
-                             chm_res = v$res, vwf_a = AVWF), sc)
-      rows[[length(rows) + 1]] <- sc
-      got_any <- TRUE
-      cat(sprintf("  %s [%s]: native_fr=%.2f -> fr=%.2f res=%.2f n_ref=%d TP=%d recall=%.2f prec=%.2f\n",
-                  pid, vn, frdens_n, v$frdens, v$res, sc$n_ref, sc$TP,
-                  sc$recall, sc$precision))
+      for (dn in c("chm_vwf", "multichm")) {
+        v <- if (dn == "chm_vwf")
+          detect_on(las, variants[[vn]]$rung, PAD, res_override = variants[[vn]]$res)
+        else
+          detect_on_multichm(las, variants[[vn]]$rung, PAD)
+        if (is.null(v)) { cat(sprintf("  %s [%s/%s]: skip\n", pid, vn, dn)); next }
+        sc <- score_plot(stems_o, v$det, tol_xy = TOL, core_cx = cx_o,
+                         core_cy = cy_o, core_half = ph)
+        sc <- cbind(data.frame(site = site, plot = pid, plotType = ci$plotType,
+                               variant = vn, detector = dn,
+                               native_pdens = round(pdens_n, 2),
+                               native_frdens = round(frdens_n, 2),
+                               pdens = round(v$pdens, 2), frdens = round(v$frdens, 2),
+                               chm_res = v$res, vwf_a = AVWF), sc)
+        rows[[length(rows) + 1]] <- sc
+        got_any <- TRUE
+        cat(sprintf("  %s [%s/%s]: native_fr=%.2f -> fr=%.2f res=%.2f n_ref=%d TP=%d recall=%.2f prec=%.2f\n",
+                    pid, vn, dn, frdens_n, v$frdens, v$res, sc$n_ref, sc$TP,
+                    sc$recall, sc$precision))
+      }
     }
     if (got_any) done <- done + 1L
   }
@@ -397,6 +450,21 @@ pool_decimated <- function(site, plots) {
   pool_native(d)
 }
 
+# multichm counterpart (issue #39): pool the cached MULTICHM decimated-2 rung.
+# multichm has no chm_res/vwf_a grid -- one row per plot at rung==2, its res
+# density-derived (0.5 m at pdens=2) -- so we filter on rung only and pool the
+# same paired plot set. This is the NEON baseline the native multichm arm is
+# tested against, mirroring pool_decimated for CHM-VWF.
+pool_decimated_multichm <- function(site, plots) {
+  f <- file.path(JOB, "neon", site, "multichm_sweep_results.csv")
+  if (!file.exists(f)) return(NULL)
+  d <- read.csv(f, stringsAsFactors = FALSE)
+  d <- d[d$rung == "2", ]
+  if (!is.null(plots)) d <- d[d$plot %in% plots, ]
+  if (!nrow(d)) return(NULL)
+  pool_native(d)
+}
+
 ## ---- main -----------------------------------------------------------------
 all_native <- list(); all_cmp <- list()
 for (site in SITES) {
@@ -411,40 +479,52 @@ for (site in SITES) {
   #  dense      -> there is NO native QL2; compare the dense survey decimated to
   #                2 (native_dec2) vs neon_dec2 as a cross-source diagnostic.
   test_variant <- if (scls == "native_ql2") "native_full" else "native_dec2"
-  test_plots <- unique(nv$plot[nv$variant == test_variant])
 
-  pools <- list()
-  for (vn in unique(nv$variant)) {
-    sub <- nv[nv$variant == vn, ]
-    pv  <- pool_native(sub); pv$engine <- vn
-    pv$n_plots <- length(unique(sub$plot))
-    pools[[vn]] <- pv
-  }
-  pd <- pool_decimated(site, test_plots)
-  if (!is.null(pd)) { pd$engine <- "neon_dec2"; pd$n_plots <- length(test_plots) }
+  # Per detector (issue #39): pool that detector's variants and compare its
+  # native arm to its OWN cached NEON dec2 baseline (CHM-VWF -> sweep_results;
+  # multichm -> multichm_sweep_results). The comparison is always within
+  # detector, so a detector-specific delta is never confounded by the other.
+  for (dn in c("chm_vwf", "multichm")) {
+    nvd <- nv[nv$detector == dn, ]
+    if (!nrow(nvd)) next
+    test_plots <- unique(nvd$plot[nvd$variant == test_variant])
 
-  site_tbl <- do.call(rbind, c(pools, list(neon_dec2 = pd)))
-  site_tbl$site <- site
-  site_tbl$site_class <- scls
-  site_tbl$native_frdens_median <- nv$native_frdens_median[1]
-  site_tbl$test_variant <- test_variant
-  all_cmp[[site]] <- site_tbl
+    pools <- list()
+    for (vn in unique(nvd$variant)) {
+      sub <- nvd[nvd$variant == vn, ]
+      pv  <- pool_native(sub); pv$engine <- vn
+      pv$n_plots <- length(unique(sub$plot))
+      pools[[vn]] <- pv
+    }
+    pd <- if (dn == "chm_vwf") pool_decimated(site, test_plots)
+          else pool_decimated_multichm(site, test_plots)
+    if (!is.null(pd)) { pd$engine <- "neon_dec2"; pd$n_plots <- length(test_plots) }
 
-  cat(sprintf("\n=== %s pooled  (class=%s, native median fr=%.2f, n=%d plots) ===\n",
-              site, scls, nv$native_frdens_median[1], length(unique(nv$plot))))
-  print(site_tbl[, c("engine", "scope", "n_plots", "n_ref", "TP", "recall",
-                     "precision")], row.names = FALSE)
+    site_tbl <- do.call(rbind, c(pools, list(neon_dec2 = pd)))
+    site_tbl$detector <- dn
+    site_tbl$site <- site
+    site_tbl$site_class <- scls
+    site_tbl$native_frdens_median <- nvd$native_frdens_median[1]
+    site_tbl$test_variant <- test_variant
+    all_cmp[[paste(site, dn, sep = "_")]] <- site_tbl
 
-  if (!is.null(pd) && test_variant %in% names(pools)) {
-    nt <- pools[[test_variant]]
-    eqv <- merge(nt[, c("scope", "recall", "n_ref", "TP")],
-                 pd[, c("scope", "recall", "n_ref", "TP")],
-                 by = "scope", suffixes = c("_native", "_neonDec2"))
-    eqv$delta_recall <- eqv$recall_native - eqv$recall_neonDec2
-    lab <- if (scls == "native_ql2") "native_QL2 vs neon_dec2"
-           else "native_dec2(cross-source) vs neon_dec2"
-    cat(sprintf("\n--- %s EQUIVALENCE: %s ---\n", site, lab))
-    print(eqv, row.names = FALSE, digits = 3)
+    cat(sprintf("\n=== %s [%s] pooled  (class=%s, native median fr=%.2f, n=%d plots) ===\n",
+                site, dn, scls, nvd$native_frdens_median[1],
+                length(unique(nvd$plot))))
+    print(site_tbl[, c("engine", "scope", "n_plots", "n_ref", "TP", "recall",
+                       "precision")], row.names = FALSE)
+
+    if (!is.null(pd) && test_variant %in% names(pools)) {
+      nt <- pools[[test_variant]]
+      eqv <- merge(nt[, c("scope", "recall", "n_ref", "TP")],
+                   pd[, c("scope", "recall", "n_ref", "TP")],
+                   by = "scope", suffixes = c("_native", "_neonDec2"))
+      eqv$delta_recall <- eqv$recall_native - eqv$recall_neonDec2
+      lab <- if (scls == "native_ql2") "native_QL2 vs neon_dec2"
+             else "native_dec2(cross-source) vs neon_dec2"
+      cat(sprintf("\n--- %s [%s] EQUIVALENCE: %s ---\n", site, dn, lab))
+      print(eqv, row.names = FALSE, digits = 3)
+    }
   }
 }
 

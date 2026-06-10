@@ -390,3 +390,179 @@ resolution, and at SJER rung 4 the held-out optimum is 1.0 m, not 0.5 m. The
 small per-site plot counts mean absolute F1 values carry wide uncertainty (see
 the multi-seed min..max ranges); the *decimated-rung* selection is stable at
 SOAP/TEAK, but SJER and the native rung are the honest exceptions.
+
+## multichm out-of-sample — does its SOAP/TEAK advantage survive? (issue #39)
+
+Addresses **issue #39**. The density-ladder §8 head-to-head
+([density-ladder-sweep-results.md](density-ladder-sweep-results.md), §8) found
+`multichm` (`lidRplugins::multichm`) beats CHM-VWF on F1 at the closed-canopy
+conifer sites — **SOAP +0.05, TEAK +0.10** pooled — and is flat-to-negative at
+open-canopy **SJER (−0.02)**. But that comparison pools over **all** plots
+(in-sample). This section asks whether the advantage survives on **held-out**
+plots, using the **exact same stratified calib/valid split** as the CHM-VWF #3
+study above (shared `calval_lib.R`), so the two are directly comparable.
+
+Reproduce:
+
+```sh
+export CLAUDE_JOB_DIR=/path/to/work
+Rscript scripts/calval_multichm.R SITES=SJER,SOAP,TEAK SEED=1 FRAC=0.5 \
+        SEEDS=1,2,3,4,5
+```
+
+All numbers are real console output on the cached `multichm_sweep_results.csv`
+(#37) + `sweep_results.csv` — no LiDAR recomputation.
+
+### What "cal/val" means for a detector with no knobs
+
+multichm has **no tuning grid**: a single density-derived resolution (0.25 m if
+first-returns ≥ 8 else 0.5 m) and the fixed window `ws_factory(0.10)`. So its
+held-out metric is just its pooled rate on the validation plots — there is
+nothing to overfit. The split therefore tests two things:
+
+1. **Subsample robustness of the head-to-head.** On a stratified half of the
+   plots that CHM-VWF's #3 test held out, is multichm still ahead? We score it
+   against the **matched-discipline** CHM-VWF baseline — the **same** §8 baseline
+   the "multichm wins" claim was made against (density-derived `res`, `a = 0.10`,
+   also untuned). Neither arm is tuned, so this is a clean apples-to-apples
+   subsample test.
+2. **The adversarial test.** We *also* score multichm against a **calib-tuned**
+   CHM-VWF — the per-rung best `(chm_res, vwf_a)` selected on the calibration
+   plots (exactly as `calval_split.R` selects), applied to the validation plots.
+   This asks: does multichm still win when CHM-VWF is **allowed to tune on
+   calibration data and multichm is not**?
+
+Every comparison is **paired + complete-case**: at each rung only the validation
+plots scored by *both* arms are pooled (a plot missing one arm's cell is dropped
+and counted), so a rung's Δ is never contaminated by an unequal plot population.
+Pooling is the canonical `model_bench_lib::pool` (sum TP / sum n_ref; precision
+= sum tp_core / sum n_det; per-class TP = `round(rec × n)`; understory =
+intermediate + suppressed) — the **same** pooler §8 used, so the in-sample
+reference this script recomputes reproduces §8 exactly (SOAP +0.05, TEAK +0.10,
+SJER −0.02). With small validation halves (SJER 3, SOAP 8, TEAK 9 plots) a
+single split is noisy, so `SEEDS=1..5` reports the held-out ΔF1 distribution and
+the fraction of seed×rung splits multichm wins.
+
+### Cross-site summary: in-sample vs held-out ΔF1 (multichm − CHM-VWF)
+
+`win%` is the fraction of the 25 seed×rung splits (5 seeds × 5 rungs) where
+multichm's held-out F1 exceeds CHM-VWF's.
+
+| Site | in-sample ΔF1 | held-out ΔF1 (matched) | win% | held-out ΔF1 (tuned) | win% |
+|------|---------------|------------------------|------|----------------------|------|
+| SJER | −0.02 | −0.01 | 40% | −0.01 | 40% |
+| SOAP | +0.05 | +0.06 | 100% | +0.05 | 100% |
+| TEAK | +0.10 | +0.08 | 96% | +0.08 | 100% |
+
+The conifer-site advantage **survives out-of-sample and survives the adversarial
+test**: at SOAP multichm wins the held-out F1 in **100%** of seed×rung splits and
+at TEAK **96%** against the matched baseline (and **100%** at both sites against
+the *calibration-tuned* CHM-VWF) — so the edge holds *even when CHM-VWF is
+allowed to tune on calibration data and multichm is not*. At open-canopy SJER
+there is no advantage to defend — flat in-sample (−0.02) and held-out (−0.01),
+winning only 40% — exactly the §8 site-dependence.
+
+### Held-out per-rung (SEED=1, FRAC=0.5)
+
+`vwf[matched]` is the §8 untuned CHM-VWF baseline; `vwf[tuned]` is the
+calib-tuned one. ΔF1 columns are multichm − that baseline. `n_pair` is the
+paired validation-plot count at the rung.
+
+#### SJER (valid n=3)
+
+| rung | n_pair | multichm rec/prec/F1 | vwf[matched] rec/F1 | ΔF1[m] | vwf[tuned] F1 | ΔF1[t] |
+|------|--------|----------------------|---------------------|--------|---------------|--------|
+| native | 3 | 0.67/0.29/0.41 | 0.44/0.36 | +0.05 | 0.40 | +0.01 |
+| 8      | 2 | 0.60/0.26/0.37 | 0.37/0.40 | −0.03 | 0.40 | −0.03 |
+| 4      | 3 | 0.64/0.26/0.37 | 0.39/0.40 | −0.03 | 0.40 | −0.03 |
+| 2      | 3 | 0.67/0.30/0.42 | 0.39/0.42 | −0.00 | 0.42 | −0.00 |
+| 1      | 3 | 0.58/0.24/0.34 | 0.39/0.41 | −0.07 | 0.39 | −0.05 |
+
+Pooled held-out: multichm F1 0.38 vs vwf[matched] 0.39 (ΔF1 −0.01), vwf[tuned]
+0.40 (ΔF1 −0.02). (SJER understory n = 2 stems — not interpretable, per §8.)
+
+#### SOAP (valid n=8)
+
+| rung | n_pair | multichm rec/prec/F1 | vwf[matched] rec/F1 | ΔF1[m] | vwf[tuned] F1 | ΔF1[t] |
+|------|--------|----------------------|---------------------|--------|---------------|--------|
+| native | 8 | 0.62/0.31/0.41 | 0.46/0.36 | +0.06 | 0.33 | +0.08 |
+| 8      | 8 | 0.64/0.30/0.41 | 0.29/0.35 | +0.07 | 0.35 | +0.06 |
+| 4      | 8 | 0.64/0.34/0.44 | 0.37/0.43 | +0.01 | 0.43 | +0.01 |
+| 2      | 8 | 0.61/0.32/0.42 | 0.33/0.38 | +0.05 | 0.38 | +0.04 |
+| 1      | 8 | 0.59/0.35/0.44 | 0.29/0.35 | +0.09 | 0.35 | +0.09 |
+
+Pooled held-out: multichm F1 0.43 vs vwf[matched] 0.37 (ΔF1 +0.05), vwf[tuned]
+0.37 (ΔF1 +0.06); understory recall **mc 0.56 vs vwf 0.15** — the multi-layer
+understory lift survives held-out.
+
+#### TEAK (valid n=9)
+
+| rung | n_pair | multichm rec/prec/F1 | vwf[matched] rec/F1 | ΔF1[m] | vwf[tuned] F1 | ΔF1[t] |
+|------|--------|----------------------|---------------------|--------|---------------|--------|
+| native | 9 | 0.44/0.49/0.46 | 0.32/0.39 | +0.07 | 0.41 | +0.06 |
+| 8      | 9 | 0.47/0.50/0.49 | 0.24/0.33 | +0.15 | 0.34 | +0.14 |
+| 4      | 9 | 0.50/0.50/0.50 | 0.22/0.32 | +0.19 | 0.32 | +0.19 |
+| 2      | 9 | 0.47/0.51/0.49 | 0.21/0.30 | +0.19 | 0.30 | +0.19 |
+| 1      | 9 | 0.41/0.44/0.43 | 0.20/0.29 | +0.13 | 0.29 | +0.13 |
+
+Pooled held-out: multichm F1 0.47 vs vwf[matched] 0.33 (ΔF1 +0.15), vwf[tuned]
+0.33 (ΔF1 +0.14); understory recall **mc 0.19 vs vwf 0.02**.
+
+### Multi-seed robustness (SEEDS=1..5, FRAC=0.5)
+
+Per rung: multichm held-out F1 median [min..max], then the matched-baseline ΔF1
+median and the fraction of seeds multichm wins.
+
+#### SJER
+
+| rung | mc F1 med [min..max] | ΔF1 median | win |
+|------|----------------------|------------|-----|
+| native | 0.33 [0.20..0.41] | +0.05 | 100% |
+| 8      | 0.30 [0.21..0.37] | −0.04 | 0% |
+| 4      | 0.29 [0.19..0.37] | −0.03 | 20% |
+| 2      | 0.34 [0.17..0.42] | +0.01 | 60% |
+| 1      | 0.30 [0.20..0.34] | −0.02 | 20% |
+
+#### SOAP
+
+| rung | mc F1 med [min..max] | ΔF1 median | win |
+|------|----------------------|------------|-----|
+| native | 0.43 [0.41..0.48] | +0.06 | 100% |
+| 8      | 0.42 [0.40..0.44] | +0.07 | 100% |
+| 4      | 0.46 [0.44..0.47] | +0.04 | 100% |
+| 2      | 0.44 [0.42..0.47] | +0.05 | 100% |
+| 1      | 0.45 [0.44..0.48] | +0.05 | 100% |
+
+#### TEAK
+
+| rung | mc F1 med [min..max] | ΔF1 median | win |
+|------|----------------------|------------|-----|
+| native | 0.41 [0.37..0.46] | +0.03 | 80% |
+| 8      | 0.41 [0.37..0.49] | +0.08 | 100% |
+| 4      | 0.42 [0.38..0.50] | +0.11 | 100% |
+| 2      | 0.40 [0.37..0.49] | +0.11 | 100% |
+| 1      | 0.39 [0.36..0.43] | +0.10 | 100% |
+
+At SOAP every rung wins 100% of seeds; at TEAK every decimated rung wins 100%
+(native 80%, where the F1 margin is thinnest); at SJER only the native rung
+(100%) and rung 2 (60% plurality) favour multichm, the other decimated rungs
+favour CHM-VWF — multichm's extra multi-layer maxima land on shrubs/ground in
+the open savanna, buying recall but no net F1 (§8).
+
+### Verdict (issue #39, cal/val arm)
+
+**multichm's conifer-site advantage survives out-of-sample, and survives the
+adversarial test.** On held-out plots multichm beats CHM-VWF in **100% of
+seed×rung splits at SOAP and 96% at TEAK**, with held-out pooled ΔF1 of **+0.05
+(SOAP)** and **+0.08 (TEAK)** — matching the in-sample +0.05 / +0.10 to within
+the multi-seed noise — and it stays ahead **even when CHM-VWF is allowed to tune
+`(chm_res, vwf_a)` on the calibration plots and multichm is not**. The held-out
+understory-recall lift (SOAP 0.56 vs 0.15, TEAK 0.19 vs 0.02) confirms the §8
+mechanism (multi-layer CHM keeps sub-dominant apexes) is not an in-sample
+artifact. At **open-canopy SJER there is no advantage to defend**: flat
+in-sample (−0.02) and held-out (−0.01), winning only 40% of splits — so the §8
+site-dependence is itself reproduced out-of-sample. The honest caveat is the
+same as for the #3 CHM-VWF result: SJER's 8 plots (3 held out) make its absolute
+numbers noisy, and the native rung is the least stable everywhere; the
+load-bearing evidence is the **decimated-rung win-fraction at SOAP/TEAK**, which
+is unambiguous (100% / 100% across seeds at most rungs).

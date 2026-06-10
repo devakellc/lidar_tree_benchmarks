@@ -36,6 +36,11 @@ field-surveyed stem ground truth. Last run: 2026-06-05.*
   +1 m, RMSE 4.4 m) and degrades down the crown classes only because sub-canopy
   stems match their overtopping neighbour — height accuracy is occlusion-limited
   just like detection. *Detector = variable-window local maximum (VWF) only.* §6.
+- **A multi-layer-CHM detector (`multichm`) is a recall-first alternative.** Run
+  on the *same* lasR clip path, it lifts recall **+0.22–0.26** over CHM-VWF
+  (overstory *and* understory) at a precision cost, raising F1 at the conifer
+  sites (**SOAP +0.05, TEAK +0.10**, the edge widening as density drops) but not
+  at open-canopy **SJER (−0.02)**, where the extra detections are commission. §8.
 
 ---
 
@@ -263,7 +268,69 @@ approach doc says to **report metrics stratified by crown class**.
   recall drops and precision rises — F1 is conserved. The policy trades the error
   type, as intended.
 
-## 8. Caveats (so the numbers are read correctly)
+## 8. A stronger classical arm — multichm vs CHM-VWF (same clip path)
+
+`multichm` (Eysn-style multi-layer CHM local maxima, `lidRplugins::multichm`) is
+the best classical detector on the SOAP **model** benchmark. To see how it
+behaves on *this* ladder — and keep the comparison honest — it was rebuilt on the
+**same `prepare_clip` lasR-based path** as the cached CHM-VWF `sweep_results.csv`
+(clip → `decimate_points` → `normalize_height`), **not** the frozen-clip
+`pitfree` model benchmark. Same plots, rungs, plot-type-aware core, no-upsampling
+guard, and `score_plot` (TOL = 4). multichm uses one density-derived resolution
+(0.25 m if first-returns ≥ 8 else 0.5 m) and the same clamped window
+`ws_factory(0.10)`; the CHM-VWF baseline is the cached row chosen by the **same**
+res-rule and `a = 0.10` — so it differs slightly from the §4 modal `res = 0.5`
+headline. Both arms are restricted to the **common (plot, rung)** cells, then
+pooled by summed counts (Δ = difference of pooled rates). *Scripts:
+`detect_multichm_sweep.R` → `analyze_multichm_sweep.R`.*
+
+**multichm trades precision for a large recall gain — net F1 up at the conifer
+sites, flat at the savanna.** Pooled over all common cells:
+
+| Site | plots | recall mc/vwf | prec. mc/vwf | overstory mc/vwf | understory mc/vwf | F1 mc/vwf |
+|---|---|---|---|---|---|---|
+| SJER open oak | 39 | 0.69 / 0.44 | 0.22 / 0.30 | 0.89 / 0.64 | 0.80 / 0.60\* | 0.33 / 0.36 |
+| SOAP mixed conifer | 90 | 0.63 / 0.37 | 0.34 / 0.42 | 0.65 / 0.41 | 0.51 / 0.31 | 0.44 / 0.39 |
+| TEAK red fir | 100 | 0.48 / 0.26 | 0.38 / 0.43 | 0.51 / 0.28 | 0.26 / 0.13 | 0.43 / 0.33 |
+
+\*SJER understory n = 2 stems — not interpretable; see Caveats. SOAP (n=45) and
+TEAK (n=58) understory are solid.
+
+Per site × density rung (recall mc/vwf; ΔF1 = multichm − CHM-VWF):
+
+| Site | native | rung 8 | rung 4 | rung 2 | rung 1 |
+|---|---|---|---|---|---|
+| SJER recall | 0.69 / 0.49 | 0.69 / 0.43 | 0.68 / 0.44 | 0.72 / 0.41 | 0.66 / 0.41 |
+| SJER ΔF1 | +0.03 | −0.06 | −0.06 | −0.02 | −0.02 |
+| SOAP recall | 0.63 / 0.48 | 0.62 / 0.31 | 0.65 / 0.36 | 0.63 / 0.34 | 0.60 / 0.34 |
+| SOAP ΔF1 | +0.06 | +0.06 | +0.03 | +0.05 | +0.06 |
+| TEAK recall | 0.46 / 0.34 | 0.49 / 0.26 | 0.52 / 0.26 | 0.48 / 0.23 | 0.45 / 0.23 |
+| TEAK ΔF1 | +0.05 | +0.11 | +0.12 | +0.14 | +0.10 |
+
+- **The recall lift is broad-based.** multichm recovers more *overstory*
+  (+0.23–0.25) **and** more *understory* (SOAP +0.20, TEAK +0.13) than CHM-VWF,
+  because the multi-layer CHM keeps sub-dominant apexes that a single pit-filled
+  surface merges into a taller neighbour. The cost is 0.05–0.08 lower precision
+  (more commission).
+- **Net F1 rises at the closed-canopy conifer sites and the edge widens as
+  density drops.** SOAP +0.05 and TEAK +0.10 pooled; at TEAK ΔF1 grows from +0.05
+  (native) to +0.12–0.14 at 4–2 pts/m². multichm is the more density-robust arm
+  exactly where CHM-VWF's pit-filled surface degrades fastest (red fir, steep
+  terrain). On SOAP this reproduces the model-benchmark headline almost exactly
+  (native F1 **0.44 vs 0.38**) — now on the matched lasR clip path.
+- **At open-canopy SJER the same recall lift is mostly commission.** F1 is
+  flat-to-slightly-negative (−0.02 pooled; CHM-VWF actually wins F1 at the
+  decimated rungs). In a sparse savanna the extra multi-layer maxima land on
+  shrubs and ground noise, not stems, so recall buys nothing net.
+- **Bottom line:** on the canonical lasR clip path multichm is a **recall-first**
+  alternative — clearly better at the conifer sites (SOAP, TEAK), no better at the
+  open-canopy site (SJER). The model benchmark's "multichm wins at every rung"
+  held at SOAP and on the frozen-clip `pitfree` path; the density ladder shows it
+  is **site-dependent**, not universal. CHM-VWF remains the documented baseline;
+  multichm is the alternative an operator should reach for when recall (especially
+  understory recall) matters more than commission, in closed canopy.
+
+## 9. Caveats (so the numbers are read correctly)
 
 - **Absolute recall is bounded by stem clustering, not just the detector.** NEON
   maps every stem ≥10 cm DBH, including sub-canopy trees with no distinct apex;
@@ -303,6 +370,18 @@ approach doc says to **report metrics stratified by crown class**.
   plots — not held out. They identify which knobs matter (resolution ≫ slope),
   not a deployable tuned value; a calibration/validation split (plan §3.2) would
   be the next step before quoting an operational parameter set.
+- **The §8 multichm head-to-head re-clips, it does not reuse the cached clips.**
+  `prepare_clip` is unseeded (exactly like `run_sweep.R`), so each arm decimates
+  its own realization and reads `res` from its **own** measured first-return
+  density; the comparison pools over plots and rungs, which is robust to the
+  realization. The two arms are restricted to the common (plot, rung) set before
+  pooling, and every Δ is a difference of **pooled** rates, never a mean of
+  per-row deltas. multichm's apex `z` is read from the 2-D tops' `Z` attribute,
+  so its height RMSE is reported but does not drive the detection metrics. The §8
+  CHM-VWF baseline uses the **density-derived** `res` rule (0.25 / 0.5 m by
+  `frdens`), not the §4 modal `res = 0.5` headline, so its level differs slightly.
+  **SJER understory in §8 is just 2 stems** — its understory delta is not
+  interpretable (SOAP n=45, TEAK n=58 are).
 - **Verification.** Two multi-agent adversarial passes (results-verification and
   code-review) plus an external review checked this work. They found **no result
   invalidating bug** — decimation lands within ~6 % of target, an independent
@@ -318,7 +397,7 @@ approach doc says to **report metrics stratified by crown class**.
   (recall-denominator double-count), and the tile-download buffer was raised to
   ≥ the per-plot clip reach. The numbers above are the post-fix run.
 
-## 9. Reproduce
+## 10. Reproduce
 
 Requires R with the **lasR `pre-devel`** build (variable-window `ws`,
 `summarise()` density), `lidR`, `neonUtilities`, `RCSF`, `future`; ~5 GB disk for
@@ -334,6 +413,11 @@ for S in SOAP SJER TEAK; do
 done
 Rscript scripts/compare_sites.R SJER,SOAP,TEAK             # structure-gradient table + figure
 Rscript scripts/validate_heights.R SITES=SJER,SOAP,TEAK    # apex-vs-field height by crown class
+# §8 multichm arm (reuses the cached sweep_results.csv for the CHM-VWF baseline)
+for S in SOAP SJER TEAK; do
+  Rscript scripts/detect_multichm_sweep.R SITE=$S PLOTS=ALL CORES=16 TOL=4
+done
+Rscript scripts/analyze_multichm_sweep.R SITES=SJER,SOAP,TEAK   # §8 tables + figure
 ```
 
 | Script | Role |
@@ -346,10 +430,15 @@ Rscript scripts/validate_heights.R SITES=SJER,SOAP,TEAK    # apex-vs-field heigh
 | `compare_sites.R` | cross-site structure-gradient roll-up + combined figure |
 | `validate_heights.R` | detected apex vs field height (position-only match), by site & crown class + scatter |
 | `verify_geolocation.R` | auditable check: re-derive stem coords from raw table + API, compare to ground truth |
+| `detect_multichm_sweep.R` | §8 multichm arm: `lidRplugins::multichm` on the same `prepare_clip` lasR path, one row per plot×rung |
+| `analyze_multichm_sweep.R` | §8 pooling + multichm-vs-CHM-VWF head-to-head on the common (plot, rung) set + figure |
 
 **Outputs:** `work/neon/<SITE>/sweep_results.csv` (one row per plot×rung×params),
 `summary_by_rung.csv`, `summary_best_params.csv`, `figs/*.png`, and
-`work/neon/cross_site_summary.csv` + `figs/structure_gradient.png`.
+`work/neon/cross_site_summary.csv` + `figs/structure_gradient.png`. The §8 arm
+adds `work/neon/<SITE>/multichm_sweep_results.csv`,
+`multichm_summary_by_rung.csv`, `figs/multichm_vs_chmvwf.png`, and the cross-site
+`work/neon/multichm_vs_chmvwf.csv`.
 
 ---
 

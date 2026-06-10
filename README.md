@@ -112,6 +112,8 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `model_bench_lib.R` | Shared bridge for the model benchmark (#B2): reduce_instances, crown_diameter_table, seed_for/frozen_clip, pool/equal_set_guard, assert_detection_contract. |
 | `detect_ams3d_sweep.R` | AMS3D (crownsegmentr) arm (#B1): adaptive mean-shift crowns over the density ladder, reduced to detections and scored by crown class. |
 | `detect_lidrplugins_sweep.R` | lidRplugins competitor arm (#C9): lmfauto/multichm (locate_trees) + ptrees (segment_trees) vs the CHM-VWF baseline over the density ladder. |
+| `detect_multichm_sweep.R` | multichm treetop arm on the canonical 3-site density ladder (#37): `lidRplugins::multichm` on the SAME `prepare_clip` lasR path as the cached CHM-VWF `sweep_results.csv` (density-derived `res`, `ws_factory(0.10)`), scored by `score_plot`. Writes `neon/<SITE>/multichm_sweep_results.csv` (one row per plot x rung). Needs only lidR + lidRplugins (CRAN lasR is fine). |
+| `analyze_multichm_sweep.R` | Pool the multichm arm and put it head-to-head vs the cached CHM-VWF `sweep_results.csv` on the common (plot, rung) set (same res-rule + `a=0.10`); per-rung + crown-class + height-band tables, Δ of pooled rates, a figure, and the `density-ladder-sweep-results.md` §8 addendum fragment. |
 | `detect_li2012_native.R` | Native-only Li 2012 arm (#R10): lidR `li2012` point segmenter on the native frozen clip, reduced to detections via the bridge; the point-segmenter leg of the head-to-head. Writes `neon/<SITE>/li2012_results.csv`. |
 | `detect_treeisonet_sweep.R` | TreeisoNet deep-model arm (#M7): runs the headless GPU driver (`gpu/run_treeisonet.py`, cu128/sm_120) on the normalized frozen clip per plot x rung, serially (one GPU), apex-only with a local-canopy-max z-snap, at the calibrated zero-shot `CONF=0.22` default. `VOXEL` accepts either a scalar isotropic override or an anisotropic `x,y,z` vector. Writes `neon/<SITE>/treeisonet_results.csv`. See `docs/superpowers/plans/2026-06-08-gpu-arm-infra-m7-first.md`. |
 | `detect_segmentanytree_sweep.R` | SegmentAnyTree deep-model arm (#M6): runs the rebuilt sm_120 Docker image on raw-with-ground frozen clips per plot x rung, reduces `PredInstance` labels to apexes, converts absolute Z to AGL with each clip DTM, and writes checkpointed `neon/<SITE>/segmentanytree_results.csv` rows. `CORES=2` is the tested RTX 5090 throughput setting. See `gpu/segmentanytree-sm120/README.md`. |
@@ -153,6 +155,13 @@ Rscript scripts/detect_li2012_native.R     SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_treeisonet_sweep.R  VOXEL=0.8,0.8,2.0
 Rscript scripts/detect_segmentanytree_sweep.R SITE=SOAP IMAGE=sat-sm120-test CORES=2
 Rscript scripts/analyze_model_benchmark.R  SITE=SOAP  # re-synthesize with GPU arms added
+
+# multichm arm on the canonical 3-site density ladder (#37): same prepare_clip
+# lasR path as run_sweep.R; head-to-head vs the cached CHM-VWF sweep_results.csv
+Rscript scripts/detect_multichm_sweep.R  SITE=SOAP PLOTS=ALL CORES=12
+Rscript scripts/detect_multichm_sweep.R  SITE=SJER PLOTS=ALL CORES=12
+Rscript scripts/detect_multichm_sweep.R  SITE=TEAK PLOTS=ALL CORES=12
+Rscript scripts/analyze_multichm_sweep.R SITES=SJER,SOAP,TEAK
 
 # Toy tile (no data download needed; uses lasR's bundled MixedConifer.las)
 Rscript scripts/detect_lasr.R

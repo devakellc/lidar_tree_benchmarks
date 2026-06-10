@@ -22,7 +22,7 @@ Acquisition months below are from the NEON Data Portal API
 |------|-----------|------------------------------|----------|-------------------------------|
 | **SJER** | San Joaquin Experimental Range | Open oak / foothill-pine woodland (open-canopy gradient) | 37.11°N, 119.73°W | 8 / 71 |
 | **SOAP** | Soaproot Saddle | Mixed conifer/deciduous (**anchor** site) | 37.03°N, 119.26°W | 18 / 232 |
-| **TEAK** | Lower Teakettle | Red fir / subalpine conifer (dense-canopy gradient) | 37.01°N, 119.01°W | 20 / 353 |
+| **TEAK** | Lower Teakettle | Red fir / subalpine conifer (dense-canopy gradient) | 37.01°N, 119.01°W | 20 / 396 |
 
 †Live, mapped tree stems in the sweep ground truth (`ground_truth_stems.csv`),
 paired with the **2021** NEON AOP acquisition (±4 yr nearest field measurement).
@@ -76,5 +76,5 @@ field coverage (issue #5):
 | SOAP | 268 | 52 | 19% |
 | SJER | 113 | 0 | 0% |
 
-SJER field stems were mostly measured in **2019 and 2022**, not 2021; treat its
+SJER field stems were mostly measured in **2022 and 2024**, not 2021; treat its
 sweep metrics as carrying the full ±4 yr temporal slack.

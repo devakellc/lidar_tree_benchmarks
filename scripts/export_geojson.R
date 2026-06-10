@@ -114,17 +114,19 @@ for (site in SITES) {
                       canopyPosition = st$canopyPosition, plantStatus = st$plantStatus,
                       live = st$live, meas_year = st$meas_year,
                       stringsAsFactors = FALSE)
-  st_sf <- st_transform(
-    st_sf(st_df, geometry = st_sfc(
-      lapply(seq_len(nrow(st)), function(j) st_point(c(st$E[j], st$N[j]))),
-      crs = epsg)), 4326)
-  stem_rows[[site]] <- st_sf
+  if (nrow(st)) {                              # skip stemless sites; keeps the sfc POINT-typed
+    pts <- st_sfc(lapply(seq_len(nrow(st)),
+                         function(j) st_point(c(st$E[j], st$N[j]))), crs = epsg)
+    stem_rows[[site]] <- st_transform(st_sf(st_df, geometry = pts), 4326)
+  }
 
   ## --- site: convex hull of plot centroids ---
   cent <- st_sfc(lapply(seq_len(nrow(pc)),
                         function(i) st_point(c(pc$easting[i], pc$northing[i]))),
                  crs = epsg)
   hull <- st_convex_hull(st_union(cent))
+  if (as.character(st_geometry_type(hull)) != "POLYGON")  # <3 plots: avoid line/point
+    hull <- st_convex_hull(st_buffer(st_union(cent), 0.5))
   sr <- data.frame(
     site = site, domain = domain, utm_zone = pc$utmZone[1], epsg = epsg,
     n_plots = nrow(pc), n_plots_swept = sum(pl$swept),

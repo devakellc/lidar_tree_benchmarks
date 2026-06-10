@@ -452,13 +452,15 @@ multichm's held-out F1 exceeds CHM-VWF's.
 |------|---------------|------------------------|------|----------------------|------|
 | SJER | −0.02 | −0.01 | 40% | −0.01 | 40% |
 | SOAP | +0.05 | +0.06 | 100% | +0.05 | 100% |
-| TEAK | +0.10 | +0.08 | 96% | +0.08 | 96% |
+| TEAK | +0.10 | +0.08 | 96% | +0.08 | 100% |
 
 The conifer-site advantage **survives out-of-sample and survives the adversarial
 test**: at SOAP multichm wins the held-out F1 in **100%** of seed×rung splits and
-at TEAK **96%**, *even when CHM-VWF is allowed to tune on calibration data*. At
-open-canopy SJER there is no advantage to defend — flat in-sample (−0.02) and
-held-out (−0.01), winning only 40% — exactly the §8 site-dependence.
+at TEAK **96%** against the matched baseline (and **100%** at both sites against
+the *calibration-tuned* CHM-VWF) — so the edge holds *even when CHM-VWF is
+allowed to tune on calibration data and multichm is not*. At open-canopy SJER
+there is no advantage to defend — flat in-sample (−0.02) and held-out (−0.01),
+winning only 40% — exactly the §8 site-dependence.
 
 ### Held-out per-rung (SEED=1, FRAC=0.5)
 
@@ -497,7 +499,7 @@ understory lift survives held-out.
 
 | rung | n_pair | multichm rec/prec/F1 | vwf[matched] rec/F1 | ΔF1[m] | vwf[tuned] F1 | ΔF1[t] |
 |------|--------|----------------------|---------------------|--------|---------------|--------|
-| native | 9 | 0.44/0.49/0.46 | 0.32/0.39 | +0.07 | 0.41 | +0.05 |
+| native | 9 | 0.44/0.49/0.46 | 0.32/0.39 | +0.07 | 0.41 | +0.06 |
 | 8      | 9 | 0.47/0.50/0.49 | 0.24/0.33 | +0.15 | 0.34 | +0.14 |
 | 4      | 9 | 0.50/0.50/0.50 | 0.22/0.32 | +0.19 | 0.32 | +0.19 |
 | 2      | 9 | 0.47/0.51/0.49 | 0.21/0.30 | +0.19 | 0.30 | +0.19 |

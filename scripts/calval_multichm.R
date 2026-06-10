@@ -222,15 +222,19 @@ for (SITE in SITES) {
   for (rl in rung_lab) {
     a <- hm[hm$rung == rl, ]; t <- ht[ht$rung == rl, ]
     if (!nrow(a)) next
-    dft <- if (nrow(t)) sprintf("%+.2f", a$F1_mc - t$F1_cv) else "  -- "
+    dft <- if (nrow(t)) sprintf("%+.2f", t$F1_mc - t$F1_cv) else "  -- "
     f1t <- if (nrow(t)) sprintf("%s/%s", fmt(t$rec_cv), fmt(t$F1_cv)) else "   --     "
     cat(sprintf("%-7s %5d | %s / %s / %s | %s/%s | %-12s | %+.2f / %s\n",
         rl, a$n_pair, fmt(a$rec_mc), fmt(a$prec_mc), fmt(a$F1_mc),
         fmt(a$rec_cv), fmt(a$F1_cv), f1t, a$d_F1, dft))
   }
+  # Each ΔF1 must subtract within its OWN pairing: Pm and Pt run complete-case
+  # pair_cells independently (vs cvm vs cvt), so their multichm cell sets can
+  # differ by a plot. The tuned delta therefore uses ptp$F1_mc (multichm on the
+  # tuned pairing), NOT pm$F1_mc -- mixing them would compare unequal populations.
   pm <- h2h_pooled(Pm); ptp <- h2h_pooled(Pt)
   cat(sprintf("\n  POOLED held-out: F1 mc=%s  vwf[matched]=%s (ΔF1 %+.2f)  vwf[tuned]=%s (ΔF1 %+.2f)\n",
-      fmt(pm$F1_mc), fmt(pm$F1_cv), pm$d_F1, fmt(ptp$F1_cv), pm$F1_mc - ptp$F1_cv))
+      fmt(pm$F1_mc), fmt(pm$F1_cv), pm$d_F1, fmt(ptp$F1_cv), ptp$F1_mc - ptp$F1_cv))
   cat(sprintf("  POOLED held-out understory recall: mc=%s  vwf[matched]=%s\n",
       fmt(pm$und_mc), fmt(pm$und_cv)))
 
@@ -252,7 +256,7 @@ for (SITE in SITES) {
       a <- hr[hr$rung == rl, ]; tt <- tr[tr$rung == rl, ]
       if (!nrow(a)) return(NULL)
       data.frame(seed = sd, rung = rl, F1_mc = a$F1_mc, d_F1_m = a$d_F1,
-                 d_F1_t = if (nrow(tt)) a$F1_mc - tt$F1_cv else NA_real_) })) }))
+                 d_F1_t = if (nrow(tt)) tt$F1_mc - tt$F1_cv else NA_real_) })) }))
   agg <- do.call(rbind, lapply(rung_lab, function(rl) {
     z <- rb[rb$rung == rl, ]; if (!nrow(z)) return(NULL)
     data.frame(rung = rl, n_seeds = nrow(z),
@@ -291,11 +295,11 @@ for (SITE in SITES) {
       rl, a$n_pair, fmt(a$rec_mc), fmt(a$prec_mc), fmt(a$F1_mc),
       fmt(a$rec_cv), fmt(a$F1_cv), a$d_F1,
       if (nrow(t)) fmt(t$F1_cv) else "--",
-      if (nrow(t)) sprintf("%+.2f", a$F1_mc - t$F1_cv) else "--")) }
+      if (nrow(t)) sprintf("%+.2f", t$F1_mc - t$F1_cv) else "--")) }
   md <- c(md, "",
           sprintf("Pooled held-out: multichm F1 %s vs vwf[matched] %s (ΔF1 %+.2f), vwf[tuned] %s (ΔF1 %+.2f); understory recall mc %s vs vwf %s.",
                   fmt(pm$F1_mc), fmt(pm$F1_cv), pm$d_F1, fmt(ptp$F1_cv),
-                  pm$F1_mc - ptp$F1_cv, fmt(pm$und_mc), fmt(pm$und_cv)), "")
+                  ptp$F1_mc - ptp$F1_cv, fmt(pm$und_mc), fmt(pm$und_cv)), "")
 
   rows_long <- do.call(rbind, list(all_long[[paste0(SITE, "_m")]],
                                    all_long[[paste0(SITE, "_t")]]))

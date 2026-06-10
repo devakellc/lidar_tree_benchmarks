@@ -20,6 +20,21 @@ sites <- strsplit(if (length(commandArgs(TRUE))) commandArgs(TRUE)[1] else
                   "SJER,SOAP,TEAK", ",")[[1]]
 classes <- c("dominant","codominant","intermediate","suppressed")
 
+# Per-site line colors. Keep the canonical SJER/SOAP/TEAK hues stable regardless
+# of which sites are present, and extend to any additional site so it still
+# draws (a bare hardcoded 3-color vector returns NA -> invisible lines and a
+# blank legend entry for a 4th+ site).
+site_palette <- function(sites) {
+  base <- c(SJER = "#1b9e77", SOAP = "#d95f02", TEAK = "#7570b3")
+  cols <- setNames(rep(NA_character_, length(sites)), sites)
+  known <- intersect(sites, names(base))
+  cols[known] <- base[known]
+  extra <- setdiff(sites, names(base))
+  if (length(extra))
+    cols[extra] <- grDevices::hcl.colors(length(extra), "Dark 3")
+  cols
+}
+
 pool_rung <- function(r, rl) {
   s <- r[r$rung == rl & r$chm_res == 0.5 & r$vwf_a == 0.10, ]
   if (!nrow(s)) return(NULL)
@@ -60,13 +75,17 @@ for (st in sites) {
   print(rr[, c("rung","frdens","recall","precision","F1",
                "rec_overstory","rec_understory")], row.names=FALSE, digits=2)
 }
-comb <- do.call(rbind, all)
+# Bind sites by column name, tolerating differing schemas across sites (e.g. a
+# class column present at one site but not another) rather than erroring as base
+# rbind would on a column mismatch.
+comb <- as.data.frame(data.table::rbindlist(
+  Filter(Negate(is.null), all), fill = TRUE, use.names = TRUE))
 write.csv(comb, file.path(d, "neon", "cross_site_summary.csv"), row.names = FALSE)
 
 ## combined figure: overstory recall vs density, one line per site
 fig <- file.path(d, "neon", "figs"); dir.create(fig, showWarnings = FALSE, recursive = TRUE)
 png(file.path(fig, "structure_gradient.png"), 1050, 760, res = 130)
-par(mar = c(4.2,4.2,2.5,1)); cols <- c(SJER="#1b9e77", SOAP="#d95f02", TEAK="#7570b3")
+par(mar = c(4.2,4.2,2.5,1)); cols <- site_palette(names(all))
 plot(NA, xlim = range(comb$frdens), ylim = c(0,1), log = "x",
      xlab = "first-return density (pulses/m^2)", ylab = "recall",
      main = "Overstory (solid) vs understory (dashed) recall by site")

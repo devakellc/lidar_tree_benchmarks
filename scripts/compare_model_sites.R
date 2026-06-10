@@ -27,6 +27,21 @@ SITES <- strsplit(if (is.null(A$SITES)) "SJER,SOAP,TEAK" else A$SITES, ",")[[1]]
 ARMS  <- strsplit(if (is.null(A$ARMS))  "chm_vwf,lmfauto,multichm,ptrees,ams3d"
                   else A$ARMS, ",")[[1]]
 
+# Per-site line colors. Keep the canonical SJER/SOAP/TEAK hues stable regardless
+# of which sites are present, and extend to any additional SITES= entry so it
+# still draws (a bare hardcoded 3-color vector returns NA -> invisible lines and
+# a blank legend entry for a 4th+ site).
+site_palette <- function(sites) {
+  base <- c(SJER = "#1b9e77", SOAP = "#d95f02", TEAK = "#7570b3")
+  cols <- setNames(rep(NA_character_, length(sites)), sites)
+  known <- intersect(sites, names(base))
+  cols[known] <- base[known]
+  extra <- setdiff(sites, names(base))
+  if (length(extra))
+    cols[extra] <- grDevices::hcl.colors(length(extra), "Dark 3")
+  cols
+}
+
 run_main <- function() {
   d <- .job_dir()
   site_pooled <- list()
@@ -59,14 +74,18 @@ run_main <- function() {
   if (!length(site_pooled))
     stop("no sites produced results; run arm sweeps first", call. = FALSE)
 
-  comb <- do.call(rbind, Filter(Negate(is.null), site_pooled))
+  # Bind sites by column name, tolerating differing schemas across sites
+  # (e.g. an arm present at one site adding a column) rather than erroring as
+  # base rbind would on a column mismatch.
+  comb <- as.data.frame(data.table::rbindlist(
+    Filter(Negate(is.null), site_pooled), fill = TRUE, use.names = TRUE))
   write.csv(comb, file.path(d, "neon", "model_cross_site_summary.csv"), row.names = FALSE)
 
   fig <- file.path(d, "neon", "figs")
   dir.create(fig, showWarnings = FALSE, recursive = TRUE)
 
-  site_cols <- c(SJER = "#1b9e77", SOAP = "#d95f02", TEAK = "#7570b3")
   sites_present <- names(site_pooled)
+  site_cols <- site_palette(sites_present)
 
   .draw_sites <- function(sub, main_label, cex = 1.0) {
     xlim <- range(sub$frdens, na.rm = TRUE)

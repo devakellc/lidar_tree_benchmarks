@@ -119,3 +119,8 @@ test_that("cross-site pooling keeps per-site equal-set guard independent", {
   expect_true("ams3d" %in% pooled_soap$detector)
   expect_true("ams3d" %in% pooled_sjer$detector)
 })
+
+test_that("SegmentAnyTree is a full-ladder synthesis arm", {
+  expect_true("segmentanytree" %in% LADDER_ARMS)
+  expect_true("segmentanytree" %in% NATIVE_ARMS)
+})

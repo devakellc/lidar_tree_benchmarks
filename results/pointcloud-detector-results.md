@@ -8,6 +8,13 @@ one place high point density **should** pay off is a point-cloud detector able
 to resolve sub-dominant apexes a CHM cannot. This run tests that directly. Code:
 [scripts/detect_pc_sweep.R](../scripts/detect_pc_sweep.R). Last run: 2026-06-05.*
 
+> **Density-ladder addendum ([issue #38](https://github.com/devakellc/lidar_tree_benchmarks/issues/38)):**
+> the native-only comparison below has since been extended to a two-rung density
+> ladder (native + 8 pts/m²) on all three sites — see the **Density ladder**
+> section at the end of this document for where the point detectors cross the CHM
+> baseline as density drops. Code:
+> [scripts/detect_pc_ladder.R](../scripts/detect_pc_ladder.R).
+
 ---
 
 ## TL;DR
@@ -173,3 +180,110 @@ than density-bound. It refines it: high density + a 3D segmenter recovers a
 *thin* slice of understory the CHM misses (now ~6 of 105 stems over a
 density-faithful baseline, not 10), but the floor is set by what the LiDAR can
 physically see under the canopy.
+
+---
+
+## Density ladder: native + 8 pts/m² (issue #38)
+
+*Addresses [issue #38](https://github.com/devakellc/lidar_tree_benchmarks/issues/38):
+the native-only comparison above gives no **density-response** curve for the
+point-cloud detectors. The AOI results
+([treetop-lasr-vs-lidr-comparison.md](treetop-lasr-vs-lidr-comparison.md)) show
+point methods **over-detect** below ~3 first-return/m² and converge with the CHM
+at higher density; this section quantifies that on field stems. Code:
+[scripts/detect_pc_ladder.R](../scripts/detect_pc_ladder.R). Run: 2026-06-10.*
+
+### Scope and method
+
+Two rungs only — **native** and **8 pts/m²** (all-return). The sparser rungs
+(4/2/1) are deliberately **out of scope**: a point segmenter below ~3
+first-return/m² produces spurious local maxima and empty segments, so a 1 pts/m²
+Li 2012 number would be noise, not signal. The CHM-VWF full ladder
+(`run_sweep.R`) already covers 8/4/2/1. Same four arms, same windows, and the
+same `score_plot` scoring as the native comparison above.
+
+**Clip provider.** Each `(plot, rung)` clip comes from `frozen_clip`
+(`model_bench_lib.R`) rather than the `prepare_clip` path of the native run. Its
+decimation is **seeded** by `(site, plot, rung)` and **cached**, so all four
+arms read the identical bytes per cell and the 8-rung is reproducible across
+runs. The 8 pts/m² rung is skipped for any plot whose **native** all-return
+density is ≤ 8 (the `run_sweep.R` no-upsampling rule) — one SJER plot, hence 45
+plots at the 8-rung vs 46 at native. As a control, the **native** rung
+reproduces the `prepare_clip`-based #6 pooled numbers **exactly** (chm_vwf
+recall 0.401 / precision 0.336 / F1 0.365; understory 0.200), confirming the two
+clip providers are equivalent at native and isolating the 8-rung as the only new
+variable. Pooling is the canonical `pool` + `equal_set_guard` keyed by
+`(site, plot, rung)`; **0 cells dropped** (every arm scored every cell at
+`CORES=1`). Deltas are reported **within each rung** over an identical plot set.
+
+### Pooled, both rungs (Δ within-rung vs CHM-VWF)
+
+native: 46 plots / 699 stems (105 understory). 8 pts/m²: 45 plots / 693 stems
+(105 understory).
+
+| Rung | Detector | n_det | recall | precision | F1 | understory rec | Δ recall | Δ understory |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| native | `chm_vwf` | 763 | 0.401 | 0.336 | 0.365 | 0.200 | — | — |
+| native | `lidr_lmf_pc` | 855 | 0.386 | 0.285 | 0.328 | 0.190 | −0.014 | −0.010 |
+| native | `lidr_li2012` | 1189 | 0.495 | 0.266 | 0.346 | 0.257 | +0.094 | +0.057 |
+| native | `lasr_lmax_pc` | 855 | 0.386 | 0.285 | 0.328 | 0.190 | −0.014 | −0.010 |
+| 8 | `chm_vwf` | 439 | 0.299 | 0.435 | 0.354 | 0.114 | — | — |
+| 8 | `lidr_lmf_pc` | 913 | 0.417 | 0.289 | 0.342 | 0.200 | +0.118 | +0.086 |
+| 8 | `lidr_li2012` | 1288 | 0.524 | 0.259 | 0.346 | 0.305 | +0.225 | +0.190 |
+| 8 | `lasr_lmax_pc` | 913 | 0.417 | 0.289 | 0.342 | 0.200 | +0.118 | +0.086 |
+
+`lasr_lmax_pc` is byte-identical to `lidr_lmf_pc` at both rungs (same operator on
+the same points), as in the native run — read them as one result.
+
+### Understory recall — 2 rungs × 3 sites
+
+Combined understory = intermediate + suppressed. SJER has only 2 understory
+stems (open oak savanna), so its values are two trees, not a trend; SOAP (mixed
+conifer) and TEAK (red fir) are load-bearing.
+
+| Site | n_und | Rung | `chm_vwf` | `lidr_lmf_pc` | `lidr_li2012` | `lasr_lmax_pc` |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| SJER | 2 | native | 1.000 | 1.000 | 1.000 | 1.000 |
+| SJER | 2 | 8 | 0.500 | 0.500 | 1.000 | 0.500 |
+| SOAP | 45 | native | 0.267 | 0.267 | 0.333 | 0.267 |
+| SOAP | 45 | 8 | 0.133 | 0.311 | 0.422 | 0.311 |
+| TEAK | 58 | native | 0.121 | 0.103 | 0.172 | 0.103 |
+| TEAK | 58 | 8 | 0.086 | 0.103 | 0.190 | 0.103 |
+
+### Where the point methods cross the CHM baseline
+
+The crossover is driven by the **CHM-VWF baseline degrading faster than the
+point detectors** as density falls from native to 8 pts/m²:
+
+- **CHM-VWF collapses.** Going native → 8, its overall recall drops 0.401 →
+  0.299 and its understory recall 0.200 → 0.114 (nearly halved). At 8 pts/m² the
+  density-derived CHM is the coarse 0.5 m raster with pre-LM smoothing (first
+  returns fall below 8/m² once all-returns are thinned to 8), and that surface
+  blurs away the sub-dominant apexes the 0.25 m native CHM still resolved. Its
+  detection count falls 763 → 439, so its **precision rises** 0.336 → 0.435 —
+  fewer, more confident tops — and F1 actually holds (0.365 → 0.354).
+- **The point detectors are density-robust.** `lidr_lmf_pc` recall *rises* 0.386
+  → 0.417 and Li 2012 0.495 → 0.524; detection counts grow (lmf 855 → 913, Li
+  1189 → 1288) as the thinned surface gets noisier. Recall holds at the cost of
+  precision staying low (~0.26–0.29).
+- **So the crossing point is between native and 8 pts/m²:** at native the
+  `lmf`-class arms sit just **below** the CHM baseline on recall (−0.014) and
+  understory (−0.010), and only Li 2012 is above it; by 8 pts/m² **all** point
+  methods are clearly **above** the CHM baseline — `lmf` +0.118 recall / +0.086
+  understory, Li 2012 +0.225 recall / +0.190 understory. Li 2012 is above CHM at
+  both rungs and its margin widens as density drops. Per site the swing is
+  sharpest at SOAP (CHM understory 0.267 → 0.133 while `lmf` rises 0.267 → 0.311
+  and Li 0.333 → 0.422); at TEAK CHM falls 0.121 → 0.086 while the point methods
+  stay flat or rise.
+
+**Verdict.** Which detector wins is density-dependent. At **native** the
+CHM-VWF baseline is competitive — the `lmf`-class point detectors do not beat it,
+and only true 3D segmentation (Li 2012) buys a thin understory slice (the #6
+occlusion-floor finding). At **8 pts/m²** the CHM loses its resolution advantage
+and every point-cloud detector overtakes it on recall and understory, though all
+of them trade precision to do so and the F1 gap stays narrow (0.34–0.35 for the
+point arms vs 0.354 for CHM-VWF). The practical reading: if the deliverable is
+recall / sub-canopy stems at reduced density, a point-cloud detector is the
+better choice below native; if precision (or F1) matters more, CHM-VWF remains
+competitive even at 8 pts/m². The 4/2/1 rungs are left out by design — there the
+point arms over-detect into noise, and the CHM-VWF ladder already carries them.

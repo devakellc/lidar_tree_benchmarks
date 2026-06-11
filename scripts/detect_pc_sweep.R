@@ -46,6 +46,7 @@ suppressMessages({ library(lidR); library(lasR); library(sf)
 options(lidR.progress = FALSE)
 d <- .job_dir()
 source(.find("sweep_lib.R"))
+source(.find("pc_detect_lib.R"))   # shared point-cloud apex extractors (#6/#38)
 
 ## ---- args ----------------------------------------------------------------
 args  <- strsplit(commandArgs(TRUE), "=")
@@ -57,43 +58,10 @@ TOL   <- as.numeric(if (is.null(A$TOL))  4.0  else A$TOL)
 A_VWF <- as.numeric(if (is.null(A$A))    0.10 else A$A)
 MINTREES <- 6
 
-## ---- per-detector apex extractors ----------------------------------------
-# Each returns a data.frame(x, y, z) of detected apexes for the native clip.
-
-# (a) lidR lmf on the POINT CLOUD
-det_lidr_lmf_pc <- function(las, ws) {
-  tt <- lidR::locate_trees(las, lidR::lmf(ws = ws, hmin = 2,
-                                          shape = "circular"))
-  if (is.null(tt) || nrow(tt) == 0)
-    return(data.frame(x = numeric(), y = numeric(), z = numeric()))
-  xy <- sf::st_coordinates(tt)
-  data.frame(x = xy[, 1], y = xy[, 2], z = xy[, 3])
-}
-
-# (b) lidR Li 2012 point-cloud segmentation; apex = max-Z point per treeID
-det_lidr_li2012 <- function(las) {
-  seg <- lidR::segment_trees(las, lidR::li2012(dt1 = 1.5, dt2 = 2, R = 2,
-                                               Zu = 15, hmin = 2,
-                                               speed_up = 10))
-  dt  <- seg@data[!is.na(seg@data$treeID),
-                  c("X", "Y", "Z", "treeID"), with = FALSE]
-  if (!nrow(dt))
-    return(data.frame(x = numeric(), y = numeric(), z = numeric()))
-  ap <- dt[, .(x = X[which.max(Z)], y = Y[which.max(Z)], z = max(Z)),
-           by = treeID]
-  data.frame(x = ap$x, y = ap$y, z = ap$z)
-}
-
-# (c) lasR POINT-BASED local_maximum (not local_maximum_raster)
-det_lasr_lmax_pc <- function(las_file, ws) {
-  ans <- lasR::exec(lasR::local_maximum(ws, min_height = 2), on = las_file,
-                    with = list(progress = FALSE, ncores = 1L))
-  g <- if (inherits(ans, "sf")) ans else ans$local_maximum
-  if (is.null(g) || nrow(g) == 0)
-    return(data.frame(x = numeric(), y = numeric(), z = numeric()))
-  co <- sf::st_coordinates(g)
-  data.frame(x = co[, "X"], y = co[, "Y"], z = co[, "Z"])
-}
+## ---- per-detector apex extractors -----------------------------------------
+# det_lidr_lmf_pc / det_lidr_li2012 / det_lasr_lmax_pc now live in
+# pc_detect_lib.R (shared with the #38 density ladder, detect_pc_ladder.R) so
+# the two scripts cannot drift apart. Each returns a base data.frame(x, y, z).
 
 ## ---- per-plot worker: run all 4 detectors, score each --------------------
 run_plot <- function(pid, gt, pc, ctg, tmpdir) {

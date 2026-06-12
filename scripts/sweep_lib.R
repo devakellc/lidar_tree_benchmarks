@@ -81,6 +81,49 @@ detect_lasr <- function(las_file, res, a, dens, smooth_below = 8) {
   data.frame(x = xy[,1], y = xy[,2], z = xy[,3])
 }
 
+## ---- multichm treetop seeds for the crown segmenters (issue #31) ----------
+# The crown benchmark (crown_metrics_sweep.R) normally seeds every segmenter
+# from one CHM-VWF lmf top set. The model benchmark shows `multichm` is the best
+# classical *detector* on SOAP (Eysn-style multi-layer CHM local maxima), so this
+# helper produces an ALTERNATIVE seed set the lidR segmenters (dalponte2016,
+# silva2016) can consume in place of the lmf tops, to test whether better tops
+# improve crown-width RMSE (detection and segmentation are decoupled).
+#
+# multichm runs on the POINT CLOUD `las` (mirrors detect_multichm_sweep.R::
+# det_multichm_run) at a density-derived res and the SAME clamped variable window
+# ws_factory(a) as the lmf seeds, so the only thing that changes vs the control
+# is the detector. multichm geometry is 2-D, so the apex height each segmenter
+# needs is read from the SAME pit-free `chm` at the tops' (x, y) (the segmenters
+# grow on that CHM, so a CHM-consistent Z is the right seed height; the sf Z, if
+# present, is used only as a fallback when a top lands off the CHM extent). NOTE:
+# this is NOT the lasR seed path -- lasR region_growing takes a seed *stage*, not
+# an external point set, and there is no matching lasR local_maximum that emits
+# the multichm tops, so the lasR arm cannot be re-seeded from multichm and stays
+# lmf-seeded as the control (see crown_metrics_sweep.R).
+#
+# Returns an sf POINT object with a `treeID` column and a Z coordinate (the shape
+# dalponte2016/silva2016 accept as `treetops`), or NULL if multichm yields no
+# tops. Off-CHM tops (NA height with no usable sf Z) are dropped so a segmenter
+# never receives a non-finite seed height.
+multichm_seed_tops <- function(las, chm, a = 0.10, frdens = NA_real_) {
+  res <- if (!is.na(frdens) && frdens >= 8) 0.25 else 0.5  # density-derived, as CHM-VWF
+  tt  <- tryCatch(
+    lidR::locate_trees(las, lidRplugins::multichm(res = res, ws = ws_factory(a))),
+    error = function(e) NULL)
+  if (is.null(tt) || nrow(tt) == 0) return(NULL)
+  co <- sf::st_coordinates(tt)
+  x  <- co[, 1]; y <- co[, 2]
+  z_sf <- if (ncol(co) >= 3) co[, 3] else if (!is.null(tt$Z)) tt$Z else rep(NA_real_, length(x))
+  z_chm <- tryCatch(as.numeric(terra::extract(chm, cbind(x, y))[, 1]),
+                    error = function(e) rep(NA_real_, length(x)))
+  z <- ifelse(is.finite(z_chm), z_chm, z_sf)   # CHM-consistent height; sf Z fallback
+  keep <- is.finite(x) & is.finite(y) & is.finite(z)
+  if (!any(keep)) return(NULL)
+  sf::st_as_sf(data.frame(treeID = seq_len(sum(keep)),
+                          X = x[keep], Y = y[keep], Z = z[keep]),
+               coords = c("X", "Y", "Z"), crs = sf::st_crs(tt))
+}
+
 ## ---- prepare a plot clip at a target density -----------------------------
 # Clips tiles to plot AOI, decimates to `rung` (NA = native, no decimation),
 # normalizes height using existing ground class, writes a temp laz. Returns

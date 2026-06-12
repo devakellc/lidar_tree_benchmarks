@@ -33,6 +33,20 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 #   - random_walker_thcr   (same RW solve, crowns truncated per-seed at TH_CR of
 #       the seed apex height -- the issue #35 stop rule; before/after in one run)
 #
+# SEED-SENSITIVITY arm (issue #31): the two lidR segmenters that accept an
+# external `treetops` sf -- dalponte2016 and silva2016 -- are run TWICE, once from
+# the shared CHM-VWF lmf tops (the #7 control) and once from `multichm` tops
+# (lidRplugins::multichm on the point cloud, the best classical *detector* on
+# SOAP per the model benchmark), on the SAME pit-free CHM. The seed source is
+# encoded in the algo TAG so the canonical CSV schema is unchanged (no new
+# column): dalponte2016_seedlmf / dalponte2016_seedmultichm, and likewise for
+# silva2016. Detection and segmentation are decoupled, so this tests whether
+# better tops translate into better crown-width RMSE. lasR region_growing CANNOT
+# be re-seeded from multichm -- its API takes a seed *stage*, not an external
+# point set, and there is no matching lasR local_maximum that emits the multichm
+# tops -- so it (and watershed/random_walker) stay lmf-seeded as the control.
+# multichm_seed_tops() lives in sweep_lib.R (pure, unit-tested).
+#
 # SHARED-SEED note (lasR region_growing): lasR's region_growing API takes a seed
 # *stage* (a local_maximum producer), not an external point set, so the shared
 # `ttops` cannot be handed in directly. To still grow from the same seeds, we
@@ -60,6 +74,7 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 suppressMessages({
   library(lidR); library(lasR); library(terra); library(sf)
   library(data.table); library(Matrix); library(parallel)
+  library(lidRplugins)   # multichm seed source (issue #31)
 })
 options(lidR.progress = FALSE, lidR.verbose = FALSE)
 d <- .job_dir()
@@ -230,15 +245,46 @@ run_plot <- function(site, pid, ctg, pc, gt, tmpdir) {
   ## ----- seeded segmenters: crown label rasters keyed by ttops treeID -----
   crowns_by_algo <- list()
 
-  d_r <- tryCatch(dalponte2016(chm, ttops, th_seed = 0.45, th_cr = 0.55,
-                               max_cr = max_cr_px)(), error = function(e) NULL)
-  if (!is.null(d_r)) crowns_by_algo[["dalponte2016"]] <-
-      list(geom = crown_geom(d_r), by = "treeID")
+  ## SEED-SENSITIVITY (issue #31): run dalponte2016/silva2016 from BOTH the shared
+  ## lmf tops (the #7 control) and the multichm tops, on the SAME pit-free CHM.
+  ## The seed source is in the algo TAG (no schema change). multichm runs on the
+  ## point cloud at a density-derived res with the SAME ws as the lmf seeds, and
+  ## its 2-D tops read their apex height from this CHM (multichm_seed_tops in
+  ## sweep_lib.R). The multichm-seeded crowns are still keyed by their own treeID
+  ## but matched to field stems via the multichm tops' own (x,y) (see below).
+  tt_mc <- tryCatch(
+    multichm_seed_tops(las, chm, a = VWF_A, frdens = prep$frdens),
+    error = function(e) NULL)
+  # Each seed set carries its own (x,y,z,id) and its own greedy match to the field
+  # stems, so a multichm-seeded crown is matched via the multichm tops -- not via
+  # the lmf tops -- and scored on the stems ITS OWN seeds found. The seedlmf set
+  # reuses the shared seed_*/seed_id/lmf match computed below, so the seedlmf arms
+  # remain bit-identical to the #7 control.
+  seed_sets <- list(seedlmf = list(tops = ttops))
+  if (!is.null(tt_mc) && nrow(tt_mc) > 0)
+    seed_sets[["seedmultichm"]] <- list(tops = tt_mc)
 
-  s_r <- tryCatch(silva2016(chm, ttops, max_cr_factor = 0.6, exclusion = 0.3)(),
-                  error = function(e) NULL)
-  if (!is.null(s_r)) crowns_by_algo[["silva2016"]] <-
-      list(geom = crown_geom(s_r), by = "treeID")
+  for (sk in names(seed_sets)) {
+    st <- seed_sets[[sk]]$tops
+    sco <- sf::st_coordinates(st)
+    seed_sets[[sk]]$x  <- sco[, 1]
+    seed_sets[[sk]]$y  <- sco[, 2]
+    seed_sets[[sk]]$z  <- if (ncol(sco) >= 3) sco[, 3] else st$Z
+    seed_sets[[sk]]$id <- st$treeID
+    seed_sets[[sk]]$match <- greedy_match(stems$E, stems$N,
+      seed_sets[[sk]]$x, seed_sets[[sk]]$y, TOL,
+      az = stems$height, bz = seed_sets[[sk]]$z)
+
+    d_r <- tryCatch(dalponte2016(chm, st, th_seed = 0.45, th_cr = 0.55,
+                                 max_cr = max_cr_px)(), error = function(e) NULL)
+    if (!is.null(d_r)) crowns_by_algo[[paste0("dalponte2016_", sk)]] <-
+        list(geom = crown_geom(d_r), by = "treeID", seed = sk)
+
+    s_r <- tryCatch(silva2016(chm, st, max_cr_factor = 0.6, exclusion = 0.3)(),
+                    error = function(e) NULL)
+    if (!is.null(s_r)) crowns_by_algo[[paste0("silva2016_", sk)]] <-
+        list(geom = crown_geom(s_r), by = "treeID", seed = sk)
+  }
 
   ## lasR region_growing on the SAME shared CHM, seeded with the SAME ws.
   ## We feed the lidR pit-free CHM into the lasR pipeline via load_raster, so the
@@ -331,8 +377,10 @@ run_plot <- function(site, pid, ctg, pc, gt, tmpdir) {
            seed_label = rw_g$seed_label, chm = chm)
 
   ## ----- match SEED treetops to field stems (position + height gate) ------
-  m <- greedy_match(stems$E, stems$N, seed_x, seed_y, TOL,
-                    az = stems$height, bz = seed_z)
+  ## The non-treeID arms (lasR/watershed/random_walker) and every seedlmf arm use
+  ## the shared lmf match `m`; a seedmultichm arm uses its own seed set's match
+  ## (seed_sets[[seed]]$match) so it is scored on the stems ITS tops found.
+  m <- seed_sets[["seedlmf"]]$match
   matched <- which(m > 0)
   if (!length(matched)) return(NULL)
 
@@ -341,12 +389,18 @@ run_plot <- function(site, pid, ctg, pc, gt, tmpdir) {
     cg <- crowns_by_algo[[algo]]
     geom <- cg$geom
     if (is.null(geom) || nrow(geom) == 0) next
-    for (si in matched) {
-      det <- m[si]                         # index into seed_* of matched detection
-      sx <- seed_x[det]; sy <- seed_y[det]
+    # which seed set this arm was grown from (treeID arms carry $seed; the
+    # lasR/watershed/rw arms are lmf-only, so default to the lmf set).
+    sk   <- if (!is.null(cg$seed)) cg$seed else "seedlmf"
+    ss   <- seed_sets[[sk]]
+    m_a  <- ss$match
+    matched_a <- which(m_a > 0)
+    for (si in matched_a) {
+      det <- m_a[si]                       # index into ss$x/y/z/id of the match
+      sx <- ss$x[det]; sy <- ss$y[det]
       crow <- NULL
       if (identical(cg$by, "treeID")) {
-        j <- which(geom$treeID == seed_id[det])
+        j <- which(geom$treeID == ss$id[det])
         if (length(j)) crow <- geom[j[1], ]
       } else if (identical(cg$by, "rw")) {
         # rw label of this detection's cell -> the crown carrying that label
@@ -476,6 +530,40 @@ print_tables <- function(res) {
   }
 }
 
+# Seed-sensitivity delta (issue #31): pair lmf-seeded vs multichm-seeded crowns
+# for the two lidR segmenters that accept an external ttops sf, by site and crown
+# class. Reports delta RMSE / bias / R2 (multichm minus lmf, so negative delta
+# RMSE = multichm seeds help). lasR region_growing has no multichm arm (its API
+# takes a seed stage, not a point set), so it is not paired here.
+print_seed_sensitivity <- function(res) {
+  bases <- c("dalponte2016", "silva2016")
+  have  <- bases[vapply(bases, function(b)
+    all(c(paste0(b, "_seedlmf"), paste0(b, "_seedmultichm")) %in% res$algo),
+    logical(1))]
+  if (!length(have)) {
+    cat("\n[seed-sensitivity] no lmf/multichm arm pair present; skipping.\n")
+    return(invisible())
+  }
+  cat("\n========= SEED SENSITIVITY: multichm minus lmf (dRMSE/dbias/dR2) =========\n")
+  cat("  (negative dRMSE => multichm seeds improve crown-diameter accuracy)\n")
+  for (defn in list(c("d_eq", "field_ninetyCD", "d_eq vs ninetyCrownDiameter"),
+                    c("d_caliper", "field_maxCD", "d_caliper vs maxCrownDiameter"))) {
+    cat(sprintf("\n--- %s ---\n", defn[3]))
+    for (b in have) {
+      for (grp in c("ALL", sort(unique(res$site)))) {
+        sel <- if (grp == "ALL") rep(TRUE, nrow(res)) else res$site == grp
+        sl <- err_stats(res[[defn[1]]][sel & res$algo == paste0(b, "_seedlmf")],
+                        res[[defn[2]]][sel & res$algo == paste0(b, "_seedlmf")])
+        sm <- err_stats(res[[defn[1]]][sel & res$algo == paste0(b, "_seedmultichm")],
+                        res[[defn[2]]][sel & res$algo == paste0(b, "_seedmultichm")])
+        cat(sprintf("  %-26s %-5s n(lmf/mc)=%d/%d  dRMSE=%+6.2f dbias=%+6.2f dR2=%+6.3f\n",
+                    b, grp, sl$n, sm$n,
+                    sm$rmse - sl$rmse, sm$bias - sl$bias, sm$r2 - sl$r2))
+      }
+    }
+  }
+}
+
 ## ---- run ------------------------------------------------------------------
 t0 <- Sys.time()
 all_res <- list()
@@ -492,4 +580,5 @@ if (!is.null(res) && nrow(res)) {
   cat("\nrows per algorithm:\n"); print(table(res$algo))
   cat("\nrows per crown class:\n"); print(table(res$crown_class, useNA = "ifany"))
   print_tables(res)
+  print_seed_sensitivity(res)
 }

@@ -380,9 +380,7 @@ run_plot <- function(site, pid, ctg, pc, gt, tmpdir) {
   ## The non-treeID arms (lasR/watershed/random_walker) and every seedlmf arm use
   ## the shared lmf match `m`; a seedmultichm arm uses its own seed set's match
   ## (seed_sets[[seed]]$match) so it is scored on the stems ITS tops found.
-  m <- seed_sets[["seedlmf"]]$match
-  matched <- which(m > 0)
-  if (!length(matched)) return(NULL)
+  if (!seed_sets_have_match(seed_sets)) return(NULL)
 
   rows <- list()
   for (algo in names(crowns_by_algo)) {

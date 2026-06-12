@@ -124,6 +124,17 @@ multichm_seed_tops <- function(las, chm, a = 0.10, frdens = NA_real_) {
                coords = c("X", "Y", "Z"), crs = sf::st_crs(tt))
 }
 
+# TRUE when at least one seed set has a stem match. The multichm seed experiment
+# matches each seed set independently, so a plot must not be dropped only because
+# the lmf control missed every stem.
+seed_sets_have_match <- function(seed_sets) {
+  if (is.null(seed_sets) || !length(seed_sets)) return(FALSE)
+  any(vapply(seed_sets, function(ss) {
+    m <- ss$match
+    length(m) && any(m > 0, na.rm = TRUE)
+  }, logical(1)))
+}
+
 ## ---- prepare a plot clip at a target density -----------------------------
 # Clips tiles to plot AOI, decimates to `rung` (NA = native, no decimation),
 # normalizes height using existing ground class, writes a temp laz. Returns

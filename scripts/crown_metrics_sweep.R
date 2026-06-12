@@ -425,9 +425,12 @@ run_plot <- function(site, pid, rung, rung_lbl, ctg, pc, gt, tmpdir, froot) {
     cg <- crowns_by_algo[[algo]]
     geom <- cg$geom
     if (is.null(geom) || nrow(geom) == 0) next
-    # which seed set this arm was grown from (treeID arms carry $seed; the
-    # lasR/watershed/rw arms are lmf-only, so default to the lmf set).
-    sk   <- if (!is.null(cg$seed)) cg$seed else "seedlmf"
+    # which seed set this arm was grown from (the seedlmf/seedmultichm arms carry
+    # a "seed" field; the lasR/watershed/rw arms are lmf-only -> default to lmf).
+    # Use [["seed"]] (exact match): cg$seed PARTIAL-matches the lasR arm's "seeds"
+    # field and returns its coordinate matrix, making sk a vector that breaks
+    # seed_sets[[sk]] with "no such index at level 1".
+    sk   <- if (!is.null(cg[["seed"]])) cg[["seed"]] else "seedlmf"
     ss   <- seed_sets[[sk]]
     m_a  <- ss$match
     matched_a <- which(m_a > 0)

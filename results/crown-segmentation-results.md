@@ -582,42 +582,48 @@ Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK RUNGS=native,8,4,2,1 
 # -> work/neon/<SITE>/figs/crown_{rmse,bias}_vs_density_*.png
 ```
 
-_Results pending regeneration (run the command above on a data-equipped machine)._
+_Regenerated 2026-06-12 — SJER+SOAP+TEAK, full ladder (native/8/4/2/1 pts/m²),
+CORES=1. Decimation uses the same frozen per-(plot,rung) clips as the detection
+ladder._
 
 ### Pooled RMSE/bias by rung — `d_eq` vs `ninetyCrownDiameter`
 
 | Algorithm | rung | n | RMSE (m) | bias (m) | R² |
 |-----------|---|---:|---:|---:|---:|
-| dalponte2016_seedlmf | native | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016_seedlmf | 8 | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016_seedlmf | 4 | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016_seedlmf | 2 | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016_seedlmf | 1 | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing | native | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing | 8 | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing | 4 | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing | 2 | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing | 1 | _pending_ | _pending_ | _pending_ | _pending_ |
+| dalponte2016_seedlmf | native | 225 | 2.70 | +1.16 | +0.046 |
+| dalponte2016_seedlmf | 8 | 243 | 2.48 | +0.91 | +0.133 |
+| dalponte2016_seedlmf | 4 | 244 | 2.48 | +0.54 | +0.153 |
+| dalponte2016_seedlmf | 2 | 249 | 2.37 | +0.52 | +0.208 |
+| dalponte2016_seedlmf | 1 | 229 | 2.47 | +0.49 | +0.121 |
+| lasr_region_growing | native | 225 | 2.62 | +1.11 | +0.102 |
+| lasr_region_growing | 8 | 243 | 2.49 | +0.92 | +0.128 |
+| lasr_region_growing | 4 | 243 | 2.43 | +0.62 | +0.188 |
+| lasr_region_growing | 2 | 249 | 2.37 | +0.65 | +0.207 |
+| lasr_region_growing | 1 | 229 | 2.41 | +0.70 | +0.165 |
 
 ### Pooled RMSE/bias by rung — `d_caliper` vs `maxCrownDiameter`
 
 | Algorithm | rung | n | RMSE (m) | bias (m) | R² |
 |-----------|---|---:|---:|---:|---:|
-| dalponte2016_seedlmf | native | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016_seedlmf | 8 | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016_seedlmf | 4 | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016_seedlmf | 2 | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016_seedlmf | 1 | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing | native | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing | 8 | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing | 4 | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing | 2 | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing | 1 | _pending_ | _pending_ | _pending_ | _pending_ |
+| dalponte2016_seedlmf | native | 225 | 4.43 | +2.73 | −0.621 |
+| dalponte2016_seedlmf | 8 | 243 | 3.99 | +2.40 | −0.407 |
+| dalponte2016_seedlmf | 4 | 244 | 3.94 | +2.03 | −0.332 |
+| dalponte2016_seedlmf | 2 | 249 | 4.02 | +2.22 | −0.444 |
+| dalponte2016_seedlmf | 1 | 229 | 4.17 | +2.20 | −0.543 |
+| lasr_region_growing | native | 225 | 3.72 | +2.04 | −0.142 |
+| lasr_region_growing | 8 | 243 | 3.63 | +1.94 | −0.164 |
+| lasr_region_growing | 4 | 243 | 3.50 | +1.61 | −0.054 |
+| lasr_region_growing | 2 | 249 | 3.41 | +1.59 | −0.040 |
+| lasr_region_growing | 1 | 229 | 3.56 | +1.82 | −0.125 |
 
-The question to read off the regenerated curves: does crown-diameter RMSE rise
-monotonically as the cloud thins (like understory recall), or does it stay flat
-until the CHM can no longer resolve the dominant surface and then break? Do not
-infer the answer here — read it from the table and the PNGs.
+The answer: crown-diameter RMSE does **not** rise as the cloud thins. Both
+reference arms hold flat or improve slightly from native to 1 pt/m2: dalponte
+`d_eq` RMSE 2.70 -> 2.37-2.47 m and lasr 2.62 -> 2.41 m; `d_caliper` 4.43 ->
+4.17 m and 3.72 -> 3.56 m, with bias shrinking as density drops (the sparser CHM
+smooths the crown envelope toward the field width). So once the pit-free CHM
+resolves the dominant surface, crown width is robust to density down to 1 pt/m2
+-- unlike understory detection recall, which collapses over the same range. The
+per-site density-robustness PNGs show the same flat curves.
 
 ---
 

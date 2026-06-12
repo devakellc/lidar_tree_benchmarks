@@ -86,6 +86,82 @@ crown_diameter_table <- function(pts, id_col = "crown_id", min_pts = 5) {
              d_caliper = res$d_caliper)
 }
 
+## ---- per-instance apex keyed by instance id ------------------------------
+# Like reduce_instances, but KEEPS the instance id so the apex can be joined
+# back to crown_diameter_table (keyed by id) after matching. Apex per instance =
+# its max-Z point. Returns data.frame(id, x, y, z); 0-row frame when empty.
+instance_apex <- function(pts, id_col = "crown_id",
+                          x = "X", y = "Y", z = "Z") {
+  empty <- data.frame(id = integer(), x = numeric(), y = numeric(),
+                      z = numeric())
+  dt <- as.data.table(pts)
+  if (!nrow(dt) || !id_col %in% names(dt)) return(empty)
+  dt <- dt[!is.na(dt[[id_col]]), c(id_col, x, y, z), with = FALSE]
+  if (!nrow(dt)) return(empty)
+  setnames(dt, c(id_col, x, y, z), c("ID", "X", "Y", "Z"))
+  ap <- dt[, .(x = X[which.max(Z)], y = Y[which.max(Z)], z = max(Z)), by = ID]
+  data.frame(id = ap$ID, x = ap$x, y = ap$y, z = ap$z)
+}
+
+## ---- crown-diameter scoring glue (#30) -----------------------------------
+# Pure helper shared by the 3-D crown-diameter arms (Li 2012 / ptrees / AMS3D)
+# and reusable by any point-instance segmenter. Given:
+#   diam_table : crown_diameter_table() output (id, n_pts, d_eq, d_caliper)
+#   apex       : instance_apex() output (id, x, y, z) -- the matching geometry
+#   stems      : field stems (individualID, E, N, height, crown_class) already
+#                restricted to the plot core
+#   field_cd   : per-stem field crown diameter (individualID, maxCrownDiameter,
+#                ninetyCrownDiameter)
+#   tol        : matching radius (m)
+# Matches each instance apex to a field stem with greedy_match (global
+# nearest-distance 1:1 + the SAME height-consistency gate as the detection
+# arms), joins each matched stem's diameter table row and field crown diameter,
+# and returns the canonical crown-metrics rows. d_eq / d_caliper carry through
+# verbatim (NA when the instance fell below crown_diameter_table's min_pts);
+# area is the equivalent-circle area implied by d_eq (NA when d_eq is NA). algo
+# and site/plot are stamped by the caller-supplied values. Returns a 0-row
+# canonical frame when nothing matches. greedy_match is provided by sweep_lib.R
+# (sourced alongside this lib in every arm).
+CROWN_COLS <- c("site", "plot", "algo", "crown_class", "individualID",
+                "d_eq", "d_caliper", "area", "field_maxCD", "field_ninetyCD")
+score_crowns_against_field <- function(diam_table, apex, stems, field_cd,
+                                       tol = 4, site = NA_character_,
+                                       plot = NA_character_, algo = NA_character_) {
+  empty <- data.frame(site = character(), plot = character(), algo = character(),
+                      crown_class = character(), individualID = character(),
+                      d_eq = numeric(), d_caliper = numeric(), area = numeric(),
+                      field_maxCD = numeric(), field_ninetyCD = numeric(),
+                      stringsAsFactors = FALSE)
+  if (is.null(apex) || !nrow(apex) || is.null(stems) || !nrow(stems))
+    return(empty)
+  # match field stems -> instance apexes (position tol + height gate); m[i] is
+  # the apex-row index matched to stem i (0 = unmatched), mirroring the CHM arm.
+  m <- greedy_match(stems$E, stems$N, apex$x, apex$y, tol,
+                    az = stems$height, bz = apex$z)
+  matched <- which(m > 0)
+  if (!length(matched)) return(empty)
+  dt <- if (!is.null(diam_table) && nrow(diam_table))
+    as.data.table(diam_table) else NULL
+  fc <- as.data.table(field_cd)
+  rows <- lapply(matched, function(si) {
+    a_id <- apex$id[m[si]]
+    de <- NA_real_; dc <- NA_real_
+    if (!is.null(dt)) { r <- dt[dt$id == a_id, ]
+      if (nrow(r)) { de <- r$d_eq[1]; dc <- r$d_caliper[1] } }
+    iid <- stems$individualID[si]
+    fr  <- fc[fc$individualID == iid, ]
+    data.frame(site = site, plot = plot, algo = algo,
+               crown_class = stems$crown_class[si], individualID = iid,
+               d_eq = de, d_caliper = dc,
+               area = if (is.finite(de)) pi * (de / 2)^2 else NA_real_,
+               field_maxCD = if (nrow(fr)) fr$maxCrownDiameter[1] else NA_real_,
+               field_ninetyCD = if (nrow(fr)) fr$ninetyCrownDiameter[1] else NA_real_,
+               stringsAsFactors = FALSE)
+  })
+  out <- do.call(rbind, rows)
+  out[, CROWN_COLS, drop = FALSE]
+}
+
 ## ---- deterministic seed from a (site, plot, rung) key --------------------
 # Maps the key string to a stable non-negative 31-bit integer (FNV-1a), so
 # decimation is reproducible across arms and runs without external deps.

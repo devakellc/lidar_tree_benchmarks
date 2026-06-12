@@ -62,3 +62,13 @@ test_that("multichm_seed_tops returns NULL when the cloud has no canopy", {
   expect_true(is.null(tt) ||
               (inherits(tt, "sf") && "treeID" %in% names(tt)))
 })
+
+test_that("seed-set match guard keeps multichm-only matched plots", {
+  expect_true(seed_sets_have_match(list(
+    seedlmf = list(match = c(0L, 0L)),
+    seedmultichm = list(match = c(0L, 2L)))))
+  expect_false(seed_sets_have_match(list(
+    seedlmf = list(match = c(0L, 0L)),
+    seedmultichm = list(match = c(0L, NA_integer_)))))
+  expect_false(seed_sets_have_match(list()))
+})

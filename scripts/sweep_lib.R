@@ -81,6 +81,60 @@ detect_lasr <- function(las_file, res, a, dens, smooth_below = 8) {
   data.frame(x = xy[,1], y = xy[,2], z = xy[,3])
 }
 
+## ---- multichm treetop seeds for the crown segmenters (issue #31) ----------
+# The crown benchmark (crown_metrics_sweep.R) normally seeds every segmenter
+# from one CHM-VWF lmf top set. The model benchmark shows `multichm` is the best
+# classical *detector* on SOAP (Eysn-style multi-layer CHM local maxima), so this
+# helper produces an ALTERNATIVE seed set the lidR segmenters (dalponte2016,
+# silva2016) can consume in place of the lmf tops, to test whether better tops
+# improve crown-width RMSE (detection and segmentation are decoupled).
+#
+# multichm runs on the POINT CLOUD `las` (mirrors detect_multichm_sweep.R::
+# det_multichm_run) at a density-derived res and the SAME clamped variable window
+# ws_factory(a) as the lmf seeds, so the only thing that changes vs the control
+# is the detector. multichm geometry is 2-D, so the apex height each segmenter
+# needs is read from the SAME pit-free `chm` at the tops' (x, y) (the segmenters
+# grow on that CHM, so a CHM-consistent Z is the right seed height; the sf Z, if
+# present, is used only as a fallback when a top lands off the CHM extent). NOTE:
+# this is NOT the lasR seed path -- lasR region_growing takes a seed *stage*, not
+# an external point set, and there is no matching lasR local_maximum that emits
+# the multichm tops, so the lasR arm cannot be re-seeded from multichm and stays
+# lmf-seeded as the control (see crown_metrics_sweep.R).
+#
+# Returns an sf POINT object with a `treeID` column and a Z coordinate (the shape
+# dalponte2016/silva2016 accept as `treetops`), or NULL if multichm yields no
+# tops. Off-CHM tops (NA height with no usable sf Z) are dropped so a segmenter
+# never receives a non-finite seed height.
+multichm_seed_tops <- function(las, chm, a = 0.10, frdens = NA_real_) {
+  res <- if (!is.na(frdens) && frdens >= 8) 0.25 else 0.5  # density-derived, as CHM-VWF
+  tt  <- tryCatch(
+    lidR::locate_trees(las, lidRplugins::multichm(res = res, ws = ws_factory(a))),
+    error = function(e) NULL)
+  if (is.null(tt) || nrow(tt) == 0) return(NULL)
+  co <- sf::st_coordinates(tt)
+  x  <- co[, 1]; y <- co[, 2]
+  z_sf <- if (ncol(co) >= 3) co[, 3] else if (!is.null(tt$Z)) tt$Z else rep(NA_real_, length(x))
+  z_chm <- tryCatch(as.numeric(terra::extract(chm, cbind(x, y))[, 1]),
+                    error = function(e) rep(NA_real_, length(x)))
+  z <- ifelse(is.finite(z_chm), z_chm, z_sf)   # CHM-consistent height; sf Z fallback
+  keep <- is.finite(x) & is.finite(y) & is.finite(z)
+  if (!any(keep)) return(NULL)
+  sf::st_as_sf(data.frame(treeID = seq_len(sum(keep)),
+                          X = x[keep], Y = y[keep], Z = z[keep]),
+               coords = c("X", "Y", "Z"), crs = sf::st_crs(tt))
+}
+
+# TRUE when at least one seed set has a stem match. The multichm seed experiment
+# matches each seed set independently, so a plot must not be dropped only because
+# the lmf control missed every stem.
+seed_sets_have_match <- function(seed_sets) {
+  if (is.null(seed_sets) || !length(seed_sets)) return(FALSE)
+  any(vapply(seed_sets, function(ss) {
+    m <- ss$match
+    length(m) && any(m > 0, na.rm = TRUE)
+  }, logical(1)))
+}
+
 ## ---- prepare a plot clip at a target density -----------------------------
 # Clips tiles to plot AOI, decimates to `rung` (NA = native, no decimation),
 # normalizes height using existing ground class, writes a temp laz. Returns
@@ -153,4 +207,196 @@ score_plot <- function(stems, det, tol_xy = 4.0, core_cx, core_cy,
     base[[paste0("n_h_",   b)]] <- sum(hb == b, na.rm = TRUE)
   }
   base
+}
+
+## ---- th_cr-style stop rule for the random-walker crown labels -------------
+# The Grady (2006) random walker on a CHM is a *label-everything* partitioner:
+# every canopy pixel is argmax-assigned to some seed, so crowns tile the whole
+# canopy mask with no "stop growing" criterion (issue #7's honest negative).
+# This applies a per-crown height cutoff analogous to lidR dalponte2016's `th_cr`
+# (default 0.55): a pixel assigned to crown k is dropped to background when its
+# CHM height falls below `th_cr * seed_height_k` — i.e. the crown is truncated at
+# a fraction of its own seed's apex height, so it can no longer creep down into
+# the inter-crown gaps that inflate diameter.
+#
+# Pure relabel: takes the argmax label vector `out_lab` (0 = background, k = crown
+# k, CHM-cell order), the per-pixel CHM heights `chm_vals` (same length/order),
+# and a numeric vector `lab_height` mapping label index k -> its seed apex height
+# (lab_height[k]); returns a relabelled integer vector of the same length with
+# below-cutoff pixels set to 0. Labels with no seed height (NA, or index beyond
+# `lab_height`) are left untouched (no cutoff applied), and pixels already at
+# background stay background.
+apply_thcr_cutoff <- function(out_lab, chm_vals, lab_height, th_cr = 0.55) {
+  stopifnot(length(out_lab) == length(chm_vals))
+  out <- as.integer(out_lab)
+  fg  <- which(out > 0L)
+  if (!length(fg)) return(out)
+  k   <- out[fg]
+  hk  <- ifelse(k <= length(lab_height), lab_height[k], NA_real_)
+  cut <- th_cr * hk
+  # drop only where a finite cutoff exists AND the pixel sits below it
+  drop <- is.finite(cut) & is.finite(chm_vals[fg]) & chm_vals[fg] < cut
+  out[fg[drop]] <- 0L
+  out
+}
+
+## ---- marker-controlled (seeded) watershed on a CHM (issue #32) ------------
+# The marker-FREE watershed in #7 (lidR/EBImage, th_tree=2) finds its own basins
+# from CHM minima and systematically over-grows crowns (pooled bias +2.31 m on
+# d_eq). The approach doc (sec 6) instead recommends a MARKER-controlled
+# watershed: each detected treetop is a basin marker, so exactly one crown grows
+# per seed -- no spurious extra basins, and a crown is keyed by the treeID of its
+# seed (not matched back by containment).
+#
+# seeds_to_marker_raster() rasterizes a seed point set into an integer label
+# image aligned to `chm`: cell of seed i (terra::cellFromXY) carries label
+# treeID[i]; all other cells are 0. When two seeds fall in one cell the first
+# seed wins (mirrors the random_walker() seed-collision rule). NA-cell seeds
+# (off the CHM extent) are dropped. Returns an integer vector in CHM cell order
+# (length == ncell(chm)); 0 == no marker.
+seeds_to_marker_raster <- function(chm, seed_xy, treeID) {
+  stopifnot(nrow(seed_xy) == length(treeID))
+  n   <- terra::ncell(chm)
+  lab <- integer(n)                       # 0 = no marker
+  if (!length(treeID)) return(lab)
+  cells <- terra::cellFromXY(chm, seed_xy)
+  for (i in seq_along(cells)) {
+    ci <- cells[i]
+    if (is.na(ci)) next                   # seed off the CHM extent
+    if (lab[ci] == 0L) lab[ci] <- as.integer(treeID[i])   # first seed wins
+  }
+  lab
+}
+
+## Priority-flood seeded watershed. imager::watershed(img, seeds) does exactly
+## this priority-flood from a labelled seed image, but imager is not installed in
+## this environment (verified at runtime in crown_metrics_sweep.R), so we run the
+## flood directly on the CHM. Each marker cell starts a basin; the canopy mask is
+## flooded in order of DESCENDING CHM height (a frontier always grows downhill
+## from ridges, the watershed convention), and each unlabelled canopy pixel is
+## claimed by the FIRST basin to reach it. A canopy pixel that no marker can
+## reach (a seed-less island, disconnected from every marker over the mask) stays
+## background -- like random_walker(), "floodable" does not mean "force-labelled".
+##
+## Inputs: `chm` SpatRaster, `markers` integer vector in CHM cell order
+## (0 = none, k = label, e.g. from seeds_to_marker_raster), `hmin` canopy
+## threshold (m). Returns an integer label vector in CHM cell order (0 =
+## background) -- caller writes it onto a copy of `chm` to polygonize. Pure
+## (no I/O); the 4-neighbour frontier uses base R only.
+priority_flood_watershed <- function(chm, markers, hmin = 2) {
+  nr <- nrow(chm); nc <- ncol(chm); n <- nr * nc
+  stopifnot(length(markers) == n)
+  vals  <- terra::values(chm, mat = FALSE)
+  canopy <- is.finite(vals) & vals >= hmin
+  lab <- integer(n)
+  seeds <- which(markers != 0L & canopy)     # only markers on the canopy mask
+  if (!length(seeds)) return(lab)
+  lab[seeds] <- markers[seeds]
+  # frontier = unlabelled canopy neighbours of the labelled set, processed
+  # highest-CHM-first so basins meet along the canopy valleys between crowns.
+  # rowcol arithmetic on the linear cell index (terra: cell = (row-1)*nc + col).
+  row_of <- function(cell) ((cell - 1L) %/% nc) + 1L
+  col_of <- function(cell) ((cell - 1L) %%  nc) + 1L
+  neighbours <- function(cell) {
+    rr <- row_of(cell); cc <- col_of(cell)
+    out <- integer(0)
+    if (rr > 1L)  out <- c(out, cell - nc)   # up
+    if (rr < nr)  out <- c(out, cell + nc)   # down
+    if (cc > 1L)  out <- c(out, cell - 1L)   # left
+    if (cc < nc)  out <- c(out, cell + 1L)   # right
+    out
+  }
+  # initial frontier: unlabelled canopy neighbours of any seed cell
+  front <- unique(unlist(lapply(seeds, neighbours)))
+  front <- front[canopy[front] & lab[front] == 0L]
+  enq   <- logical(n); enq[front] <- TRUE     # in-frontier guard (no dup work)
+  while (length(front)) {
+    # pop the highest-CHM frontier cell (descending flood from the ridges)
+    j  <- which.max(vals[front])
+    cell <- front[j]; front <- front[-j]; enq[cell] <- FALSE
+    if (lab[cell] != 0L) next                 # already claimed (defensive)
+    # claim from the highest labelled neighbour (steepest-ascent basin)
+    nb  <- neighbours(cell)
+    lnb <- nb[lab[nb] != 0L]
+    if (length(lnb)) {
+      lab[cell] <- lab[lnb[which.max(vals[lnb])]]
+      # enqueue this cell's still-unlabelled canopy neighbours
+      add <- nb[canopy[nb] & lab[nb] == 0L & !enq[nb]]
+      if (length(add)) { front <- c(front, add); enq[add] <- TRUE }
+    }
+  }
+  lab
+}
+
+## ---- crown-diameter error stats (pooled SSE, never a mean of per-plot) -----
+# Pooled error stats over matched trees: RMSE/MAE/bias/R2 computed from the
+# SUMMED squared errors over all rows (n_total = sum of matched trees), NEVER a
+# mean of per-plot rates -- the crown-benchmark analogue of the detection
+# sum(TP)/sum(n_ref) rule. det = detected diameter, fld = field diameter; rows
+# with a non-finite det or fld are dropped before pooling. Mirrors
+# crown_metrics_sweep.R::err_stats / analyze_crown_metrics.R::err_stats (kept as
+# the single canonical definition so the per-rung pooler below cannot drift from
+# the script's own scoring).
+crown_err_stats <- function(det, fld) {
+  ok <- is.finite(det) & is.finite(fld); det <- det[ok]; fld <- fld[ok]
+  n <- length(det)
+  if (n < 2) return(data.frame(n = n, rmse = NA_real_, mae = NA_real_,
+                               bias = NA_real_, r2 = NA_real_))
+  e <- det - fld; ss_res <- sum((fld - det)^2); ss_tot <- sum((fld - mean(fld))^2)
+  data.frame(n = n, rmse = sqrt(mean(e^2)), mae = mean(abs(e)), bias = mean(e),
+             r2 = if (ss_tot > 0) 1 - ss_res / ss_tot else NA_real_)
+}
+
+## ---- per-(algo, rung) crown-diameter pooler (issue #33) -------------------
+# Crown-diameter density ladder: pool the matched-tree crown rows WITHIN each
+# (algo, rung) cell by the summed-squared-error rule (crown_err_stats above), so
+# a rung's RMSE/bias is over every matched tree at that rung -- never a mean of
+# per-plot RMSEs (a small plot would otherwise dominate, exactly as the detection
+# sweep forbids mean-of-rates). One pooled row per (algo, rung, definition).
+#
+# BACKWARD COMPATIBILITY: a crown_metrics_results.csv written before this issue
+# has no `rung` column; such rows are the native-density #7 run, so a missing /
+# NA / "" rung defaults to "native". This lets the analyzer pool an old CSV (one
+# native rung) and a new ladder CSV identically.
+#
+# `defs` is a list of c(det_col, fld_col, label) triples (default the two
+# canonical diameter pairs). Returns a long data.frame:
+#   algo, rung, definition, n, rmse, mae, bias, r2
+# ordered by (definition, rung-order native->sparse, algo). Pure: no I/O.
+RUNG_LEVELS <- c("native", "8", "4", "2", "1")
+normalize_rung <- function(rung) {
+  r <- as.character(rung)
+  r[is.na(r) | !nzchar(r)] <- "native"
+  r
+}
+pool_crown_by_rung <- function(df, defs = list(
+                                 c("d_eq", "field_ninetyCD",
+                                   "d_eq vs ninetyCrownDiameter"),
+                                 c("d_caliper", "field_maxCD",
+                                   "d_caliper vs maxCrownDiameter"))) {
+  if (is.null(df) || !nrow(df)) {
+    return(data.frame(algo = character(), rung = character(),
+                      definition = character(), n = integer(),
+                      rmse = numeric(), mae = numeric(), bias = numeric(),
+                      r2 = numeric(), stringsAsFactors = FALSE))
+  }
+  rung <- if (is.null(df$rung)) rep("native", nrow(df)) else normalize_rung(df$rung)
+  df$rung <- rung
+  out <- list()
+  for (defn in defs) {
+    det_col <- defn[1]; fld_col <- defn[2]; lbl <- defn[3]
+    for (a in sort(unique(df$algo))) for (rg in unique(df$rung)) {
+      sel <- df$algo == a & df$rung == rg
+      if (!any(sel)) next
+      s <- crown_err_stats(df[[det_col]][sel], df[[fld_col]][sel])
+      out[[length(out) + 1]] <- data.frame(
+        algo = a, rung = rg, definition = lbl,
+        n = s$n, rmse = s$rmse, mae = s$mae, bias = s$bias, r2 = s$r2,
+        stringsAsFactors = FALSE)
+    }
+  }
+  res <- do.call(rbind, out)
+  # native first, then the sparser rungs in known order, then any unknown rung.
+  rk <- match(res$rung, RUNG_LEVELS); rk[is.na(rk)] <- length(RUNG_LEVELS) + 1L
+  res[order(res$definition, rk, res$algo), , drop = FALSE]
 }

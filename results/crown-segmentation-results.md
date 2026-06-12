@@ -431,14 +431,15 @@ the canonical CSV column schema is **unchanged** — no new `seed` column — wh
 keeps [`analyze_crown_metrics.R`](../scripts/analyze_crown_metrics.R) and the
 issue #33 density ladder (stacked on this PR) reading the same ten columns.
 
-All arms run in one pass so lmf vs multichm is on identical plots, the same CHM,
-and the same field stems. Regenerate with:
+All arms run in one pass on identical plots and the same CHM. Each seed set is
+scored on the stems ITS OWN tops matched, so n differs (multichm finds more
+tops: 225 lmf vs 330 multichm — see the n columns below). Regenerate with:
 
 ```sh
 Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK CORES=1
 ```
 
-_Results pending regeneration (run the command above on a data-equipped machine)._
+_Regenerated 2026-06-12 — SJER+SOAP+TEAK, native density, CORES=1._
 
 ### Pooled — multichm seeds minus lmf seeds (Δ = multichm − lmf)
 
@@ -450,38 +451,41 @@ from the pooled tables above (identical pipeline).
 
 | Segmenter | seed | n | RMSE (m) | bias (m) | R² | ΔRMSE | Δbias | ΔR² |
 |-----------|------|---:|---:|---:|---:|---:|---:|---:|
-| dalponte2016 | lmf | _pending_ | _pending_ | _pending_ | _pending_ | — | — | — |
-| dalponte2016 | multichm | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| silva2016 | lmf | _pending_ | _pending_ | _pending_ | _pending_ | — | — | — |
-| silva2016 | multichm | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| dalponte2016 | lmf | 225 | 2.70 | +1.16 | +0.046 | — | — | — |
+| dalponte2016 | multichm | 330 | 2.47 | +0.31 | +0.121 | −0.22 | −0.85 | +0.075 |
+| silva2016 | lmf | 225 | 2.79 | +1.34 | −0.021 | — | — | — |
+| silva2016 | multichm | 330 | 2.44 | +0.40 | +0.144 | −0.35 | −0.94 | +0.165 |
 
 **Max-caliper `d_caliper` vs `maxCrownDiameter`**
 
 | Segmenter | seed | n | RMSE (m) | bias (m) | R² | ΔRMSE | Δbias | ΔR² |
 |-----------|------|---:|---:|---:|---:|---:|---:|---:|
-| dalponte2016 | lmf | _pending_ | _pending_ | _pending_ | _pending_ | — | — | — |
-| dalponte2016 | multichm | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| silva2016 | lmf | _pending_ | _pending_ | _pending_ | _pending_ | — | — | — |
-| silva2016 | multichm | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| dalponte2016 | lmf | 225 | 4.43 | +2.73 | −0.621 | — | — | — |
+| dalponte2016 | multichm | 330 | 3.61 | +1.45 | −0.155 | −0.82 | −1.28 | +0.465 |
+| silva2016 | lmf | 225 | 4.40 | +2.90 | −0.596 | — | — | — |
+| silva2016 | multichm | 330 | 3.50 | +1.40 | −0.085 | −0.90 | −1.50 | +0.511 |
 
 ### Δ by crown class and site (`d_eq` vs `ninetyCrownDiameter`)
 
 | Segmenter | scope | n (lmf/mc) | ΔRMSE | Δbias | ΔR² |
 |-----------|-------|---:|---:|---:|---:|
-| dalponte2016 | dominant | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016 | codominant | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016 | intermediate | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016 | suppressed | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016 | SJER | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016 | SOAP | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016 | TEAK | _pending_ | _pending_ | _pending_ | _pending_ |
-| silva2016 | dominant | _pending_ | _pending_ | _pending_ | _pending_ |
-| silva2016 | codominant | _pending_ | _pending_ | _pending_ | _pending_ |
-| silva2016 | intermediate | _pending_ | _pending_ | _pending_ | _pending_ |
-| silva2016 | suppressed | _pending_ | _pending_ | _pending_ | _pending_ |
-| silva2016 | SJER | _pending_ | _pending_ | _pending_ | _pending_ |
-| silva2016 | SOAP | _pending_ | _pending_ | _pending_ | _pending_ |
-| silva2016 | TEAK | _pending_ | _pending_ | _pending_ | _pending_ |
+| dalponte2016 | dominant | 101/123 | +0.01 | −1.23 | −0.107 |
+| dalponte2016 | codominant | 109/175 | −0.33 | −0.71 | +0.507 |
+| dalponte2016 | intermediate | 13/28 | −0.18 | −0.45 | −0.066 |
+| dalponte2016 | suppressed | 2/4 | −1.76 | −4.81 | n/a† |
+| dalponte2016 | SJER | 22/25 | −0.04 | −0.21 | +0.149 |
+| dalponte2016 | SOAP | 87/139 | −0.29 | −1.22 | +0.215 |
+| dalponte2016 | TEAK | 116/166 | −0.19 | −0.78 | +0.020 |
+| silva2016 | dominant | 101/123 | −0.11 | −1.45 | −0.032 |
+| silva2016 | codominant | 109/175 | −0.45 | −0.74 | +0.647 |
+| silva2016 | intermediate | 13/28 | −0.25 | −0.28 | +0.003 |
+| silva2016 | suppressed | 2/4 | −3.51 | −3.90 | n/a† |
+| silva2016 | SJER | 22/25 | +0.02 | −0.19 | +0.094 |
+| silva2016 | SOAP | 87/139 | −0.36 | −1.15 | +0.261 |
+| silva2016 | TEAK | 116/166 | −0.43 | −0.99 | +0.261 |
+
+† suppressed n is 2 (lmf) / 4 (multichm) trees — too few for a meaningful R²; the
+ΔRMSE/Δbias entries are shown but should be read as indicative only.
 
 The script prints this same ΔRMSE/Δbias/ΔR² breakdown (pooled + per crown class
 
@@ -505,8 +509,12 @@ regenerated:
   lmf-seeded anyway), so the ladder stays on one consistent seed family unless
   multichm shows a clear crown-width gain.
 
-This recommendation is intentionally a **rule, not a number**: the actual
-per-rung choice is read off the regenerated Δ tables; do not infer it here.
+At **native density** the table makes the call: multichm seeds improve both
+segmenters on both diameter definitions (`d_eq` ΔRMSE −0.22 to −0.35 m, Δbias
+−0.85 to −0.94 m; larger gains on `d_caliper`), so #33 seeds from multichm at
+native. Whether that holds as density drops — multichm needs enough returns to
+resolve sub-canopy maxima — is decided per rung in #33's ladder, on the
+crown-diameter Δ at each rung, not on detection F1.
 
 ---
 

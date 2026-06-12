@@ -522,6 +522,123 @@ crown-diameter Δ at each rung, not on detection F1.
 
 ---
 
+## Crown width vs density (issue #33)
+
+Issue #7 (and everything above) ran **native density only**. The detection
+ladder ([`run_sweep.R`](../scripts/run_sweep.R), issues #3–#6) sweeps
+native → 8 → 4 → 2 → 1 pts/m² and shows recall — especially understory recall —
+degrades as the cloud thins. It was unknown whether crown-diameter RMSE follows
+the same curve or **stays flat once the dominant canopy surface is resolved**:
+crown width is a property of the top-of-canopy surface, which a coarser CHM may
+still render adequately even when the sparser cloud has stopped resolving
+sub-canopy stems. This section extends the crown benchmark to the full ladder so
+that question can be answered from data.
+
+### Method
+
+The crown ladder reuses the **same frozen clips** as the model/detection
+benchmark, so the two are scored on identical bytes per `(site, plot, rung)`:
+
+1. **Frozen, seeded, cached clips.** `frozen_clip()`
+   ([`model_bench_lib.R`](../scripts/model_bench_lib.R)) decimates the plot clip
+   **once** per rung — seeded by `seed_for(site, plot, rung)` and cached under
+   `work/neon/<SITE>/frozen/` — and returns the normalized clip plus measured
+   `frdens`/`pdens`. Native (`rung=NA`) is no decimation. A numeric rung whose
+   target meets or exceeds the plot's **native all-return density** is skipped
+   (homogenize cannot upsample), the same no-upsampling guard the detection sweep
+   applies.
+2. **Pit-free CHM per rung.** A lidR `pitfree` CHM is rebuilt from each rung's
+   frozen **normalized** clip at `RES=0.5 m` (the same construction as the
+   native-only arm). lasR `pit_fill` is a TIN + post-hoc fill, **not** the
+   Khosravipour pit-free algorithm — only the lidR `pitfree` CHM is used to seed
+   and grow here.
+3. **Density-appropriate seeds, re-derived per rung.** Treetops are detected on
+   _this rung's_ CHM, so a sparser rung is seeded from a coarser top set
+   (issue #31's recommended per-rung choice). CHM-VWF `lmf` is the control seed
+   for **every** arm; the two lidR segmenters that accept an external `treetops`
+   sf (`dalponte2016`, `silva2016`) are **also** run from the issue #31 `multichm`
+   seed at each rung, tagged `_seedlmf` / `_seedmultichm` in the algo name (no
+   schema change), so the lmf-vs-multichm Δ is available rung-by-rung and the
+   per-rung seed choice can be applied from data.
+4. **Minimum arms.** The issue #7 reference arms `dalponte2016` and
+   `lasr_region_growing`, seeded per rung, are run at every rung (the other arms
+   — `silva2016`, `watershed_*`, `random_walker*` — run too, at no extra clip
+   cost). `lasr_region_growing` stays lmf-seeded (its API takes a seed _stage_,
+   not an external point set), as in the native-only arm.
+5. **Pooling — summed-error rule, within rung.** `pool_crown_by_rung()`
+   ([`sweep_lib.R`](../scripts/sweep_lib.R)) pools every matched tree at a rung
+   into one RMSE/MAE/bias/R² per `(algo, rung)` from the **summed** squared
+   errors — never a mean of per-plot RMSEs (a small plot would otherwise be
+   upweighted, exactly as the detection sweep forbids mean-of-rates). `d_eq` is
+   scored vs `ninetyCrownDiameter`, `d_caliper` vs `maxCrownDiameter`.
+6. **Density-robustness curves.** `plot_density_robustness()` writes per-site
+   RMSE-and-bias-vs-measured-`frdens` PNGs (one line per algo, per diameter
+   definition) under `work/neon/<SITE>/figs/`
+   (`crown_rmse_vs_density_*.png`, `crown_bias_vs_density_*.png`) — the crown
+   analogue of the detection ladder's `density_sensitivity.png`. The x-axis is
+   the **measured** first-return density read back from each frozen clip's
+   manifest, not the nominal rung label.
+
+The output `crown_metrics_results.csv` gains a **`rung`** column;
+[`analyze_crown_metrics.R`](../scripts/analyze_crown_metrics.R) tolerates older
+CSVs that predate it (rows with no `rung` default to `native`, the #7 run).
+
+### Regenerate
+
+```sh
+export CLAUDE_JOB_DIR=$(pwd)/work
+# CORES=1: lasR exec under mclapply transiently fork-drops dense cells, so
+# CORES=1 is the reproducible-pooling setting for the lasR_region_growing arm.
+Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK RUNGS=native,8,4,2,1 CORES=1
+# -> work/neon/<SITE>/crown_metrics_results.csv   (now with a `rung` column)
+# -> work/neon/<SITE>/figs/crown_{rmse,bias}_vs_density_*.png
+```
+
+_Regenerated 2026-06-12 — SJER+SOAP+TEAK, full ladder (native/8/4/2/1 pts/m²),
+CORES=1. Decimation uses the same frozen per-(plot,rung) clips as the detection
+ladder._
+
+### Pooled RMSE/bias by rung — `d_eq` vs `ninetyCrownDiameter`
+
+| Algorithm | rung | n | RMSE (m) | bias (m) | R² |
+|-----------|---|---:|---:|---:|---:|
+| dalponte2016_seedlmf | native | 225 | 2.70 | +1.16 | +0.046 |
+| dalponte2016_seedlmf | 8 | 243 | 2.48 | +0.91 | +0.133 |
+| dalponte2016_seedlmf | 4 | 244 | 2.48 | +0.54 | +0.153 |
+| dalponte2016_seedlmf | 2 | 249 | 2.37 | +0.52 | +0.208 |
+| dalponte2016_seedlmf | 1 | 229 | 2.47 | +0.49 | +0.121 |
+| lasr_region_growing | native | 225 | 2.62 | +1.11 | +0.102 |
+| lasr_region_growing | 8 | 243 | 2.49 | +0.92 | +0.128 |
+| lasr_region_growing | 4 | 243 | 2.43 | +0.62 | +0.188 |
+| lasr_region_growing | 2 | 249 | 2.37 | +0.65 | +0.207 |
+| lasr_region_growing | 1 | 229 | 2.41 | +0.70 | +0.165 |
+
+### Pooled RMSE/bias by rung — `d_caliper` vs `maxCrownDiameter`
+
+| Algorithm | rung | n | RMSE (m) | bias (m) | R² |
+|-----------|---|---:|---:|---:|---:|
+| dalponte2016_seedlmf | native | 225 | 4.43 | +2.73 | −0.621 |
+| dalponte2016_seedlmf | 8 | 243 | 3.99 | +2.40 | −0.407 |
+| dalponte2016_seedlmf | 4 | 244 | 3.94 | +2.03 | −0.332 |
+| dalponte2016_seedlmf | 2 | 249 | 4.02 | +2.22 | −0.444 |
+| dalponte2016_seedlmf | 1 | 229 | 4.17 | +2.20 | −0.543 |
+| lasr_region_growing | native | 225 | 3.72 | +2.04 | −0.142 |
+| lasr_region_growing | 8 | 243 | 3.63 | +1.94 | −0.164 |
+| lasr_region_growing | 4 | 243 | 3.50 | +1.61 | −0.054 |
+| lasr_region_growing | 2 | 249 | 3.41 | +1.59 | −0.040 |
+| lasr_region_growing | 1 | 229 | 3.56 | +1.82 | −0.125 |
+
+The answer: crown-diameter RMSE does **not** rise as the cloud thins. Both
+reference arms hold flat or improve slightly from native to 1 pt/m2: dalponte
+`d_eq` RMSE 2.70 -> 2.37-2.47 m and lasr 2.62 -> 2.41 m; `d_caliper` 4.43 ->
+4.17 m and 3.72 -> 3.56 m, with bias shrinking as density drops (the sparser CHM
+smooths the crown envelope toward the field width). So once the pit-free CHM
+resolves the dominant surface, crown width is robust to density down to 1 pt/m2
+-- unlike understory detection recall, which collapses over the same range. The
+per-site density-robustness PNGs show the same flat curves.
+
+---
+
 ## Geometric caveat — equivalent-circle vs max-axis
 
 The two diameter definitions are **not interchangeable** and the gap is

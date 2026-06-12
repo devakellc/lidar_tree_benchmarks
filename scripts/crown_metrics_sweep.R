@@ -12,7 +12,8 @@ bs <- Find(file.exists, c(
 if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
 source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 
-# Crown-segmentation benchmark for GitHub issue #7.
+# Crown-segmentation benchmark for GitHub issue #7, extended to the full density
+# ladder for issue #33.
 #
 # The density-ladder sweep scores DETECTION (treetops) only. This script closes
 # the loop on CROWN DELINEATION: it seeds the crown segmenters from the SAME
@@ -20,7 +21,21 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 # diameter against NEON field crown diameter (maxCrownDiameter /
 # ninetyCrownDiameter), pooled by crown class.
 #
-# Segmenters (all on the per-plot pit-free CHM, native density):
+# DENSITY LADDER (issue #33): #7 ran native density only. It was unknown whether
+# crown-diameter RMSE degrades with sparsity the way detection recall does, or
+# stays flat once the dominant canopy surface is resolved. This script now sweeps
+# the SAME density rungs as the model benchmark (native -> 8 -> 4 -> 2 -> 1
+# pts/m^2, RUNGS arg) on the SAME frozen per-(site,plot,rung) clips: frozen_clip()
+# (model_bench_lib.R) decimates ONCE per cell -- seeded by seed_for() and cached
+# under work/neon/<SITE>/frozen/ -- and returns the normalized clip + frdens/pdens,
+# so the crown arms score the IDENTICAL bytes the detection ladder scores. A
+# pit-free CHM is rebuilt from each rung's frozen normalized clip, and the
+# treetop seeds are re-derived per rung (CHM-VWF lmf for every arm; multichm as
+# the issue #31 alternative seed for the two lidR segmenters). The output CSV
+# gains a `rung` column; per-rung pooling uses the summed-error rule (never a
+# mean of per-plot RMSEs). rung NA / "native" means no decimation.
+#
+# Segmenters (all on the per-plot pit-free CHM, per density rung):
 #   - lidR dalponte2016    (seeded region growing)
 #   - lidR silva2016       (seeded Voronoi-like)
 #   - lidR watershed       (marker-FREE; crowns matched to stems by containment)
@@ -63,14 +78,17 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 #   - d_caliper = max pairwise vertex dist polygon max-axis   -> maxCrownDiameter
 #
 # Usage:
-#   Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK CORES=4 \
-#           TOL=4 RES=0.5 A=0.10
+#   Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK CORES=1 \
+#           RUNGS=native,8,4,2,1 TOL=4 RES=0.5 A=0.10
 #
 # Reads (read-only): work/neon/<SITE>/{ground_truth_stems.csv,plot_centroids.csv}
 #   the LiDAR catalog work/neon/<SITE>/lidar/, and the cached field-crown widths
-#   from work/neon/<SITE>/vst/<site>_vst_allyears.rds.
-# Writes (NEW file, never overwrites a shared input):
-#   work/neon/<SITE>/crown_metrics_results.csv  (one row per matched tree)
+#   from work/neon/<SITE>/vst/<site>_vst_allyears.rds. Frozen clips are cached
+#   under work/neon/<SITE>/frozen/ (shared with the detection ladder, #6/#38).
+# Writes (NEW files, never overwrites a shared input):
+#   work/neon/<SITE>/crown_metrics_results.csv  (one row per matched tree,
+#       carrying a `rung` column for the density ladder)
+#   work/neon/<SITE>/figs/crown_rmse_vs_density_*.png  (RMSE/bias vs frdens)
 suppressMessages({
   library(lidR); library(lasR); library(terra); library(sf)
   library(data.table); library(Matrix); library(parallel)
@@ -79,6 +97,7 @@ suppressMessages({
 options(lidR.progress = FALSE, lidR.verbose = FALSE)
 d <- .job_dir()
 source(.find("sweep_lib.R"))
+source(.find("model_bench_lib.R"))   # frozen_clip / seed_for (issue #33 ladder)
 
 ## ---- args (KEY=VALUE positional, per repo convention) --------------------
 args  <- strsplit(commandArgs(TRUE), "=")
@@ -88,6 +107,13 @@ CORES <- as.integer(if (is.null(A$CORES)) 4 else A$CORES)
 TOL   <- as.numeric(if (is.null(A$TOL))  4    else A$TOL)
 RES   <- as.numeric(if (is.null(A$RES))  0.5  else A$RES)
 VWF_A <- as.numeric(if (is.null(A$A))    0.10 else A$A)
+# RUNGS: density ladder (issue #33). "native" -> no decimation (rung NA); the
+# numeric rungs are pts/m^2 targets passed to frozen_clip's seeded homogenize.
+# Each token is parsed to NA ("native") or a numeric pts/m^2 target.
+RUNGS_RAW <- if (is.null(A$RUNGS)) c("native", "8", "4", "2", "1") else
+             strsplit(A$RUNGS, ",")[[1]]
+RUNGS <- lapply(RUNGS_RAW, function(x)
+  if (tolower(x) == "native") NA_real_ else as.numeric(x))
 MINTREES <- 6
 RW_TIMEOUT <- 120          # seconds; random-walker solve is timeboxed per plot
 TH_CR      <- 0.55         # random_walker_thcr stop rule: drop crown-k pixels
@@ -208,8 +234,14 @@ field_crowns <- function(site) {
   ai1
 }
 
-## ---- per-plot crown benchmark --------------------------------------------
-run_plot <- function(site, pid, ctg, pc, gt, tmpdir) {
+## ---- per-(plot, rung) crown benchmark ------------------------------------
+# rung: NA = native (no decimation), else a pts/m^2 target. The clip is provided
+# by frozen_clip() (model_bench_lib.R), the SAME seeded+cached decimation the
+# detection ladder scores, so the crown arms run on identical bytes per rung. The
+# pit-free CHM is rebuilt from this rung's frozen NORMALIZED clip and seeds are
+# re-derived per rung (density-appropriate); rung_lbl ("native"/"8"/...) is
+# carried into every output row.
+run_plot <- function(site, pid, rung, rung_lbl, ctg, pc, gt, tmpdir, froot) {
   ci <- pc[pc$plotID == pid, ][1, ]
   cx <- ci$easting; cy <- ci$northing
   ph <- plot_half(ci$plotType)
@@ -217,11 +249,11 @@ run_plot <- function(site, pid, ctg, pc, gt, tmpdir) {
               abs(gt$E - cx) <= ph & abs(gt$N - cy) <= ph, ]
   if (nrow(stems) < 1) return(NULL)
 
-  prep <- tryCatch(prepare_clip(ctg, cx, cy, rung = NA, tmpdir, core_half = ph),
-                   error = function(e) NULL)
+  prep <- tryCatch(frozen_clip(ctg, site, pid, rung, cx, cy, core_half = ph,
+                               out_root = froot), error = function(e) NULL)
   if (is.null(prep)) return(NULL)
-  on.exit(unlink(prep$file), add = TRUE)
-  las <- tryCatch(readLAS(prep$file, select = "xyzr"), error = function(e) NULL)
+  las <- tryCatch(readLAS(prep$normalized, select = "xyzr"),
+                  error = function(e) NULL)
   if (is.null(las) || lidR::is.empty(las)) return(NULL)
 
   ## pit-free CHM (lidR, mirrors segment_lidr.R) at RES
@@ -245,13 +277,19 @@ run_plot <- function(site, pid, ctg, pc, gt, tmpdir) {
   ## ----- seeded segmenters: crown label rasters keyed by ttops treeID -----
   crowns_by_algo <- list()
 
-  ## SEED-SENSITIVITY (issue #31): run dalponte2016/silva2016 from BOTH the shared
-  ## lmf tops (the #7 control) and the multichm tops, on the SAME pit-free CHM.
-  ## The seed source is in the algo TAG (no schema change). multichm runs on the
-  ## point cloud at a density-derived res with the SAME ws as the lmf seeds, and
-  ## its 2-D tops read their apex height from this CHM (multichm_seed_tops in
-  ## sweep_lib.R). The multichm-seeded crowns are still keyed by their own treeID
-  ## but matched to field stems via the multichm tops' own (x,y) (see below).
+  ## PER-RUNG SEED CHOICE (issues #31 + #33): seeds are re-derived on THIS rung's
+  ## frozen clip + CHM, so the segmenters are always seeded from density-
+  ## appropriate tops (a sparser rung -> a coarser CHM-VWF/multichm top set, the
+  ## #31 recommended per-rung choice). CHM-VWF lmf is the control seed for EVERY
+  ## arm; for the two lidR segmenters that accept an external `treetops` sf
+  ## (dalponte2016/silva2016) we ALSO run the issue #31 multichm seed (the best
+  ## classical detector on SOAP), tagged in the algo name (no schema change), so
+  ## the lmf-vs-multichm seed delta is available at each rung. multichm runs on
+  ## the point cloud at a density-derived res with the SAME ws as the lmf seeds,
+  ## and its 2-D tops read their apex height from this rung's CHM
+  ## (multichm_seed_tops in sweep_lib.R, frdens-gated by prep$frdens). The
+  ## multichm-seeded crowns are still keyed by their own treeID but matched to
+  ## field stems via the multichm tops' own (x,y) (see below).
   tt_mc <- tryCatch(
     multichm_seed_tops(las, chm, a = VWF_A, frdens = prep$frdens),
     error = function(e) NULL)
@@ -295,7 +333,7 @@ run_plot <- function(site, pid, ctg, pc, gt, tmpdir) {
   ## load_raster -> pit_fill is required: local_maximum_raster on a bare
   ## load_raster stage yields no points; the pit_fill pass-through fixes that.
   lasr_g <- tryCatch({
-    chm_path <- file.path(tmpdir, paste0("chm_", pid, "_",
+    chm_path <- file.path(tmpdir, paste0("chm_", pid, "_", rung_lbl, "_",
                                          Sys.getpid(), ".tif"))
     terra::writeRaster(chm, chm_path, overwrite = TRUE)
     on.exit(unlink(chm_path), add = TRUE)
@@ -304,7 +342,7 @@ run_plot <- function(site, pid, ctg, pc, gt, tmpdir) {
     seed <- lasR::local_maximum_raster(pf, ws, min_height = 2)
     cr   <- lasR::region_growing(pf, seed, th_tree = 2, th_seed = 0.45,
                                  th_cr = 0.55, max_cr = 10)
-    ans <- lasR::exec(rr + pf + seed + cr, on = prep$file,
+    ans <- lasR::exec(rr + pf + seed + cr, on = prep$normalized,
                       with = list(progress = FALSE, ncores = 1L))
     cr_r <- terra::rast(terra::sources(ans$region_growing))
     seeds_sf <- sf::st_as_sf(ans$local_maximum)
@@ -424,7 +462,7 @@ run_plot <- function(site, pid, ctg, pc, gt, tmpdir) {
       }
       if (is.null(crow)) next
       rows[[length(rows) + 1]] <- data.frame(
-        site = site, plot = pid, algo = algo,
+        site = site, plot = pid, rung = rung_lbl, algo = algo,
         individualID = stems$individualID[si],
         crown_class = stems$crown_class[si],
         d_eq = crow$d_eq, d_caliper = crow$d_caliper, area = crow$area,
@@ -466,8 +504,35 @@ run_site <- function(site) {
 
   tmpdir <- file.path(tempdir(), paste0("crown_", site))
   dir.create(tmpdir, showWarnings = FALSE)
+  froot <- file.path(nd, "frozen")    # shared with the detection ladder (#6/#38)
+
+  ## Per-plot worker over the density ladder. Native is run first so its
+  ## all-return density is the no-upsampling guard: a numeric rung whose target
+  ## meets/exceeds the plot's native density would "upsample" (homogenize cannot
+  ## add points), so it is skipped -- the same guard run_sweep.R applies. Seeds
+  ## are re-derived per rung inside run_plot, so each rung scores on a
+  ## density-appropriate CHM + treetop set.
+  per_plot <- function(p) {
+    np <- tryCatch(frozen_clip(ctg, site, p, NA, pc$easting[pc$plotID == p][1],
+                               pc$northing[pc$plotID == p][1],
+                               core_half = plot_half(pc$plotType[pc$plotID == p][1]),
+                               out_root = froot), error = function(e) NULL)
+    native_pdens <- if (is.null(np)) NA_real_ else np$pdens
+    rows <- list()
+    for (i in seq_along(RUNGS)) {
+      rung <- RUNGS[[i]]; lbl <- RUNGS_RAW[i]
+      if (tolower(lbl) == "native") lbl <- "native"
+      if (!is.na(rung) && (is.na(native_pdens) || rung >= native_pdens)) next
+      r <- tryCatch(run_plot(site, p, rung, lbl, ctg, pc, gt, tmpdir, froot),
+                    error = function(e) { message("  plot ", p, " rung ", lbl,
+                      " failed: ", conditionMessage(e)); NULL })
+      if (!is.null(r)) rows[[length(rows) + 1]] <- r
+    }
+    if (!length(rows)) return(NULL)
+    do.call(rbind, rows)
+  }
   res_list <- mclapply(keep, function(p)
-    tryCatch(run_plot(site, p, ctg, pc, gt, tmpdir),
+    tryCatch(per_plot(p),
              error = function(e) { message("  plot ", p, " failed: ",
                                             conditionMessage(e)); NULL }),
     mc.cores = CORES, mc.preschedule = FALSE)
@@ -479,11 +544,12 @@ run_site <- function(site) {
   res <- merge(res, fld, by = "individualID", all.x = TRUE)
   names(res)[names(res) == "maxCrownDiameter"]    <- "field_maxCD"
   names(res)[names(res) == "ninetyCrownDiameter"] <- "field_ninetyCD"
-  res <- res[, c("site", "plot", "algo", "crown_class", "individualID",
+  res <- res[, c("site", "plot", "rung", "algo", "crown_class", "individualID",
                  "d_eq", "d_caliper", "area", "field_maxCD", "field_ninetyCD")]
   out <- file.path(nd, "crown_metrics_results.csv")
   write.csv(res, out, row.names = FALSE)
-  cat(sprintf("[%s] wrote %d matched-tree rows -> %s\n", site, nrow(res), out))
+  cat(sprintf("[%s] wrote %d matched-tree rows (rungs %s) -> %s\n",
+              site, nrow(res), paste(sort(unique(res$rung)), collapse = "/"), out))
   res
 }
 
@@ -501,6 +567,121 @@ err_stats <- function(det, fld) {
              rmse = sqrt(mean(e^2)), mae = mean(abs(e)),
              bias = mean(e),
              r2 = if (ss_tot > 0) 1 - ss_res / ss_tot else NA_real_)
+}
+
+## ---- per-rung pooled crown-diameter tables (issue #33) --------------------
+# Crown-width vs density: the summed-error pooler (pool_crown_by_rung in
+# sweep_lib.R) gives one RMSE/bias row per (algo, rung) within each diameter
+# definition, pooled over every matched tree at that rung (never a mean of
+# per-plot RMSEs). Printed native -> sparse so the degradation (or flatness) is
+# read off the column.
+print_rung_tables <- function(res) {
+  pr <- pool_crown_by_rung(res)
+  if (!nrow(pr)) { cat("\n[rung] no rows to pool by rung\n"); return(invisible()) }
+  cat("\n============ CROWN-DIAMETER vs DENSITY (pooled per rung) ============\n")
+  for (def in unique(pr$definition)) {
+    cat(sprintf("\n--- %s ---\n", def))
+    cat(sprintf("%-22s %-7s %5s %7s %7s %7s\n",
+                "algo", "rung", "n", "rmse", "bias", "r2"))
+    sub <- pr[pr$definition == def, ]
+    for (i in seq_len(nrow(sub))) {
+      s <- sub[i, ]
+      cat(sprintf("%-22s %-7s %5d %7.2f %7.2f %7.3f\n",
+                  s$algo, s$rung, s$n, s$rmse, s$bias, s$r2))
+    }
+  }
+}
+
+## ---- frdens per (site, plot, rung) from the frozen manifests --------------
+# The density-robustness x-axis is MEASURED first-return density, not the rung
+# label (a 4 pts/m^2 target on a 5 pts/m^2 plot resolves to ~4 measured). Each
+# frozen_clip cell wrote frdens into its manifest.json; this reads them back and
+# returns the per-(site, rung) MEAN measured frdens over the plots present in
+# `res`. Returns NULL when no manifest is found (so the plotter no-ops cleanly).
+frdens_by_rung <- function(res) {
+  rows <- list()
+  for (i in seq_len(nrow(res))) {
+    site <- res$site[i]; plot <- res$plot[i]; rung <- res$rung[i]
+    # Reconstruct the manifest path via the SAME helper frozen_clip() writes
+    # through (model_bench_lib.R), with the SAME out_root the run_site() caller
+    # passed (froot = d/neon/<SITE>/frozen). frozen_dir() owns the layout, so
+    # this reader can never drift from the writer again.
+    froot <- file.path(d, "neon", site, "frozen")
+    mf <- file.path(frozen_dir(froot, site, plot, rung), "manifest.json")
+    if (!file.exists(mf)) next
+    fd <- tryCatch(jsonlite::read_json(mf, simplifyVector = TRUE)$frdens,
+                   error = function(e) NULL)
+    if (is.null(fd)) next
+    rows[[length(rows) + 1]] <- data.frame(site = site, rung = rung,
+                                           frdens = as.numeric(fd))
+  }
+  if (!length(rows)) return(NULL)
+  agg <- do.call(rbind, rows)
+  agg <- aggregate(frdens ~ site + rung, data = unique(agg), FUN = mean)
+  agg
+}
+
+## ---- density-robustness curves: RMSE & bias vs first-return density -------
+# Writes per-site PNGs under work/neon/<SITE>/figs/: crown-diameter RMSE (and
+# bias) vs MEASURED first-return density, one line per algorithm, for each
+# diameter definition. This is the crown-width analogue of the detection
+# ladder's density_sensitivity.png. NO-OPs cleanly (returns invisibly, no error)
+# when res is empty or no frozen manifest supplies a measured frdens -- so it is
+# safe to call on a partial / not-yet-regenerated run.
+plot_density_robustness <- function(res) {
+  if (is.null(res) || !nrow(res)) {
+    cat("\n[robustness] no rows; skipping density-robustness figures\n")
+    return(invisible())
+  }
+  fd <- frdens_by_rung(res)
+  if (is.null(fd)) {
+    cat("\n[robustness] no frozen manifests for frdens; skipping figures\n")
+    return(invisible())
+  }
+  pr <- pool_crown_by_rung(res)
+  defs <- list(c("d_eq vs ninetyCrownDiameter", "d_eq_vs_ninetyCD"),
+               c("d_caliper vs maxCrownDiameter", "d_caliper_vs_maxCD"))
+  pal <- c("#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e",
+           "#e6ab02", "#a6761d", "#666666")
+  for (site in sort(unique(res$site))) {
+    nd  <- file.path(d, "neon", site)
+    fig <- file.path(nd, "figs"); dir.create(fig, showWarnings = FALSE)
+    fsite <- fd[fd$site == site, ]
+    if (!nrow(fsite)) next
+    # algos present at this site, scored over its own matched trees per rung
+    site_rows <- res[res$site == site, ]
+    psite <- pool_crown_by_rung(site_rows)
+    psite <- merge(psite, fsite, by = "rung")     # attach measured frdens
+    if (!nrow(psite)) next
+    algos <- sort(unique(psite$algo))
+    cols  <- setNames(pal[((seq_along(algos) - 1) %% length(pal)) + 1], algos)
+    for (def in defs) {
+      sub <- psite[psite$definition == def[1] & is.finite(psite$rmse), ]
+      if (!nrow(sub)) next
+      for (metric in c("rmse", "bias")) {
+        png(file.path(fig, sprintf("crown_%s_vs_density_%s.png", metric, def[2])),
+            1000, 750, res = 130)
+        par(mar = c(4.2, 4.2, 2.5, 1))
+        xr <- range(sub$frdens[is.finite(sub$frdens)])
+        if (!all(is.finite(xr)) || xr[1] <= 0) xr <- c(1, 10)
+        yr <- range(sub[[metric]], na.rm = TRUE)
+        plot(NA, xlim = xr, ylim = yr, log = "x",
+             xlab = "measured first-return density (pulses/m^2)",
+             ylab = sprintf("crown-diameter %s (m)", toupper(metric)),
+             main = sprintf("%s: crown %s vs density (%s)", site, metric, def[1]))
+        for (a in algos) {
+          sa <- sub[sub$algo == a, ]; sa <- sa[order(sa$frdens), ]
+          if (nrow(sa)) lines(sa$frdens, sa[[metric]], type = "o", pch = 19,
+                              lwd = 2, col = cols[a])
+        }
+        legend("topright", legend = algos, col = cols[algos], lwd = 2,
+               pch = 19, bty = "n", cex = 0.75)
+        dev.off()
+      }
+    }
+    cat(sprintf("[%s] density-robustness figures -> %s\n", site, fig))
+  }
+  invisible()
 }
 
 print_tables <- function(res) {
@@ -579,6 +760,9 @@ cat(sprintf("\nDONE: %d matched-tree rows across %d sites in %.1f min\n",
 if (!is.null(res) && nrow(res)) {
   cat("\nrows per algorithm:\n"); print(table(res$algo))
   cat("\nrows per crown class:\n"); print(table(res$crown_class, useNA = "ifany"))
+  cat("\nrows per rung:\n"); print(table(res$rung, useNA = "ifany"))
   print_tables(res)
+  print_rung_tables(res)                # crown-diameter vs density (issue #33)
   print_seed_sensitivity(res)
+  plot_density_robustness(res)          # RMSE/bias vs frdens PNGs (issue #33)
 }

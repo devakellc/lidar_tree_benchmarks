@@ -316,3 +316,76 @@ priority_flood_watershed <- function(chm, markers, hmin = 2) {
   }
   lab
 }
+
+## ---- crown-diameter error stats (pooled SSE, never a mean of per-plot) -----
+# Pooled error stats over matched trees: RMSE/MAE/bias/R2 computed from the
+# SUMMED squared errors over all rows (n_total = sum of matched trees), NEVER a
+# mean of per-plot rates -- the crown-benchmark analogue of the detection
+# sum(TP)/sum(n_ref) rule. det = detected diameter, fld = field diameter; rows
+# with a non-finite det or fld are dropped before pooling. Mirrors
+# crown_metrics_sweep.R::err_stats / analyze_crown_metrics.R::err_stats (kept as
+# the single canonical definition so the per-rung pooler below cannot drift from
+# the script's own scoring).
+crown_err_stats <- function(det, fld) {
+  ok <- is.finite(det) & is.finite(fld); det <- det[ok]; fld <- fld[ok]
+  n <- length(det)
+  if (n < 2) return(data.frame(n = n, rmse = NA_real_, mae = NA_real_,
+                               bias = NA_real_, r2 = NA_real_))
+  e <- det - fld; ss_res <- sum((fld - det)^2); ss_tot <- sum((fld - mean(fld))^2)
+  data.frame(n = n, rmse = sqrt(mean(e^2)), mae = mean(abs(e)), bias = mean(e),
+             r2 = if (ss_tot > 0) 1 - ss_res / ss_tot else NA_real_)
+}
+
+## ---- per-(algo, rung) crown-diameter pooler (issue #33) -------------------
+# Crown-diameter density ladder: pool the matched-tree crown rows WITHIN each
+# (algo, rung) cell by the summed-squared-error rule (crown_err_stats above), so
+# a rung's RMSE/bias is over every matched tree at that rung -- never a mean of
+# per-plot RMSEs (a small plot would otherwise dominate, exactly as the detection
+# sweep forbids mean-of-rates). One pooled row per (algo, rung, definition).
+#
+# BACKWARD COMPATIBILITY: a crown_metrics_results.csv written before this issue
+# has no `rung` column; such rows are the native-density #7 run, so a missing /
+# NA / "" rung defaults to "native". This lets the analyzer pool an old CSV (one
+# native rung) and a new ladder CSV identically.
+#
+# `defs` is a list of c(det_col, fld_col, label) triples (default the two
+# canonical diameter pairs). Returns a long data.frame:
+#   algo, rung, definition, n, rmse, mae, bias, r2
+# ordered by (definition, rung-order native->sparse, algo). Pure: no I/O.
+RUNG_LEVELS <- c("native", "8", "4", "2", "1")
+normalize_rung <- function(rung) {
+  r <- as.character(rung)
+  r[is.na(r) | !nzchar(r)] <- "native"
+  r
+}
+pool_crown_by_rung <- function(df, defs = list(
+                                 c("d_eq", "field_ninetyCD",
+                                   "d_eq vs ninetyCrownDiameter"),
+                                 c("d_caliper", "field_maxCD",
+                                   "d_caliper vs maxCrownDiameter"))) {
+  if (is.null(df) || !nrow(df)) {
+    return(data.frame(algo = character(), rung = character(),
+                      definition = character(), n = integer(),
+                      rmse = numeric(), mae = numeric(), bias = numeric(),
+                      r2 = numeric(), stringsAsFactors = FALSE))
+  }
+  rung <- if (is.null(df$rung)) rep("native", nrow(df)) else normalize_rung(df$rung)
+  df$rung <- rung
+  out <- list()
+  for (defn in defs) {
+    det_col <- defn[1]; fld_col <- defn[2]; lbl <- defn[3]
+    for (a in sort(unique(df$algo))) for (rg in unique(df$rung)) {
+      sel <- df$algo == a & df$rung == rg
+      if (!any(sel)) next
+      s <- crown_err_stats(df[[det_col]][sel], df[[fld_col]][sel])
+      out[[length(out) + 1]] <- data.frame(
+        algo = a, rung = rg, definition = lbl,
+        n = s$n, rmse = s$rmse, mae = s$mae, bias = s$bias, r2 = s$r2,
+        stringsAsFactors = FALSE)
+    }
+  }
+  res <- do.call(rbind, out)
+  # native first, then the sparser rungs in known order, then any unknown rung.
+  rk <- match(res$rung, RUNG_LEVELS); rk[is.na(rk)] <- length(RUNG_LEVELS) + 1L
+  res[order(res$definition, rk, res$algo), , drop = FALSE]
+}

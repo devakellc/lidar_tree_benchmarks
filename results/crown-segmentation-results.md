@@ -355,32 +355,33 @@ documented negative. Regenerate with:
 Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK CORES=1
 ```
 
-_Results pending regeneration (run the command above on a data-equipped machine)._
+_Regenerated 2026-06-12 — SJER+SOAP+TEAK, native density, CORES=1; n=225
+matched trees pooled over 40 plots._
 
 **Equivalent-circle `d_eq` vs `ninetyCrownDiameter`**
 
 | Algorithm | n | RMSE (m) | MAE (m) | bias (m) | R² |
 |-----------|---:|---:|---:|---:|---:|
-| watershed_seeded | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| watershed_markerfree | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016 (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| watershed_seeded | 225 | 3.31 | 2.46 | +1.64 | −0.433 |
+| watershed_markerfree | 225 | 3.42 | 2.70 | +2.31 | −0.530 |
+| lasr_region_growing (control) | 225 | 2.62 | 2.03 | +1.11 | +0.102 |
+| dalponte2016 (control) | 225 | 2.70 | 2.06 | +1.16 | +0.046 |
 
 **Max-caliper `d_caliper` vs `maxCrownDiameter`**
 
 | Algorithm | n | RMSE (m) | MAE (m) | bias (m) | R² |
 |-----------|---:|---:|---:|---:|---:|
-| watershed_seeded | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| watershed_markerfree | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016 (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| watershed_seeded | 225 | 5.13 | 3.85 | +3.06 | −1.171 |
+| watershed_markerfree | 225 | 5.61 | 4.54 | +4.21 | −1.595 |
+| lasr_region_growing (control) | 225 | 3.72 | 2.94 | +2.04 | −0.142 |
+| dalponte2016 (control) | 225 | 4.43 | 3.47 | +2.73 | −0.621 |
 
-The expectation under test is that anchoring one basin per marker curbs the
-marker-free arm's over-grow (it can no longer spawn a basin in every CHM
-minimum), narrowing the bias toward the region-growing controls. Whether it
-reaches them — and whether one-basin-per-seed under-segments where the marker-free
-arm over-segments — is to be read off the regenerated table above; do not infer
-it here.
+Anchoring one basin per marker does curb the marker-free arm's over-grow:
+pooled `d_eq` bias falls from +2.31 to +1.64 m (RMSE 3.42 to 3.31 m) and
+`d_caliper` RMSE from 5.61 to 5.13 m. But it only narrows the gap to the
+region-growing controls without closing it: `watershed_seeded` still over-grows
+(R² -0.43 / -1.17) and trails dalponte2016 (2.70 / 4.43) and lasr (2.62 / 3.72)
+on both diameter definitions.
 
 ---
 

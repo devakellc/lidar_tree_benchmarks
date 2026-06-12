@@ -12,20 +12,38 @@ bs <- Find(file.exists, c(
 if (!length(bs)) stop("bootstrap.R not found", call. = FALSE)
 source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 
-# Crown-diameter comparison (#20): union the five CHM segmenters from #7
-# (crown_metrics_results.csv) with the TreeisoNet treeOff arm
-# (treeisonet_crown_metrics.csv) and score pooled crown-diameter RMSE/MAE/bias/R2
-# by algorithm. Restricted to SOAP (the only site with a TreeisoNet GPU run), so
-# the comparison is apples-to-apples; the CHM arms' full multi-site numbers stay
-# in #7's results doc.
+# Crown-diameter comparison (#20, extended #30/#34): union the five CHM
+# segmenters from #7 (crown_metrics_results.csv), the 3-D point-instance
+# segmenters from #30 (crown_metrics_3d_results.csv: li2012, ptrees, ams3d), and
+# the SOAP-only TreeisoNet treeOff arm (treeisonet_crown_metrics.csv), then score
+# pooled crown-diameter RMSE/MAE/bias/R2 per algorithm. All three sources share
+# the canonical crown-metrics columns and a per-algo `algo` label, so the union
+# is a straight rbind; pooling is by SUMMED squared errors over matched trees,
+# never a mean of per-plot rates.
 #
-# Usage:  Rscript scripts/analyze_crown_metrics.R [SITE=SOAP]
-# Output: prints + $CLAUDE_JOB_DIR/neon/<SITE>/crown_compare_tables.md
+# Multi-site: pass SITES=SJER,SOAP,TEAK to pool each algorithm across all the
+# requested sites (the 3-D arms run on all three; the TreeisoNet arm is SOAP-only
+# and contributes only when SOAP is requested). The legacy single-site form
+# SITE=SOAP is preserved -- it pools that one site only, reproducing the original
+# SOAP-only behaviour. Sites whose metric CSVs are absent are skipped.
+#
+# Usage:
+#   Rscript scripts/analyze_crown_metrics.R SITES=SJER,SOAP,TEAK
+#   Rscript scripts/analyze_crown_metrics.R SITE=SOAP        # legacy single-site
+# Output: prints + $CLAUDE_JOB_DIR/neon/crown_compare_tables.md (multi-site) or
+#   $CLAUDE_JOB_DIR/neon/<SITE>/crown_compare_tables.md (single legacy site).
 args <- strsplit(commandArgs(TRUE), "=")
 A    <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
-SITE <- if (is.null(A$SITE)) "SOAP" else A$SITE
-d    <- .job_dir()
-nd   <- file.path(d, "neon", SITE)
+# SITES wins when given; else fall back to the legacy single SITE; else default
+# to the cross-site set. The single-SITE path keeps the original output layout.
+if (!is.null(A$SITES)) {
+  SITES <- strsplit(A$SITES, ",")[[1]]; single <- FALSE
+} else if (!is.null(A$SITE)) {
+  SITES <- A$SITE; single <- TRUE
+} else {
+  SITES <- c("SJER", "SOAP", "TEAK"); single <- FALSE
+}
+d <- .job_dir()
 
 # Mirrors crown_metrics_sweep.R::err_stats (pooled SSE, never a mean of per-plot
 # rates). det = detected diameter, fld = field diameter.
@@ -58,19 +76,46 @@ read_metric_csv <- function(path, required = cols, optional = FALSE) {
   }
   x[, required, drop = FALSE]
 }
-chm <- read_metric_csv(file.path(nd, "crown_metrics_results.csv"))
-chm <- chm[chm$site == SITE, cols, drop = FALSE]
-tif <- file.path(nd, "treeisonet_crown_metrics.csv")
-ti  <- read_metric_csv(tif, optional = TRUE)
-if (!is.null(ti)) ti <- ti[ti$site == SITE, cols, drop = FALSE]
-res <- rbind(chm, ti)
-if (!nrow(res)) stop(sprintf("no crown metric rows for SITE=%s", SITE))
-algos <- unique(res$algo)
+
+# Union every crown-metric source available for one site: the #7 CHM arms
+# (required when single-site for back-compat; optional when pooling several
+# sites so a missing site is skipped, not fatal), the #30 3-D arms, and the
+# SOAP-only TreeisoNet arm. Each is filtered to its own site so a stale cross-
+# site row cannot leak in. Returns a canonical-cols frame (0 rows if none).
+collect_site <- function(site, chm_required) {
+  nd <- file.path(d, "neon", site)
+  parts <- list()
+  chm <- read_metric_csv(file.path(nd, "crown_metrics_results.csv"),
+                         optional = !chm_required)
+  if (!is.null(chm)) parts[[length(parts) + 1]] <- chm[chm$site == site, cols,
+                                                        drop = FALSE]
+  td <- read_metric_csv(file.path(nd, "crown_metrics_3d_results.csv"),
+                        optional = TRUE)
+  if (!is.null(td)) parts[[length(parts) + 1]] <- td[td$site == site, cols,
+                                                      drop = FALSE]
+  ti <- read_metric_csv(file.path(nd, "treeisonet_crown_metrics.csv"),
+                        optional = TRUE)
+  if (!is.null(ti)) parts[[length(parts) + 1]] <- ti[ti$site == site, cols,
+                                                      drop = FALSE]
+  if (!length(parts)) return(NULL)
+  do.call(rbind, parts)
+}
+
+# Single-site keeps the original behaviour (CHM file is required); multi-site
+# pooling treats each site's CHM file as optional so the run does not abort on a
+# site that has not been crown-scored yet.
+res <- do.call(rbind, Filter(Negate(is.null),
+  lapply(SITES, function(s) collect_site(s, chm_required = single))))
+if (is.null(res) || !nrow(res))
+  stop(sprintf("no crown metric rows for SITES=%s", paste(SITES, collapse = ",")))
+algos    <- unique(res$algo)
+site_lbl <- paste(SITES, collapse = "+")
 cat(sprintf("[%s] crown-diameter comparison: %d matched-tree rows, %d algos\n",
-            SITE, nrow(res), length(algos)))
+            site_lbl, nrow(res), length(algos)))
 
 md <- c("<!-- generated by scripts/analyze_crown_metrics.R; do not edit by hand -->",
-        "", sprintf("#### Crown-diameter accuracy on %s (pooled matched trees)", SITE), "")
+        "", sprintf("#### Crown-diameter accuracy on %s (pooled matched trees)",
+                    site_lbl), "")
 for (defn in list(c("d_eq", "field_ninetyCD", "Equivalent-circle d_eq vs ninetyCrownDiameter"),
                   c("d_caliper", "field_maxCD", "Max-caliper d_caliper vs maxCrownDiameter"))) {
   cat(sprintf("\n--- %s ---\n", defn[3]))
@@ -89,5 +134,9 @@ for (defn in list(c("d_eq", "field_ninetyCD", "Equivalent-circle d_eq vs ninetyC
   }
   md <- c(md, "")
 }
-writeLines(md, file.path(nd, "crown_compare_tables.md"))
-cat(sprintf("\n-> %s\n", file.path(nd, "crown_compare_tables.md")))
+# Single legacy site writes per-site (unchanged); multi-site writes one pooled
+# table under neon/.
+out <- if (single) file.path(d, "neon", SITES, "crown_compare_tables.md") else
+  file.path(d, "neon", "crown_compare_tables.md")
+writeLines(md, out)
+cat(sprintf("\n-> %s\n", out))

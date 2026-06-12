@@ -315,6 +315,71 @@ and its detection is poor, so n is limited to its matches.
 
 ---
 
+## 3-D instance segmenters: Li 2012, ptrees, AMS3D (issue #30)
+
+The five arms above all delineate crowns on a **CHM**. The model-benchmark
+**detection** arms — lidR Li 2012, lidRplugins ptrees (Vega 2014), and AMS3D
+(`crownsegmentr` adaptive mean shift) — already run on the same native frozen
+normalized clips but were only ever scored for *detection* (apex recall), never
+for crown diameter. This section closes that gap by crown-scoring those 3-D
+point-instance segmenters head-to-head with the CHM controls.
+
+### Method
+
+For each site, the SAME plot set as #7 (plots with ≥6 live mapped trees carrying
+a non-NA NEON field crown diameter) is processed at **native density** from the
+cached frozen normalized clip (`frozen_clip(rung=NA)`; clips are reused, never
+regenerated). Per plot, each segmenter is run **once** on the normalized clip,
+reusing the verbatim invocation from its detection arm
+([`detect_li2012_native.R`](../scripts/detect_li2012_native.R),
+[`detect_lidrplugins_sweep.R`](../scripts/detect_lidrplugins_sweep.R),
+[`detect_ams3d_sweep.R`](../scripts/detect_ams3d_sweep.R)). From the resulting
+per-point instance labels (`seg@data` `treeID` / `crown_id`) two artefacts are
+derived from the *same* labelling:
+
+1. **Crown diameter** via `crown_diameter_table()` (`model_bench_lib.R`,
+   `min_pts=5`): per instance the **2-D convex hull** of its points gives
+   `d_eq = 2√(hull_area/π)` (→ `ninetyCrownDiameter`) and
+   `d_caliper = max pairwise point distance` (→ `maxCrownDiameter`). Both are NA
+   for instances with fewer than 5 points (a diameter over a few points is
+   noise). `area` is the equivalent-circle area implied by `d_eq`.
+2. **Instance apex** (`instance_apex()`): the max-Z point of each instance,
+   keyed by instance id so the diameter row can be re-joined after matching.
+
+Each instance apex is matched to a field stem with the **same** `greedy_match`
+harness as everywhere else (global nearest-distance 1:1, position tol 4 m + the
+height-consistency gate), then the matched stem's diameter row and field crown
+diameter are joined. The match → diameter → field-join glue is the pure helper
+`score_crowns_against_field()` in
+[`model_bench_lib.R`](../scripts/model_bench_lib.R), unit-tested with synthetic
+instances + stems. Pooling is by **summed** squared errors over matched trees
+(RMSE/MAE/bias/R²), never a mean of per-plot rates, exactly as #7.
+
+**Estimator caveat (important for the head-to-head).** This arm's diameter is a
+**convex hull of the instance's points**, not the dissolved-CHM polygon the #7
+classical arms use. The two are not identical estimators (a point hull is
+sensitive to outlier returns; a CHM polygon to pixel resolution and pit-fill),
+though both target the same field column. The same geometric caveat as #7
+applies on top: `d_caliper` (widest axis) is biased high relative to `d_eq`
+(equivalent-circle), so compare `d_eq` only against `ninetyCrownDiameter` and
+`d_caliper` only against `maxCrownDiameter`.
+
+### Results — 3-D segmenters (pooled, all sites)
+
+*Results pending regeneration (run the command above on a data-equipped machine).*
+
+### Head-to-head: 3-D vs the #7 CHM controls (same plot set)
+
+The #7 CHM controls (`dalponte2016`, `lasr_region_growing`) are **re-pooled on
+the same plot set** scored by the 3-D arms for a like-for-like comparison;
+[`scripts/analyze_crown_metrics.R`](../scripts/analyze_crown_metrics.R) unions
+`crown_metrics_results.csv` (CHM arms) with `crown_metrics_3d_results.csv` (3-D
+arms) and pools per algorithm across the requested sites.
+
+*Results pending regeneration (run the command above on a data-equipped machine).*
+
+---
+
 ## Reproduce
 
 ```sh
@@ -324,6 +389,15 @@ Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK CORES=4 \
 # -> work/neon/<SITE>/crown_metrics_results.csv  (one row per matched tree:
 #    site, plot, algo, crown_class, individualID, d_eq, d_caliper, area,
 #    field_maxCD, field_ninetyCD), plus the pooled RMSE tables on stdout.
+
+# 3-D instance-segmenter crown arm (Li 2012 / ptrees / AMS3D; issue #30).
+# Native clips at SJER+SOAP+TEAK; reuses the cached frozen clips + ground truth
+# (no LiDAR re-download). Writes the NEW crown_metrics_3d_results.csv:
+Rscript scripts/crown_metrics_3d.R SITES=SJER,SOAP,TEAK CORES=8 TOL=4
+# -> work/neon/<SITE>/crown_metrics_3d_results.csv
+# Then union the CHM (+3-D, +TreeisoNet) arms and pool per algorithm:
+Rscript scripts/analyze_crown_metrics.R SITES=SJER,SOAP,TEAK
+# -> work/neon/crown_compare_tables.md
 
 # TreeisoNet treeOff crown arm (SOAP, GPU; needs gpu/setup_treeisonet_env.sh):
 Rscript scripts/detect_treeisonet_crowns.R SITE=SOAP PLOTS=ALL CONF=0.22

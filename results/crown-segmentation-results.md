@@ -14,13 +14,13 @@ dedicated sections below). A SOAP-only TreeisoNet
 deep-model section below. Driver:
 [`scripts/crown_metrics_sweep.R`](../scripts/crown_metrics_sweep.R). Sites: NEON
 SJER (open oak savanna), SOAP (mixed conifer), TEAK (red-fir). Last run:
-2026-06-05.*
+2026-06-12.*
 
 ---
 
 ## TL;DR
 
-- **One detector, five crowns, on a shared CHM.** Tree-tops are detected once
+- **One detector, many crowns, on a shared CHM.** Tree-tops are detected once
   per plot (`locate_trees(lmf, ws=ws_factory(0.10))` on a pit-free CHM at 0.5 m)
   and reused as the seed set for every seeded segmenter. lasR `region_growing`
   cannot take an external point set as seeds, so it is seeded by injecting the
@@ -29,16 +29,18 @@ SJER (open oak savanna), SOAP (mixed conifer), TEAK (red-fir). Last run:
   set (81–94% of seeds within 0.5 m of a shared top), so the crown differences
   are a growing-rule effect on a shared surface and seed set, not a seed
   confound. 225 field stems matched across 40 plots (SJER 22, SOAP 87,
-  TEAK 116).
-- **lasR `region_growing` still tracks NEON crown diameter best, but the
-  margin is narrow once the seed confound is removed.** Pooled over all sites it
-  has the lowest RMSE/MAE/bias on both diameter definitions. Equivalent-circle
-  diameter vs `ninetyCrownDiameter`: RMSE 2.62 m, R² +0.10 (dalponte2016 is a
-  close second, 2.70 m / R² +0.05). Max-caliper vs `maxCrownDiameter`:
-  RMSE 3.72 m, R² −0.14 — best of the five but **no method reaches a positive
-  R² on the caliper definition**. The earlier "only method with positive R² on
-  either definition" claim no longer holds: it rested on lasR's old independent
-  seed set/CHM and shrinks to a modest lead on a fair shared-seed footing.
+  TEAK 116). Beyond the original five CHM segmenters the benchmark now adds a
+  `th_cr` random walker (#35), a marker-controlled watershed (#32),
+  multichm-seeded lidR variants (#31), a native-to-1 pt/m² density ladder (#33),
+  and three point-cloud 3-D segmenters (#30); see the Conclusion.
+- **With a per-crown stop rule, the random walker — not lasR — is the most
+  accurate classical arm, though the field is tight.** `random_walker_thcr`
+  (#35) has the lowest pooled RMSE on _both_ definitions (`d_eq` 2.42 m,
+  `d_caliper` 3.57 m), just ahead of lasR `region_growing` (2.62 / 3.72) and
+  dalponte2016 (2.70 / 4.43); four arms sit within 0.3 m on `d_eq`. **No method
+  reaches a positive R² on the caliper (widest-axis) definition.** The earlier
+  "lasR tracks best" / "only method with positive R²" claims rested on lasR's
+  old independent seed set and no longer hold on the shared-seed footing.
 - **The random walker ran successfully** (sparse Dirichlet solve via `Matrix`,
   sub-second per plot, never timed out) but the pure-argmax arm **underperforms**:
   like the marker-free watershed it over-grows crowns into a full Voronoi-style
@@ -721,7 +723,7 @@ and its detection is poor, so n is limited to its matches.
 The five arms above all delineate crowns on a **CHM**. The model-benchmark
 **detection** arms — lidR Li 2012, lidRplugins ptrees (Vega 2014), and AMS3D
 (`crownsegmentr` adaptive mean shift) — already run on the same native frozen
-normalized clips but were only ever scored for *detection* (apex recall), never
+normalized clips but were only ever scored for _detection_ (apex recall), never
 for crown diameter. This section closes that gap by crown-scoring those 3-D
 point-instance segmenters head-to-head with the CHM controls.
 
@@ -736,7 +738,7 @@ reusing the verbatim invocation from its detection arm
 [`detect_lidrplugins_sweep.R`](../scripts/detect_lidrplugins_sweep.R),
 [`detect_ams3d_sweep.R`](../scripts/detect_ams3d_sweep.R)). From the resulting
 per-point instance labels (`seg@data` `treeID` / `crown_id`) two artefacts are
-derived from the *same* labelling:
+derived from the _same_ labelling:
 
 1. **Crown diameter** via `crown_diameter_table()` (`model_bench_lib.R`,
    `min_pts=5`): per instance the **2-D convex hull** of its points gives
@@ -799,7 +801,7 @@ the same plot set** scored by the 3-D arms for a like-for-like comparison;
 `crown_metrics_results.csv` (CHM arms) with `crown_metrics_3d_results.csv` (3-D
 arms) and pools per algorithm across the requested sites.
 
-*Regenerated 2026-06-12 — SJER+SOAP+TEAK, native density, CORES=1.*
+_Regenerated 2026-06-12 — SJER+SOAP+TEAK, native density, CORES=1._
 
 **Equivalent-circle `d_eq` vs `ninetyCrownDiameter`**
 
@@ -826,6 +828,55 @@ On `d_eq` the CHM controls still lead (RMSE 2.62/2.70 vs 2.97/3.03), but on
 and R² (−0.24/−0.18 vs −0.62/−0.14): the point-hull estimator tracks the widest
 axis better while the dissolved-CHM polygon over-grows it. n is not matched
 across arms (the 3-D arms reach 1.4–2.1× more stems), so read RMSE alongside n.
+
+---
+
+## Conclusion and recommendations
+
+Six findings across the arms now in this benchmark:
+
+1. **A per-crown stop rule makes the random walker the most accurate classical
+   arm.** The argmax random walker was the worst arm (`d_eq` RMSE 3.19 m); the
+   `TH_CR=0.55` truncation (#35) cuts it to 2.42 m — the lowest of any arm on
+   both definitions (`d_caliper` 3.57 m) — just ahead of lasR `region_growing`
+   (2.62 / 3.72) and dalponte2016 (2.70 / 4.43). The margins are small (four
+   arms within 0.3 m on `d_eq`), so adding a stop rule matters more than the
+   choice among the leaders.
+
+2. **Better tops give better crowns.** multichm seeds (#31) beat the lmf control
+   on both lidR segmenters (dalponte `d_eq` 2.70 to 2.47, silva 2.79 to 2.44)
+   and match ~1.5× more stems (225 to 330) by reaching crowns the lmf tops miss.
+   Detection and delineation are decoupled, yet detection quality here clearly
+   propagates into crown-width accuracy.
+
+3. **Crown width is robust to point density.** Across the native-to-1 pt/m²
+   ladder (#33), pooled RMSE stays flat or improves slightly (dalponte `d_eq`
+   2.70 to 2.37–2.47, lasR 2.62 to 2.41), bias shrinking as the CHM smooths.
+   Once the pit-free CHM resolves the dominant surface, crown width survives
+   sparsity that collapses understory _detection_ recall over the same range —
+   a width product tolerates far sparser data than a stem count.
+
+4. **The 3-D point segmenters have a different, complementary error profile.**
+   AMS3D and ptrees (#30) _under_-estimate width (bias −0.5 to −1.0 m) where the
+   CHM arms over-grow, reach 1.4–2.1× more stems, and beat the CHM controls on
+   the `d_caliper` (widest-axis) definition; li2012 over-segments badly
+   (`d_eq` 5.23 m) and is not recommended. They trade a small `d_eq` penalty for
+   sub-canopy reach and better caliper tracking.
+
+5. **Widest-axis tracking stays hard, and over-grow is the main failure mode.**
+   No arm reaches a positive R² on `d_caliper` vs `maxCrownDiameter`.
+   Marker-controlled watershed (#32) curbs the marker-free over-grow (bias
+   +2.31 to +1.64 m) but still trails the region growers. Always compare `d_eq`
+   to `ninetyCrownDiameter` and `d_caliper` to `maxCrownDiameter`, never cross
+   them.
+
+6. **Practical recommendation.** For an equivalent-width (`ninetyCrownDiameter`)
+   product, use a pit-free CHM with `random_walker_thcr` or lasR
+   `region_growing`, seeded from multichm where density allows; it holds down to
+   ~1 pt/m². When sub-canopy reach or widest-axis accuracy matters, add a 3-D
+   point segmenter (AMS3D or ptrees) as a complementary arm. So far the
+   deep-model arms have not matched the classical arms on crown diameter
+   (TreeisoNet here; SegmentAnyTree and ForestFormer3D pending under #34).
 
 ---
 

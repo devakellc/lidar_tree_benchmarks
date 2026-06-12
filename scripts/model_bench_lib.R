@@ -194,6 +194,22 @@ seed_for <- function(site, plot, rung) {
   as.integer(h %% 2^31)
 }
 
+## ---- canonical on-disk path for a frozen (site, plot, rung) cell ----------
+# SINGLE source of truth for the frozen-clip directory layout, shared by the
+# writer (frozen_clip) and every reader (e.g. crown_metrics_sweep's
+# frdens_by_rung). out_root is whatever the caller passed to frozen_clip (the
+# detection ladder passes d/neon/<SITE>/frozen, so the realized layout is
+# out_root/<SITE>/<plot>/<rung> -- the site segment intentionally appears under
+# out_root). rung = NA (or "native") collapses to the "native" segment, exactly
+# as frozen_clip writes it. Keeping both sides on this one helper means a reader
+# path can never silently drift from the writer path again (the bug that left
+# the issue #33 density-robustness PNGs un-emitted).
+frozen_dir <- function(out_root, site, plot, rung) {
+  seg <- if (length(rung) != 1L || is.na(rung) || identical(rung, "native"))
+    "native" else as.character(rung)
+  file.path(out_root, site, plot, seg)
+}
+
 ## ---- frozen clip provider: one decimated set -> two variants + DTM -------
 # Decimates the plot clip ONCE (seeded by site/plot/rung), then derives both the
 # raw-with-ground and the normalized variant from that SAME decimated set, plus
@@ -202,7 +218,7 @@ seed_for <- function(site, plot, rung) {
 # densities, or NULL if the clip is unusable.
 frozen_clip <- function(ctg, site, plot, rung, cx, cy, core_half, out_root,
                         buffer = 25) {
-  rdir <- file.path(out_root, site, plot, ifelse(is.na(rung), "native", rung))
+  rdir <- frozen_dir(out_root, site, plot, rung)
   fp <- list(rawground   = file.path(rdir, "clip_rawground.laz"),
              normalized  = file.path(rdir, "clip_normalized.laz"),
              dtm         = file.path(rdir, "ground_dtm.tif"),

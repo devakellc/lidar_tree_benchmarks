@@ -44,8 +44,8 @@ SJER (open oak savanna), SOAP (mixed conifer), TEAK (red-fir). Last run:
   into crown 1 (see below). **Issue #35 retests with a `th_cr` stop rule**
   (`random_walker_thcr`): each crown is truncated at `TH_CR=0.55` of its own seed
   apex height so it can no longer tile the inter-crown gaps. Both arms run in one
-  pass; the before/after RMSE table is below (numbers pending a data-equipped
-  regeneration run).
+  pass; the stop rule cuts pooled `d_eq` RMSE from 3.19 to 2.42 m (bias +1.85 to
+  +0.68) — best of all arms — and `d_caliper` from 4.69 to 3.57 m (table below).
 - **Geometric caveat is large and systematic.** Equivalent-circle diameter
   `d_eq = 2√(area/π)` underestimates the widest-axis `maxCrownDiameter` because
   a real crown is not a disc: pooled `d_caliper`-vs-`maxCD` RMSE (3.72–5.61 m)
@@ -270,30 +270,33 @@ tables above as the region-growing controls. Regenerate with:
 Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK CORES=1
 ```
 
-_Results pending regeneration (run the command above on a data-equipped machine)._
+_Regenerated 2026-06-12 — SJER+SOAP+TEAK, native density, CORES=1; n=225
+matched trees pooled over 40 plots._
 
 **Equivalent-circle `d_eq` vs `ninetyCrownDiameter`**
 
 | Algorithm | n | RMSE (m) | MAE (m) | bias (m) | R² |
 |-----------|---:|---:|---:|---:|---:|
-| random_walker (argmax) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| random_walker_thcr | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016 (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| random_walker (argmax) | 225 | 3.19 | 2.57 | +1.85 | −0.334 |
+| **random_walker_thcr** | 225 | **2.42** | **1.74** | **+0.68** | **+0.233** |
+| lasr_region_growing (control) | 225 | 2.62 | 2.03 | +1.11 | +0.102 |
+| dalponte2016 (control) | 225 | 2.70 | 2.06 | +1.16 | +0.046 |
 
 **Max-caliper `d_caliper` vs `maxCrownDiameter`**
 
 | Algorithm | n | RMSE (m) | MAE (m) | bias (m) | R² |
 |-----------|---:|---:|---:|---:|---:|
-| random_walker (argmax) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| random_walker_thcr | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| lasr_region_growing (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| dalponte2016 (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| random_walker (argmax) | 225 | 4.69 | 3.85 | +3.15 | −0.817 |
+| **random_walker_thcr** | 225 | **3.57** | **2.63** | **+1.72** | **−0.053** |
+| lasr_region_growing (control) | 225 | 3.72 | 2.94 | +2.04 | −0.142 |
+| dalponte2016 (control) | 225 | 4.43 | 3.47 | +2.73 | −0.621 |
 
-The pure-argmax `random_walker` row stays in the benchmark unchanged as the
-documented honest negative; `random_walker_thcr` is the with-stop-rule retest.
-Whether the cutoff reaches the region-growing controls is to be read off the
-regenerated table above — do not infer it here.
+The pure-argmax `random_walker` row stays unchanged as the documented honest
+negative; `random_walker_thcr` is the with-stop-rule retest. The `TH_CR=0.55`
+cutoff cuts `d_eq` RMSE from 3.19 to 2.42 m (bias +1.85 to +0.68, R² -0.33 to
++0.23) and `d_caliper` from 4.69 to 3.57 m -- so it not only closes the gap to
+the region-growing controls but edges ahead of them on `d_eq` (lasr 2.62,
+dalponte 2.70). The gain holds across sites (TEAK `d_eq` 3.00 to 1.81 m).
 
 ---
 

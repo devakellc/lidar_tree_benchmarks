@@ -185,3 +185,91 @@ apply_thcr_cutoff <- function(out_lab, chm_vals, lab_height, th_cr = 0.55) {
   out[fg[drop]] <- 0L
   out
 }
+
+## ---- marker-controlled (seeded) watershed on a CHM (issue #32) ------------
+# The marker-FREE watershed in #7 (lidR/EBImage, th_tree=2) finds its own basins
+# from CHM minima and systematically over-grows crowns (pooled bias +2.31 m on
+# d_eq). The approach doc (sec 6) instead recommends a MARKER-controlled
+# watershed: each detected treetop is a basin marker, so exactly one crown grows
+# per seed -- no spurious extra basins, and a crown is keyed by the treeID of its
+# seed (not matched back by containment).
+#
+# seeds_to_marker_raster() rasterizes a seed point set into an integer label
+# image aligned to `chm`: cell of seed i (terra::cellFromXY) carries label
+# treeID[i]; all other cells are 0. When two seeds fall in one cell the first
+# seed wins (mirrors the random_walker() seed-collision rule). NA-cell seeds
+# (off the CHM extent) are dropped. Returns an integer vector in CHM cell order
+# (length == ncell(chm)); 0 == no marker.
+seeds_to_marker_raster <- function(chm, seed_xy, treeID) {
+  stopifnot(nrow(seed_xy) == length(treeID))
+  n   <- terra::ncell(chm)
+  lab <- integer(n)                       # 0 = no marker
+  if (!length(treeID)) return(lab)
+  cells <- terra::cellFromXY(chm, seed_xy)
+  for (i in seq_along(cells)) {
+    ci <- cells[i]
+    if (is.na(ci)) next                   # seed off the CHM extent
+    if (lab[ci] == 0L) lab[ci] <- as.integer(treeID[i])   # first seed wins
+  }
+  lab
+}
+
+## Priority-flood seeded watershed. imager::watershed(img, seeds) does exactly
+## this priority-flood from a labelled seed image, but imager is not installed in
+## this environment (verified at runtime in crown_metrics_sweep.R), so we run the
+## flood directly on the CHM. Each marker cell starts a basin; the canopy mask is
+## flooded in order of DESCENDING CHM height (a frontier always grows downhill
+## from ridges, the watershed convention), and each unlabelled canopy pixel is
+## claimed by the FIRST basin to reach it. A canopy pixel that no marker can
+## reach (a seed-less island, disconnected from every marker over the mask) stays
+## background -- like random_walker(), "floodable" does not mean "force-labelled".
+##
+## Inputs: `chm` SpatRaster, `markers` integer vector in CHM cell order
+## (0 = none, k = label, e.g. from seeds_to_marker_raster), `hmin` canopy
+## threshold (m). Returns an integer label vector in CHM cell order (0 =
+## background) -- caller writes it onto a copy of `chm` to polygonize. Pure
+## (no I/O); the 4-neighbour frontier uses base R only.
+priority_flood_watershed <- function(chm, markers, hmin = 2) {
+  nr <- nrow(chm); nc <- ncol(chm); n <- nr * nc
+  stopifnot(length(markers) == n)
+  vals  <- terra::values(chm, mat = FALSE)
+  canopy <- is.finite(vals) & vals >= hmin
+  lab <- integer(n)
+  seeds <- which(markers != 0L & canopy)     # only markers on the canopy mask
+  if (!length(seeds)) return(lab)
+  lab[seeds] <- markers[seeds]
+  # frontier = unlabelled canopy neighbours of the labelled set, processed
+  # highest-CHM-first so basins meet along the canopy valleys between crowns.
+  # rowcol arithmetic on the linear cell index (terra: cell = (row-1)*nc + col).
+  row_of <- function(cell) ((cell - 1L) %/% nc) + 1L
+  col_of <- function(cell) ((cell - 1L) %%  nc) + 1L
+  neighbours <- function(cell) {
+    rr <- row_of(cell); cc <- col_of(cell)
+    out <- integer(0)
+    if (rr > 1L)  out <- c(out, cell - nc)   # up
+    if (rr < nr)  out <- c(out, cell + nc)   # down
+    if (cc > 1L)  out <- c(out, cell - 1L)   # left
+    if (cc < nc)  out <- c(out, cell + 1L)   # right
+    out
+  }
+  # initial frontier: unlabelled canopy neighbours of any seed cell
+  front <- unique(unlist(lapply(seeds, neighbours)))
+  front <- front[canopy[front] & lab[front] == 0L]
+  enq   <- logical(n); enq[front] <- TRUE     # in-frontier guard (no dup work)
+  while (length(front)) {
+    # pop the highest-CHM frontier cell (descending flood from the ridges)
+    j  <- which.max(vals[front])
+    cell <- front[j]; front <- front[-j]; enq[cell] <- FALSE
+    if (lab[cell] != 0L) next                 # already claimed (defensive)
+    # claim from the highest labelled neighbour (steepest-ascent basin)
+    nb  <- neighbours(cell)
+    lnb <- nb[lab[nb] != 0L]
+    if (length(lnb)) {
+      lab[cell] <- lab[lnb[which.max(vals[lnb])]]
+      # enqueue this cell's still-unlabelled canopy neighbours
+      add <- nb[canopy[nb] & lab[nb] == 0L & !enq[nb]]
+      if (length(add)) { front <- c(front, add); enq[add] <- TRUE }
+    }
+  }
+  lab
+}

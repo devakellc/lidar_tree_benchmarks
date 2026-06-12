@@ -122,9 +122,15 @@ run_main <- function() {
   # preserves the schema the crown arm reads.
   inst_dir <- file.path(nd, "segmentanytree_instances")
   dir.create(inst_dir, recursive = TRUE, showWarnings = FALSE)
-  persist_instances <- function(src, tag) {
+  instance_candidates <- function(plot, tag) {
+    file.path(inst_dir, paste0(plot, "_", tag, c(".laz", ".las")))
+  }
+  has_persisted_instance <- function(plot, tag) {
+    any(file.exists(instance_candidates(plot, tag)))
+  }
+  persist_instances <- function(src, plot, tag) {
     if (is.null(src) || is.na(src) || !file.exists(src)) return(invisible())
-    dst <- file.path(inst_dir, sprintf("%s_%s.laz", pid, tag))
+    dst <- file.path(inst_dir, sprintf("%s_%s.laz", plot, tag))
     tryCatch(file.copy(src, dst, overwrite = TRUE), error = function(e) FALSE)
     invisible()
   }
@@ -150,7 +156,10 @@ run_main <- function() {
       else if (is.na(native_pdens) || rung >= native_pdens) next
       tag  <- ifelse(is.na(rung), "native", as.character(rung))
       key <- cell_key(SITE, pid, tag)
-      if (key %in% done) { nskip <- nskip + 1L; next }
+      if (key %in% done && has_persisted_instance(pid, tag)) {
+        nskip <- nskip + 1L
+        next
+      }
       stem <- sprintf("sat_%s_%s", pid, tag)
       ply  <- file.path(batch_in, paste0(stem, ".ply"))
       # Absolute-UTM double PLY (lossless); SAT does its own XY localization.
@@ -176,7 +185,7 @@ run_main <- function() {
         # it, .find_las recovers it under the same tempdir).
         if (!is.null(det_abs)) {
           src <- if (file.exists(olas)) olas else .find_las(tempdir(), cell$stem)
-          persist_instances(src, cell$tag)
+          persist_instances(src, pid, cell$tag)
         }
         list(cell = cell, det_abs = det_abs)
     }
@@ -192,7 +201,7 @@ run_main <- function() {
           if (!is.na(las)) {
             det_abs <- read_instances_laz(las, id_field = ID_FIELD)
             # Persist the batch-merged LAS for the #34 crown arm (same schema).
-            if (!is.null(det_abs)) persist_instances(las, cell$tag)
+            if (!is.null(det_abs)) persist_instances(las, pid, cell$tag)
           }
         }
         if (!is.null(det_abs)) list(cell = cell, det_abs = det_abs)

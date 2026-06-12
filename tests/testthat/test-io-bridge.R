@@ -57,6 +57,34 @@ test_that("read_instances_laz checks schema before accepting an empty LAS", {
   expect_null(read_instances_laz(f, id_field = "treeID"))
 })
 
+## ---- full labelled-table reader (#34 deep-model crown arm) ---------------
+test_that("read_instance_points_laz keeps the full table, maps id 0 -> NA", {
+  # two instances + one unassigned (PredInstance 0) point; absolute UTM coords
+  e0 <- 320000; n0 <- 4100000
+  dt <- data.frame(X = c(e0, e0 + 0.1, e0 + 4, n0 * 0 + e0 + 50),
+                   Y = c(n0, n0 + 0.1, n0,     n0 + 50),
+                   Z = c(27, 14, 26, 3),
+                   PredInstance = c(1L, 1L, 2L, 0L))
+  las <- lidR::LAS(data.frame(X = dt$X, Y = dt$Y, Z = dt$Z))
+  sf::st_crs(las) <- 32611L
+  las <- lidR::add_lasattribute(las, dt$PredInstance, "PredInstance", "instance")
+  f <- tempfile(fileext = ".laz"); lidR::writeLAS(las, f)
+  pts <- read_instance_points_laz(f, id_field = "PredInstance")
+  expect_identical(names(pts), c("X", "Y", "Z", "crown_id"))
+  expect_equal(nrow(pts), 4L)                       # full table, nothing dropped
+  expect_true(is.na(pts$crown_id[pts$Z == 3]))      # the 0 label became NA
+  # downstream reduce_instances drops the NA, yielding the two real apexes
+  det <- reduce_instances(pts, id_col = "crown_id")
+  expect_equal(nrow(det), 2L)
+  expect_setequal(det$z, c(27, 26))
+})
+
+test_that("read_instance_points_laz is strict: missing id field -> NULL", {
+  las <- lidR::LAS(data.frame(X = c(1, 2), Y = c(1, 2), Z = c(5, 6)))
+  f <- tempfile(fileext = ".laz"); lidR::writeLAS(las, f)
+  expect_null(read_instance_points_laz(f, id_field = "PredInstance"))
+})
+
 ## ---- LAZ <-> PLY bridge (#19) --------------------------------------------
 
 # Build a LAZ on disk with optional extra per-point attributes, return its path.

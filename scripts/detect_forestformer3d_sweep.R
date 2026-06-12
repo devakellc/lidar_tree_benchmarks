@@ -73,6 +73,15 @@ run_main <- function() {
   cat(sprintf("[%s] forestformer3d plots: %d (image=%s spacing=%g merge_tol=%g)\n",
               SITE, length(keep), IMAGE, SPACING, MERGE_TOL))
 
+  # Durable per-point instance dir the #34 crown-diameter arm
+  # (crown_metrics_deepmodel.R) consumes: the merged per-cylinder labelled LAZ
+  # (UserData = block, PointSourceID = per-cylinder instance id) for each
+  # successful (plot, rung) is persisted here as <plot>_<rung>.laz so the crown arm
+  # can re-derive ff3d_crown_table (dedup_blocks + crown_diameter_table +
+  # instance_apex) from the SAME labelling without re-running the container.
+  inst_dir <- file.path(nd, "forestformer3d_instances")
+  dir.create(inst_dir, recursive = TRUE, showWarnings = FALSE)
+
   out <- list()
   for (pid in keep) {                       # SERIAL -- one GPU
     ci <- pc[pc$plotID == pid, ][1, ]
@@ -113,6 +122,13 @@ run_main <- function() {
                    gpus = "all", timeout = TIMEOUT,
                    label = sprintf("%s/%s", pid, tag))
       if (is.null(det_abs)) next            # container crash/schema -> skip cell
+      # Persist the merged per-cylinder labelled LAZ for the #34 crown arm before
+      # the next rung reuses out_laz in tempdir (same UserData/PointSourceID schema
+      # ff3d_collapse just read, so the crown arm reads it identically).
+      if (file.exists(out_laz))
+        tryCatch(file.copy(out_laz,
+                           file.path(inst_dir, sprintf("%s_%s.laz", pid, tag)),
+                           overwrite = TRUE), error = function(e) FALSE)
       det <- agl_guard(det_abs, prep$dtm)
       if (is.null(det)) next                # wholesale off-DTM (frame bug) -> skip
       sc <- tryCatch(score_plot(stems, det, tol_xy = TOL, core_cx = cx,

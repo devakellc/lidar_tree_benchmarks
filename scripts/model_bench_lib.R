@@ -103,6 +103,23 @@ instance_apex <- function(pts, id_col = "crown_id",
   data.frame(id = ap$ID, x = ap$x, y = ap$y, z = ap$z)
 }
 
+## ---- FF3D dedup -> crown-diameter glue (#M8 / #34) -----------------------
+# Stacked per-cylinder labelled points (block, inst, X, Y, Z) -> the cross-block
+# deduped table (dedup_blocks, global_id) -> the SAME two crown artefacts the
+# 3-D arm derives from a single labelling, keyed by `global_id`:
+#   $diam : crown_diameter_table(id_col = "global_id", min_pts)
+#   $apex : instance_apex(id_col = "global_id")
+# dedup_blocks merges cross-block apex duplicates ONLY (never launders the
+# model's within-cylinder over-segmentation), so the diameters are per-tree
+# (one row per global_id), not per-cylinder. Returns 0-row $diam/$apex when
+# nothing is assigned. The driver feeds $diam + $apex straight into
+# score_crowns_against_field; the test asserts per-global_id diameters.
+ff3d_crown_table <- function(pts, merge_tol = 2.0, min_pts = 5) {
+  rel <- dedup_blocks(pts, merge_tol = merge_tol)
+  list(diam = crown_diameter_table(rel, id_col = "global_id", min_pts = min_pts),
+       apex = instance_apex(rel, id_col = "global_id"))
+}
+
 ## ---- crown-diameter scoring glue (#30) -----------------------------------
 # Pure helper shared by the 3-D crown-diameter arms (Li 2012 / ptrees / AMS3D)
 # and reusable by any point-instance segmenter. Given:

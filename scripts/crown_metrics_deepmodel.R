@@ -64,7 +64,7 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 # Reads (read-only): work/neon/<SITE>/{ground_truth_stems.csv,plot_centroids.csv},
 #   the cached field-crown widths work/neon/<SITE>/vst/<site>_vst_allyears.rds,
 #   the cached frozen clips' ground DTM
-#   work/neon/<SITE>/frozen/<plot>/<rung>/ground_dtm.tif (reused, never
+#   work/neon/<SITE>/frozen/<SITE>/<plot>/<rung>/ground_dtm.tif (reused, never
 #   regenerated), and the persisted instance clouds above.
 # Writes (NEW per-model files, never overwrites the #7/#30 CSVs):
 #   work/neon/<SITE>/segmentanytree_crown_metrics.csv
@@ -169,6 +169,12 @@ instance_path <- function(idir, pid, rung) {
   if (length(hit)) hit[1] else NA_character_
 }
 
+# Match model_bench_lib.R::frozen_clip(), whose callers pass
+# out_root = work/neon/<SITE>/frozen and which writes out_root/<SITE>/<plot>/<rung>.
+frozen_dtm_path <- function(nd, site, pid, rung) {
+  file.path(nd, "frozen", site, pid, rung, "ground_dtm.tif")
+}
+
 ## ---- per-plot deep-model crown benchmark ---------------------------------
 # For one model and one plot: for every rung with a persisted instance cloud,
 # load (diam, apex) from the SAME labelling, convert the apex z to AGL via the
@@ -194,7 +200,7 @@ run_plot_model <- function(site, pid, mname, model, pc, gt, fc, nd) {
     if (is.null(sg)) next                           # unreadable/schema -> skip
     if (!nrow(sg$apex)) next                        # ran-but-empty -> no crowns
     # The cached frozen DTM lives alongside the clip the cloud was inferred on.
-    dtm <- file.path(nd, "frozen", pid, rung, "ground_dtm.tif")
+    dtm <- frozen_dtm_path(nd, site, pid, rung)
     if (!file.exists(dtm)) next                     # no DTM -> cannot AGL-gate
     apex_agl <- tryCatch(det_to_agl(sg$apex, dtm), error = function(e) NULL)
     if (is.null(apex_agl) || !nrow(apex_agl)) next  # all apexes off-DTM -> skip

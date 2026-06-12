@@ -21,8 +21,8 @@ SJER (open oak savanna), SOAP (mixed conifer), TEAK (red-fir). Last run:
   per plot (`locate_trees(lmf, ws=ws_factory(0.10))` on a pit-free CHM at 0.5 m)
   and reused as the seed set for every seeded segmenter. lasR `region_growing`
   cannot take an external point set as seeds, so it is seeded by injecting the
-  *same* lidR pit-free CHM into the lasR pipeline (`load_raster`) and running
-  `local_maximum_raster` with the *same* `ws` — yielding a near-identical seed
+  _same_ lidR pit-free CHM into the lasR pipeline (`load_raster`) and running
+  `local_maximum_raster` with the _same_ `ws` — yielding a near-identical seed
   set (81–94% of seeds within 0.5 m of a shared top), so the crown differences
   are a growing-rule effect on a shared surface and seed set, not a seed
   confound. 225 field stems matched across 40 plots (SJER 22, SOAP 87,
@@ -37,11 +37,15 @@ SJER (open oak savanna), SOAP (mixed conifer), TEAK (red-fir). Last run:
   either definition" claim no longer holds: it rested on lasR's old independent
   seed set/CHM and shrinks to a modest lead on a fair shared-seed footing.
 - **The random walker ran successfully** (sparse Dirichlet solve via `Matrix`,
-  sub-second per plot, never timed out) but **underperforms**: like the
-  marker-free watershed it over-grows crowns into a full Voronoi-style tiling of
-  the canopy, inflating diameter (pooled bias +1.85 m / +3.15 m). Seed-less
-  canopy islands are now dropped to background instead of being mislabelled into
-  crown 1 (see below). It is an honest negative result, documented below.
+  sub-second per plot, never timed out) but the pure-argmax arm **underperforms**:
+  like the marker-free watershed it over-grows crowns into a full Voronoi-style
+  tiling of the canopy, inflating diameter (pooled bias +1.85 m / +3.15 m).
+  Seed-less canopy islands are dropped to background instead of being mislabelled
+  into crown 1 (see below). **Issue #35 retests with a `th_cr` stop rule**
+  (`random_walker_thcr`): each crown is truncated at `TH_CR=0.55` of its own seed
+  apex height so it can no longer tile the inter-crown gaps. Both arms run in one
+  pass; the before/after RMSE table is below (numbers pending a data-equipped
+  regeneration run).
 - **Geometric caveat is large and systematic.** Equivalent-circle diameter
   `d_eq = 2√(area/π)` underestimates the widest-axis `maxCrownDiameter` because
   a real crown is not a disc: pooled `d_caliper`-vs-`maxCD` RMSE (3.72–5.61 m)
@@ -69,7 +73,7 @@ crown diameter are processed at **native density** (no decimation;
    - lasR `region_growing(pit_fill, seed, th_tree=2, th_seed=0.45, th_cr=0.55,
      max_cr=10)` (Dalponte growing rule, mirroring
      [`segment_lasr.R`](../scripts/segment_lasr.R)). lasR's `region_growing` takes
-     a seed *stage*, not the shared `ttops` point set, so to grow from the same
+     a seed _stage_, not the shared `ttops` point set, so to grow from the same
      seeds the **same lidR pit-free CHM** is injected into the lasR pipeline via
      `load_raster` and `local_maximum_raster` is run on it with the **same**
      `ws`. The resulting seed set matches the shared `locate_trees` tops closely
@@ -87,6 +91,10 @@ crown diameter are processed at **native density** (no decimation;
      Pixels in a canopy component that no seed reaches get ~0 probability for
      every marker; those are assigned to background, not forced into crown 1 by
      argmax.
+   - **Random walker + `th_cr` stop rule** (`random_walker_thcr`, issue #35) —
+     the _same_ solve, with each crown then truncated to background below
+     `TH_CR=0.55` of its own seed apex height (see "The `th_cr` stop rule"
+     below). Added so the before/after comparison runs on one identical seed set.
 3. **Two diameter estimates per crown** (report both, see caveat):
    - `d_eq = 2√(area/π)` (equivalent-circle) → compared to `ninetyCrownDiameter`.
    - `d_caliper = max pairwise polygon-vertex distance` (max axis) → compared to
@@ -95,7 +103,7 @@ crown diameter are processed at **native density** (no decimation;
    `greedy_match` (global nearest-distance 1:1, position tol 4 m + height gate,
    from `sweep_lib.R`). Each matched stem's crown is the crown owning that seed
    (by `treeID` for the seeded lidR methods; by nearest seed-carrying crown for
-   lasR/watershed/RW). The pair *(detected diameter, field diameter)* feeds the
+   lasR/watershed/RW). The pair _(detected diameter, field diameter)_ feeds the
    error stats.
 5. **Scoring.** Pooled over matched trees (sum of squared errors / n, never a
    mean of per-plot rates): RMSE, MAE, bias (detected − field), R².
@@ -138,7 +146,7 @@ mean 4.94 m (median 4.30, range 1.1–17.6); `maxCrownDiameter` mean 5.97 m
 **lasR `region_growing` has the lowest RMSE/MAE/bias on both definitions, but
 the lead is narrow on a shared seed set.** On `d_eq` it edges dalponte2016
 (2.62 vs 2.70 m; R² +0.10 vs +0.05) — both are positive-R², so lasR is no longer
-the *only* method above zero there. On `d_caliper` it is best of the five
+the _only_ method above zero there. On `d_caliper` it is best of the five
 (3.72 m) but **every method, lasR included, has a negative R²**; the old
 positive caliper R² was an artefact of lasR's previous independent seed set and
 CHM. Its conservative growing rule (`max_cr=10` data-units, stopped at
@@ -223,18 +231,69 @@ area. They are now dropped to **background** (NA) instead. The effect on the
 pooled metrics is small (seed-less islands are rare in these dense-seed plots),
 but the labelling is now correct rather than relying on "always solvable".
 
-**But it is not the right growing rule for crown diameter here.** Like a
-marker-controlled watershed, the random walker partitions the *entire* canopy
+**But pure argmax is not the right growing rule for crown diameter here.** Like
+a marker-controlled watershed, the random walker partitions the _entire_ canopy
 mask among the seeds (every canopy pixel is argmax-assigned to some marker),
 producing a complete Voronoi-on-the-CHM tiling with no "stop growing" criterion.
 On NEON's open-to-moderate canopies that systematically over-grows crowns into
 the gaps between stems, inflating diameter (pooled bias +1.85 m on `d_eq`,
 +3.15 m on `d_caliper`) and giving negative R². It lands close to the
 marker-free watershed, which is the expected behaviour for a label-everything
-partition. A height-percentile cutoff per crown (analogous to lidR's `th_cr`)
-or a no-grow band of low-probability pixels would likely close most of the gap,
-but as specified — pure argmax labelling — it is an over-segmenter for this
-metric. Kept in the benchmark as an honest negative result.
+partition. The original `#7` doc noted that a height-percentile cutoff per crown
+(analogous to lidR's `th_cr`) would likely close most of the gap; issue #35
+retests exactly that.
+
+### The `th_cr` stop rule (issue #35)
+
+We add a second arm, **`random_walker_thcr`**, that reuses the _same_ Dirichlet
+solve (one solve per plot, no extra cost) and applies a per-crown height cutoff,
+approach (b) of the issue: after argmax labelling, a pixel assigned to crown k is
+dropped to **background** when its CHM height falls below `TH_CR * seed_height_k`,
+with `TH_CR = 0.55` to match dalponte2016's `th_cr`. Truncating each crown at a
+fraction of _its own_ seed apex height stops it creeping down into the inter-crown
+gaps that inflate diameter, without changing the marker probabilities themselves.
+The cutoff is a pure relabel (`apply_thcr_cutoff()` in
+[`sweep_lib.R`](../scripts/sweep_lib.R), unit-tested in
+`tests/testthat/test-rw-thcr.R`): labels with no seed apex height are left
+untouched, and the existing seed-less-island rule (rmax ≤ 1e-8 → background) is
+unchanged, so the two rules compose. A crown truncated out of existence simply
+contributes no diameter (its matched stem is skipped), which is the correct
+behaviour for a stem whose canopy signal sits entirely below the cutoff.
+
+#### Before/after pooled RMSE — random walker
+
+The two RW arms run in one pass so the comparison is on identical seeds, CHM, and
+matched stems; `lasr_region_growing` and `dalponte2016` are repeated from the
+tables above as the region-growing controls. Regenerate with:
+
+```sh
+Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK CORES=1
+```
+
+_Results pending regeneration (run the command above on a data-equipped machine)._
+
+**Equivalent-circle `d_eq` vs `ninetyCrownDiameter`**
+
+| Algorithm | n | RMSE (m) | MAE (m) | bias (m) | R² |
+|-----------|---:|---:|---:|---:|---:|
+| random_walker (argmax) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| random_walker_thcr | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| lasr_region_growing (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| dalponte2016 (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+
+**Max-caliper `d_caliper` vs `maxCrownDiameter`**
+
+| Algorithm | n | RMSE (m) | MAE (m) | bias (m) | R² |
+|-----------|---:|---:|---:|---:|---:|
+| random_walker (argmax) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| random_walker_thcr | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| lasr_region_growing (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| dalponte2016 (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+
+The pure-argmax `random_walker` row stays in the benchmark unchanged as the
+documented honest negative; `random_walker_thcr` is the with-stop-rule retest.
+Whether the cutoff reaches the region-growing controls is to be read off the
+regenerated table above — do not infer it here.
 
 ---
 
@@ -245,13 +304,13 @@ systematic:
 
 - `d_eq = 2√(area/π)` is the diameter of a circle with the crown's area. It is
   the natural match to `ninetyCrownDiameter` (a width-like measure) and is
-  *insensitive to crown shape*.
+  _insensitive to crown shape_.
 - `d_caliper` is the crown polygon's widest chord (max pairwise vertex
   distance). It is the natural match to `maxCrownDiameter`, which NEON defines
-  as the crown's **widest axis**, but it is *biased high* for any non-convex or
+  as the crown's **widest axis**, but it is _biased high_ for any non-convex or
   elongated polygon and amplifies polygonization jaggedness.
 
-Empirically, for the *same* crowns, `d_caliper`-vs-`maxCD` RMSE (3.72–5.61 m
+Empirically, for the _same_ crowns, `d_caliper`-vs-`maxCD` RMSE (3.72–5.61 m
 pooled) runs ~1.4–1.6× the `d_eq`-vs-`ninetyCD` RMSE (2.62–3.42 m), and field
 `maxCD` (mean 5.97 m) exceeds field `ninetyCD` (mean 4.94 m) by ~1 m — the same
 "widest axis > equivalent width" relationship. **Compare like with like:** use
@@ -310,7 +369,7 @@ Caveats specific to this arm: (a) geometry is the **convex hull of canopy
 points**, not the dissolved CHM polygon the classical arms use — not identical
 estimators, though both target the same field diameter; (b) seeds are the
 detection arm's `conf = 0.22` tops (few seeds → some under-segmentation, which
-feeds the large-crown tail); (c) only TreeisoNet's *detected* trees contribute,
+feeds the large-crown tail); (c) only TreeisoNet's _detected_ trees contribute,
 and its detection is poor, so n is limited to its matches.
 
 ---
@@ -319,8 +378,12 @@ and its detection is poor, so n is limited to its matches.
 
 ```sh
 export CLAUDE_JOB_DIR=$(pwd)/work
-Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK CORES=4 \
-        TOL=4 RES=0.5 A=0.10
+# Both random-walker arms (argmax + th_cr) and the four CHM controls run in one
+# pass. Use CORES=1: lasR exec under mclapply transiently fork-drops dense-native
+# cells, so CORES=1 is the reproducible-pooling setting for the lasR arm.
+Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK CORES=1
+# (parameter defaults TOL=4 RES=0.5 A=0.10; add CORES=4 only when not relying on
+#  the lasR_region_growing arm for exact pooling)
 # -> work/neon/<SITE>/crown_metrics_results.csv  (one row per matched tree:
 #    site, plot, algo, crown_class, individualID, d_eq, d_caliper, area,
 #    field_maxCD, field_ninetyCD), plus the pooled RMSE tables on stdout.

@@ -154,3 +154,34 @@ score_plot <- function(stems, det, tol_xy = 4.0, core_cx, core_cy,
   }
   base
 }
+
+## ---- th_cr-style stop rule for the random-walker crown labels -------------
+# The Grady (2006) random walker on a CHM is a *label-everything* partitioner:
+# every canopy pixel is argmax-assigned to some seed, so crowns tile the whole
+# canopy mask with no "stop growing" criterion (issue #7's honest negative).
+# This applies a per-crown height cutoff analogous to lidR dalponte2016's `th_cr`
+# (default 0.55): a pixel assigned to crown k is dropped to background when its
+# CHM height falls below `th_cr * seed_height_k` — i.e. the crown is truncated at
+# a fraction of its own seed's apex height, so it can no longer creep down into
+# the inter-crown gaps that inflate diameter.
+#
+# Pure relabel: takes the argmax label vector `out_lab` (0 = background, k = crown
+# k, CHM-cell order), the per-pixel CHM heights `chm_vals` (same length/order),
+# and a numeric vector `lab_height` mapping label index k -> its seed apex height
+# (lab_height[k]); returns a relabelled integer vector of the same length with
+# below-cutoff pixels set to 0. Labels with no seed height (NA, or index beyond
+# `lab_height`) are left untouched (no cutoff applied), and pixels already at
+# background stay background.
+apply_thcr_cutoff <- function(out_lab, chm_vals, lab_height, th_cr = 0.55) {
+  stopifnot(length(out_lab) == length(chm_vals))
+  out <- as.integer(out_lab)
+  fg  <- which(out > 0L)
+  if (!length(fg)) return(out)
+  k   <- out[fg]
+  hk  <- ifelse(k <= length(lab_height), lab_height[k], NA_real_)
+  cut <- th_cr * hk
+  # drop only where a finite cutoff exists AND the pixel sits below it
+  drop <- is.finite(cut) & is.finite(chm_vals[fg]) & chm_vals[fg] < cut
+  out[fg[drop]] <- 0L
+  out
+}

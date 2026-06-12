@@ -27,6 +27,8 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 #   - lasR region_growing (Dalponte growing rule; seeded from the SAME shared CHM
 #       and ws as the other segmenters -- see SHARED-SEED note below)
 #   - random_walker       (Grady 2006, seeded; sparse Dirichlet solve via Matrix)
+#   - random_walker_thcr  (same RW solve, crowns truncated per-seed at TH_CR of
+#       the seed apex height -- the issue #35 stop rule; before/after in one run)
 #
 # SHARED-SEED note (lasR region_growing): lasR's region_growing API takes a seed
 # *stage* (a local_maximum producer), not an external point set, so the shared
@@ -70,6 +72,8 @@ RES   <- as.numeric(if (is.null(A$RES))  0.5  else A$RES)
 VWF_A <- as.numeric(if (is.null(A$A))    0.10 else A$A)
 MINTREES <- 6
 RW_TIMEOUT <- 120          # seconds; random-walker solve is timeboxed per plot
+TH_CR      <- 0.55         # random_walker_thcr stop rule: drop crown-k pixels
+                           # below TH_CR * seed-k apex height (matches dalponte2016)
 
 ## ---- random walker (Grady 2006) on a CHM raster --------------------------
 # Builds the 4-neighbour pixel graph over canopy pixels (Z>=hmin), Gaussian edge
@@ -266,20 +270,44 @@ run_plot <- function(site, pid, ctg, pc, gt, tmpdir) {
   if (!is.null(w_r)) crowns_by_algo[["watershed_markerfree"]] <-
       list(geom = crown_geom(w_r), by = "contain")
 
-  ## random walker, timeboxed
+  ## random walker, timeboxed. Two arms share one solve:
+  ##  - random_walker      : pure argmax labelling (issue #7 honest negative)
+  ##  - random_walker_thcr : the same labels truncated per crown at TH_CR * seed
+  ##    apex height (issue #35 stop rule, analogous to dalponte2016 th_cr) so a
+  ##    crown can no longer creep into the inter-crown gaps that inflate diameter.
   rw_g <- tryCatch({
     setTimeLimit(elapsed = RW_TIMEOUT, transient = TRUE)
     on.exit(setTimeLimit(elapsed = Inf), add = TRUE)
     rw <- random_walker(chm, cbind(seed_x, seed_y), beta = 1.0, hmin = 2)
     if (is.null(rw)) NULL else {
       g <- crown_geom(rw$raster)
-      # rw label = index of the seed cell (in CHM order); map label -> ttop row
-      list(geom = g, seed_cell = rw$seed_cell, seed_label = rw$seed_label)
+      # rw crown label k = k-th distinct seed cell. Map each label to its seed
+      # apex height: seed_cell[i] (input-seed order, == ttops order) carries
+      # label seed_label[i]; ttops row i has apex seed_z[i]. First seed in a
+      # shared cell wins the label, mirroring random_walker()'s own assignment.
+      L <- if (nrow(g) || length(rw$seed_label)) max(rw$seed_label, 0L) else 0L
+      lab_height <- rep(NA_real_, L)
+      for (i in seq_along(rw$seed_label)) {
+        lab <- rw$seed_label[i]
+        if (lab >= 1L && is.na(lab_height[lab])) lab_height[lab] <- seed_z[i]
+      }
+      lab_vec  <- terra::values(rw$raster, mat = FALSE)
+      lab_vec[is.na(lab_vec)] <- 0L
+      chm_vals <- terra::values(chm, mat = FALSE)
+      cut_lab  <- apply_thcr_cutoff(lab_vec, chm_vals, lab_height, th_cr = TH_CR)
+      rw_cut   <- rw$raster
+      terra::values(rw_cut) <- ifelse(cut_lab > 0L, cut_lab, NA_integer_)
+      list(geom = g, geom_thcr = crown_geom(rw_cut),
+           seed_cell = rw$seed_cell, seed_label = rw$seed_label)
     }
   }, error = function(e) NULL)
   if (!is.null(rw_g) && !is.null(rw_g$geom))
     crowns_by_algo[["random_walker"]] <-
       list(geom = rw_g$geom, by = "rw", seed_cell = rw_g$seed_cell,
+           seed_label = rw_g$seed_label, chm = chm)
+  if (!is.null(rw_g) && !is.null(rw_g$geom_thcr))
+    crowns_by_algo[["random_walker_thcr"]] <-
+      list(geom = rw_g$geom_thcr, by = "rw", seed_cell = rw_g$seed_cell,
            seed_label = rw_g$seed_label, chm = chm)
 
   ## ----- match SEED treetops to field stems (position + height gate) ------

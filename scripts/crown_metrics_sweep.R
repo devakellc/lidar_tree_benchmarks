@@ -15,19 +15,22 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 # Crown-segmentation benchmark for GitHub issue #7.
 #
 # The density-ladder sweep scores DETECTION (treetops) only. This script closes
-# the loop on CROWN DELINEATION: it seeds five crown segmenters from the SAME
+# the loop on CROWN DELINEATION: it seeds the crown segmenters from the SAME
 # detected treetops, computes per-tree crown area -> diameter, and scores the
 # diameter against NEON field crown diameter (maxCrownDiameter /
 # ninetyCrownDiameter), pooled by crown class.
 #
 # Segmenters (all on the per-plot pit-free CHM, native density):
-#   - lidR dalponte2016   (seeded region growing)
-#   - lidR silva2016      (seeded Voronoi-like)
-#   - lidR watershed      (marker-FREE; crowns matched to stems by containment)
-#   - lasR region_growing (Dalponte growing rule; seeded from the SAME shared CHM
+#   - lidR dalponte2016    (seeded region growing)
+#   - lidR silva2016       (seeded Voronoi-like)
+#   - lidR watershed       (marker-FREE; crowns matched to stems by containment)
+#   - watershed_seeded     (marker-CONTROLLED watershed -- issue #32; the shared
+#       ttops are basin markers so exactly one crown grows per seed, keyed by
+#       treeID. priority_flood_watershed() in sweep_lib.R; imager unavailable here)
+#   - lasR region_growing  (Dalponte growing rule; seeded from the SAME shared CHM
 #       and ws as the other segmenters -- see SHARED-SEED note below)
-#   - random_walker       (Grady 2006, seeded; sparse Dirichlet solve via Matrix)
-#   - random_walker_thcr  (same RW solve, crowns truncated per-seed at TH_CR of
+#   - random_walker        (Grady 2006, seeded; sparse Dirichlet solve via Matrix)
+#   - random_walker_thcr   (same RW solve, crowns truncated per-seed at TH_CR of
 #       the seed apex height -- the issue #35 stop rule; before/after in one run)
 #
 # SHARED-SEED note (lasR region_growing): lasR's region_growing API takes a seed
@@ -269,6 +272,23 @@ run_plot <- function(site, pid, ctg, pc, gt, tmpdir) {
   w_r <- tryCatch(lidR::watershed(chm, th_tree = 2)(), error = function(e) NULL)
   if (!is.null(w_r)) crowns_by_algo[["watershed_markerfree"]] <-
       list(geom = crown_geom(w_r), by = "contain")
+
+  ## marker-CONTROLLED (seeded) watershed (issue #32): the SHARED ttops are the
+  ## basin markers, so exactly one crown grows per seed and each crown is keyed by
+  ## its seed's treeID (by="treeID", like dalponte2016) -- no containment rematch
+  ## and no spurious extra basins like the marker-free arm above. imager::watershed
+  ## does this priority-flood from a labelled seed image but imager is not installed
+  ## here, so priority_flood_watershed() (sweep_lib.R) runs the flood directly on
+  ## the CHM (descending-height flood; seed-less canopy islands -> background).
+  ws_seeded <- tryCatch({
+    markers <- seeds_to_marker_raster(chm, cbind(seed_x, seed_y), seed_id)
+    lab     <- priority_flood_watershed(chm, markers, hmin = 2)
+    ws_r    <- chm
+    terra::values(ws_r) <- ifelse(lab > 0L, lab, NA_integer_)
+    crown_geom(ws_r)
+  }, error = function(e) NULL)
+  if (!is.null(ws_seeded)) crowns_by_algo[["watershed_seeded"]] <-
+      list(geom = ws_seeded, by = "treeID")
 
   ## random walker, timeboxed. Two arms share one solve:
   ##  - random_walker      : pure argmax labelling (issue #7 honest negative)

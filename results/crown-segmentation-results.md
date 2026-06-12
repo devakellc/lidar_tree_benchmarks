@@ -3,9 +3,11 @@
 *Closes the loop on [GitHub issue #7](https://github.com/agrigoriev/lidar_tree_benchmarks/issues/7):
 the density-ladder sweep scores tree-top **detection** only; this benchmark
 delineates **crowns** from the detected tops and scores their diameter against
-NEON field crown diameter. Five segmenters are seeded from the **same** detected
-tops, run per plot on a native-density pit-free CHM, matched back to field
-stems, and scored RMSE/MAE/bias/R² by crown class. A SOAP-only TreeisoNet
+NEON field crown diameter. Several segmenters are seeded from the **same**
+detected tops, run per plot on a native-density pit-free CHM, matched back to
+field stems, and scored RMSE/MAE/bias/R² by crown class (the original #7 tables
+score five; issues #35 and #32 add the `random_walker_thcr` and `watershed_seeded`
+arms in dedicated sections below). A SOAP-only TreeisoNet
 `treeOff` crown arm is unioned by
 [`scripts/analyze_crown_metrics.R`](../scripts/analyze_crown_metrics.R) into the
 deep-model section below. Driver:
@@ -70,6 +72,18 @@ crown diameter are processed at **native density** (no decimation;
      Voronoi-like.
    - lidR `watershed(chm, th_tree=2)` — **marker-free** (EBImage); crowns
      matched to stems by polygon containment of the seed point.
+   - **Marker-controlled (seeded) watershed** (`watershed_seeded`, issue #32) —
+     the same shared `ttops` are rasterized into a seed-label image aligned to
+     the CHM (`seeds_to_marker_raster`, label k = the seed's `treeID`) and a
+     priority-flood watershed grows **exactly one basin per marker** over the
+     canopy mask (Z ≥ 2 m), so crowns are keyed by `treeID` (no containment
+     rematch, no spurious extra basins). `imager::watershed(img, seeds)` does
+     this priority-flood from a labelled seed image but imager is not installed
+     in this environment, so `priority_flood_watershed()`
+     ([`sweep_lib.R`](../scripts/sweep_lib.R)) runs the flood directly on the CHM
+     (descending-height flood; seed-less canopy islands → background, like the
+     random walker). This is the marker-**controlled** path the approach doc
+     (sec 6) recommends, distinct from the marker-**free** EBImage arm above.
    - lasR `region_growing(pit_fill, seed, th_tree=2, th_seed=0.45, th_cr=0.55,
      max_cr=10)` (Dalponte growing rule, mirroring
      [`segment_lasr.R`](../scripts/segment_lasr.R)). lasR's `region_growing` takes
@@ -294,6 +308,79 @@ The pure-argmax `random_walker` row stays in the benchmark unchanged as the
 documented honest negative; `random_walker_thcr` is the with-stop-rule retest.
 Whether the cutoff reaches the region-growing controls is to be read off the
 regenerated table above — do not infer it here.
+
+---
+
+## Marker-controlled (seeded) watershed (issue #32)
+
+Issue #7's watershed arm is **marker-free**: lidR/EBImage `watershed(th_tree=2)`
+finds its own basins from CHM minima, which on these open-to-moderate NEON
+canopies systematically over-grows crowns (the largest pooled bias of the five
+arms, **+2.31 m on `d_eq`**, +4.21 m on `d_caliper`). The approach doc
+([`treetop-detection-approach.md`](../docs/treetop-detection-approach.md) sec 6)
+recommends instead a **marker-controlled** watershed — treetops as basin
+markers, exactly one crown per seed — which #7 never scored against NEON crown
+diameter. This arm (`watershed_seeded`) closes that gap.
+
+**How it differs from the marker-free arm.** The shared `ttops` (the same seed
+set every other arm uses) are rasterized into a seed-label image aligned to the
+CHM (`seeds_to_marker_raster()`: the seed's CHM cell carries its `treeID`; a
+shared cell goes to the first seed; off-extent seeds are dropped). A
+priority-flood watershed then grows one basin per marker over the canopy mask
+(Z ≥ 2 m), flooding in descending CHM height so basins meet along the canopy
+valleys between crowns. Because every basin is anchored to a marker, crowns are
+keyed by `treeID` (matched like dalponte2016, `by="treeID"`) — no containment
+rematch, and no spurious extra basins from spurious CHM minima. A canopy island
+that no marker can reach over the mask stays **background**, the same
+"floodable ≠ force-labelled" rule the random walker uses for seed-less islands.
+
+**Library note.** `imager::watershed(img, seeds)` implements exactly this
+priority-flood from a labelled seed image and would be the natural choice, but
+`imager` is **not installed** in this environment (verified with
+`requireNamespace`); EBImage's `watershed` is the marker-**free** algorithm
+already used by the #7 arm, so it cannot serve here. The flood is therefore
+implemented directly on the CHM in `priority_flood_watershed()`
+([`sweep_lib.R`](../scripts/sweep_lib.R), unit-tested in
+`tests/testthat/test-watershed-seeded.R`) — a 4-neighbour, highest-CHM-first
+frontier in base R, pure (no I/O), so it needs no `work/` data to test.
+
+### Pooled RMSE — seeded vs marker-free watershed and the region-growing controls
+
+All arms run in one pass so the comparison is on identical seeds, CHM, and
+matched stems. `dalponte2016` and `lasr_region_growing` are repeated from the
+tables above as the region-growing controls; `watershed_markerfree` is #7's
+documented negative. Regenerate with:
+
+```sh
+Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK CORES=1
+```
+
+_Results pending regeneration (run the command above on a data-equipped machine)._
+
+**Equivalent-circle `d_eq` vs `ninetyCrownDiameter`**
+
+| Algorithm | n | RMSE (m) | MAE (m) | bias (m) | R² |
+|-----------|---:|---:|---:|---:|---:|
+| watershed_seeded | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| watershed_markerfree | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| lasr_region_growing (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| dalponte2016 (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+
+**Max-caliper `d_caliper` vs `maxCrownDiameter`**
+
+| Algorithm | n | RMSE (m) | MAE (m) | bias (m) | R² |
+|-----------|---:|---:|---:|---:|---:|
+| watershed_seeded | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| watershed_markerfree | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| lasr_region_growing (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| dalponte2016 (control) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+
+The expectation under test is that anchoring one basin per marker curbs the
+marker-free arm's over-grow (it can no longer spawn a basin in every CHM
+minimum), narrowing the bias toward the region-growing controls. Whether it
+reaches them — and whether one-basin-per-seed under-segments where the marker-free
+arm over-segments — is to be read off the regenerated table above; do not infer
+it here.
 
 ---
 

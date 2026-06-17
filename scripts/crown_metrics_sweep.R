@@ -59,7 +59,10 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 # better tops translate into better crown-width RMSE. lasR region_growing CANNOT
 # be re-seeded from multichm -- its API takes a seed *stage*, not an external
 # point set, and there is no matching lasR local_maximum that emits the multichm
-# tops -- so it (and watershed/random_walker) stay lmf-seeded as the control.
+# tops -- so it stays lmf-seeded as the control. Marker/raster arms that accept
+# explicit seed points can be re-seeded, so random_walker_thcr now also has
+# `_seedmultichm` and `_seedsegmentanytree` arms when those seed files are
+# available.
 # multichm_seed_tops() lives in sweep_lib.R (pure, unit-tested).
 #
 # SHARED-SEED note (lasR region_growing): lasR's region_growing API takes a seed
@@ -189,7 +192,8 @@ random_walker <- function(chm, seeds_xy, beta = 1.0, hmin = 2, eps = 1e-6) {
   out_lab[vidx[sidx]] <- seed_label_local
   out_lab[vidx[uidx]] <- lab_u
   r_out <- chm; terra::values(r_out) <- ifelse(out_lab > 0, out_lab, NA_integer_)
-  list(raster = r_out, seed_cell = cells, seed_label = cell_lab)
+  list(raster = r_out, seed_cell = cells, seed_label = cell_lab,
+       keep_seed = keep_seed)
 }
 
 ## ---- crown geometry from a label raster ----------------------------------
@@ -232,6 +236,26 @@ field_crowns <- function(site) {
   ai1 <- ai[!duplicated(ai$individualID),
             c("individualID", "maxCrownDiameter", "ninetyCrownDiameter")]
   ai1
+}
+
+## ---- cached SegmentAnyTree treetop seeds ---------------------------------
+# SegmentAnyTree is expensive to rerun. For seed-sensitivity tests, reuse the
+# cached apex CSVs written by export_best_treetops_geojson.R / the detector
+# cache. These are treetop points only, not crown geometries; random_walker grows
+# crowns from them on the same CHM used by the other crown arms.
+segmentanytree_cached_tops <- function(site, pid, rung_lbl, crs) {
+  nd <- file.path(d, "neon", site)
+  f <- file.path(nd, "best_treetop_cache",
+                 sprintf("segmentanytree__%s__%s__%s__imagesat-sm120-test.csv",
+                         site, pid, rung_lbl))
+  if (!file.exists(f)) return(NULL)
+  tt <- read.csv(f, stringsAsFactors = FALSE)
+  if (!all(c("x", "y", "z") %in% names(tt)) || !nrow(tt)) return(NULL)
+  keep <- is.finite(tt$x) & is.finite(tt$y) & is.finite(tt$z)
+  if (!any(keep)) return(NULL)
+  sf::st_as_sf(data.frame(treeID = seq_len(sum(keep)),
+                          X = tt$x[keep], Y = tt$y[keep], Z = tt$z[keep]),
+               coords = c("X", "Y", "Z"), crs = crs)
 }
 
 ## ---- per-(plot, rung) crown benchmark ------------------------------------
@@ -281,10 +305,10 @@ run_plot <- function(site, pid, rung, rung_lbl, ctg, pc, gt, tmpdir, froot) {
   ## frozen clip + CHM, so the segmenters are always seeded from density-
   ## appropriate tops (a sparser rung -> a coarser CHM-VWF/multichm top set, the
   ## #31 recommended per-rung choice). CHM-VWF lmf is the control seed for EVERY
-  ## arm; for the two lidR segmenters that accept an external `treetops` sf
-  ## (dalponte2016/silva2016) we ALSO run the issue #31 multichm seed (the best
-  ## classical detector on SOAP), tagged in the algo name (no schema change), so
-  ## the lmf-vs-multichm seed delta is available at each rung. multichm runs on
+  ## arm; for arms that accept explicit seed points we ALSO run the issue #31
+  ## multichm seed (the best classical detector on SOAP), tagged in the algo
+  ## name (no schema change), so the lmf-vs-multichm seed delta is available at
+  ## each rung. multichm runs on
   ## the point cloud at a density-derived res with the SAME ws as the lmf seeds,
   ## and its 2-D tops read their apex height from this rung's CHM
   ## (multichm_seed_tops in sweep_lib.R, frdens-gated by prep$frdens). The
@@ -293,14 +317,19 @@ run_plot <- function(site, pid, rung, rung_lbl, ctg, pc, gt, tmpdir, froot) {
   tt_mc <- tryCatch(
     multichm_seed_tops(las, chm, a = VWF_A, frdens = prep$frdens),
     error = function(e) NULL)
+  tt_sat <- tryCatch(
+    segmentanytree_cached_tops(site, pid, rung_lbl, sf::st_crs(ttops)),
+    error = function(e) NULL)
   # Each seed set carries its own (x,y,z,id) and its own greedy match to the field
-  # stems, so a multichm-seeded crown is matched via the multichm tops -- not via
+  # stems, so an alternative-seeded crown is matched via its own tops -- not via
   # the lmf tops -- and scored on the stems ITS OWN seeds found. The seedlmf set
   # reuses the shared seed_*/seed_id/lmf match computed below, so the seedlmf arms
   # remain bit-identical to the #7 control.
   seed_sets <- list(seedlmf = list(tops = ttops))
   if (!is.null(tt_mc) && nrow(tt_mc) > 0)
     seed_sets[["seedmultichm"]] <- list(tops = tt_mc)
+  if (!is.null(tt_sat) && nrow(tt_sat) > 0)
+    seed_sets[["seedsegmentanytree"]] <- list(tops = tt_sat)
 
   for (sk in names(seed_sets)) {
     st <- seed_sets[[sk]]$tops
@@ -313,15 +342,17 @@ run_plot <- function(site, pid, rung, rung_lbl, ctg, pc, gt, tmpdir, froot) {
       seed_sets[[sk]]$x, seed_sets[[sk]]$y, TOL,
       az = stems$height, bz = seed_sets[[sk]]$z)
 
-    d_r <- tryCatch(dalponte2016(chm, st, th_seed = 0.45, th_cr = 0.55,
-                                 max_cr = max_cr_px)(), error = function(e) NULL)
-    if (!is.null(d_r)) crowns_by_algo[[paste0("dalponte2016_", sk)]] <-
-        list(geom = crown_geom(d_r), by = "treeID", seed = sk)
+    if (sk %in% c("seedlmf", "seedmultichm")) {
+      d_r <- tryCatch(dalponte2016(chm, st, th_seed = 0.45, th_cr = 0.55,
+                                   max_cr = max_cr_px)(), error = function(e) NULL)
+      if (!is.null(d_r)) crowns_by_algo[[paste0("dalponte2016_", sk)]] <-
+          list(geom = crown_geom(d_r), by = "treeID", seed = sk)
 
-    s_r <- tryCatch(silva2016(chm, st, max_cr_factor = 0.6, exclusion = 0.3)(),
-                    error = function(e) NULL)
-    if (!is.null(s_r)) crowns_by_algo[[paste0("silva2016_", sk)]] <-
-        list(geom = crown_geom(s_r), by = "treeID", seed = sk)
+      s_r <- tryCatch(silva2016(chm, st, max_cr_factor = 0.6, exclusion = 0.3)(),
+                      error = function(e) NULL)
+      if (!is.null(s_r)) crowns_by_algo[[paste0("silva2016_", sk)]] <-
+          list(geom = crown_geom(s_r), by = "treeID", seed = sk)
+    }
   }
 
   ## lasR region_growing on the SAME shared CHM, seeded with the SAME ws.
@@ -374,50 +405,63 @@ run_plot <- function(site, pid, rung, rung_lbl, ctg, pc, gt, tmpdir, froot) {
   if (!is.null(ws_seeded)) crowns_by_algo[["watershed_seeded"]] <-
       list(geom = ws_seeded, by = "treeID")
 
-  ## random walker, timeboxed. Two arms share one solve:
+  ## random walker, timeboxed per seed set. Two arms share one solve:
   ##  - random_walker      : pure argmax labelling (issue #7 honest negative)
   ##  - random_walker_thcr : the same labels truncated per crown at TH_CR * seed
   ##    apex height (issue #35 stop rule, analogous to dalponte2016 th_cr) so a
   ##    crown can no longer creep into the inter-crown gaps that inflate diameter.
-  rw_g <- tryCatch({
-    setTimeLimit(elapsed = RW_TIMEOUT, transient = TRUE)
-    on.exit(setTimeLimit(elapsed = Inf), add = TRUE)
-    rw <- random_walker(chm, cbind(seed_x, seed_y), beta = 1.0, hmin = 2)
-    if (is.null(rw)) NULL else {
-      g <- crown_geom(rw$raster)
-      # rw crown label k = k-th distinct seed cell. Map each label to its seed
-      # apex height: seed_cell[i] (input-seed order, == ttops order) carries
-      # label seed_label[i]; ttops row i has apex seed_z[i]. First seed in a
-      # shared cell wins the label, mirroring random_walker()'s own assignment.
-      L <- if (nrow(g) || length(rw$seed_label)) max(rw$seed_label, 0L) else 0L
-      lab_height <- rep(NA_real_, L)
-      for (i in seq_along(rw$seed_label)) {
-        lab <- rw$seed_label[i]
-        if (lab >= 1L && is.na(lab_height[lab])) lab_height[lab] <- seed_z[i]
+  ## The historical lmf-seeded names stay unchanged. Alternative-seeded variants
+  ## are suffixed with their seed source and use their own seed matches.
+  for (sk in names(seed_sets)) {
+    ss <- seed_sets[[sk]]
+    rw_g <- tryCatch({
+      setTimeLimit(elapsed = RW_TIMEOUT, transient = TRUE)
+      on.exit(setTimeLimit(elapsed = Inf), add = TRUE)
+      rw <- random_walker(chm, cbind(ss$x, ss$y), beta = 1.0, hmin = 2)
+      if (is.null(rw)) NULL else {
+        g <- crown_geom(rw$raster)
+        # rw crown label k = k-th distinct seed cell. Map each label to its seed
+        # apex height: seed_cell[i] carries label seed_label[i]; keep_seed maps
+        # that filtered random-walker seed back to its original seed-set row.
+        # First seed in a
+        # shared cell wins the label, mirroring random_walker()'s own assignment.
+        L <- if ((!is.null(g) && nrow(g)) || length(rw$seed_label)) {
+          max(rw$seed_label, 0L)
+        } else {
+          0L
+        }
+        lab_height <- rep(NA_real_, L)
+        for (i in seq_along(rw$seed_label)) {
+          lab <- rw$seed_label[i]
+          z_i <- ss$z[rw$keep_seed[i]]
+          if (lab >= 1L && is.na(lab_height[lab])) lab_height[lab] <- z_i
+        }
+        lab_vec  <- terra::values(rw$raster, mat = FALSE)
+        lab_vec[is.na(lab_vec)] <- 0L
+        chm_vals <- terra::values(chm, mat = FALSE)
+        cut_lab  <- apply_thcr_cutoff(lab_vec, chm_vals, lab_height, th_cr = TH_CR)
+        rw_cut   <- rw$raster
+        terra::values(rw_cut) <- ifelse(cut_lab > 0L, cut_lab, NA_integer_)
+        list(geom = g, geom_thcr = crown_geom(rw_cut),
+             seed_cell = rw$seed_cell, seed_label = rw$seed_label,
+             keep_seed = rw$keep_seed)
       }
-      lab_vec  <- terra::values(rw$raster, mat = FALSE)
-      lab_vec[is.na(lab_vec)] <- 0L
-      chm_vals <- terra::values(chm, mat = FALSE)
-      cut_lab  <- apply_thcr_cutoff(lab_vec, chm_vals, lab_height, th_cr = TH_CR)
-      rw_cut   <- rw$raster
-      terra::values(rw_cut) <- ifelse(cut_lab > 0L, cut_lab, NA_integer_)
-      list(geom = g, geom_thcr = crown_geom(rw_cut),
-           seed_cell = rw$seed_cell, seed_label = rw$seed_label)
-    }
-  }, error = function(e) NULL)
-  if (!is.null(rw_g) && !is.null(rw_g$geom))
-    crowns_by_algo[["random_walker"]] <-
-      list(geom = rw_g$geom, by = "rw", seed_cell = rw_g$seed_cell,
-           seed_label = rw_g$seed_label, chm = chm)
-  if (!is.null(rw_g) && !is.null(rw_g$geom_thcr))
-    crowns_by_algo[["random_walker_thcr"]] <-
-      list(geom = rw_g$geom_thcr, by = "rw", seed_cell = rw_g$seed_cell,
-           seed_label = rw_g$seed_label, chm = chm)
+    }, error = function(e) NULL)
+    suffix <- if (identical(sk, "seedlmf")) "" else paste0("_", sk)
+    if (!is.null(rw_g) && !is.null(rw_g$geom))
+      crowns_by_algo[[paste0("random_walker", suffix)]] <-
+        list(geom = rw_g$geom, by = "rw", seed = sk,
+             seed_cell = rw_g$seed_cell, seed_label = rw_g$seed_label, chm = chm)
+    if (!is.null(rw_g) && !is.null(rw_g$geom_thcr))
+      crowns_by_algo[[paste0("random_walker_thcr", suffix)]] <-
+        list(geom = rw_g$geom_thcr, by = "rw", seed = sk,
+             seed_cell = rw_g$seed_cell, seed_label = rw_g$seed_label, chm = chm)
+  }
 
   ## ----- match SEED treetops to field stems (position + height gate) ------
-  ## The non-treeID arms (lasR/watershed/random_walker) and every seedlmf arm use
-  ## the shared lmf match `m`; a seedmultichm arm uses its own seed set's match
-  ## (seed_sets[[seed]]$match) so it is scored on the stems ITS tops found.
+  ## Lmf-only arms use the shared seedlmf match. Any arm carrying a seed field
+  ## uses that seed set's match, so alternative-seeded variants are scored on the
+  ## stems their own tops found.
   if (!seed_sets_have_match(seed_sets)) return(NULL)
 
   rows <- list()
@@ -425,8 +469,8 @@ run_plot <- function(site, pid, rung, rung_lbl, ctg, pc, gt, tmpdir, froot) {
     cg <- crowns_by_algo[[algo]]
     geom <- cg$geom
     if (is.null(geom) || nrow(geom) == 0) next
-    # which seed set this arm was grown from (the seedlmf/seedmultichm arms carry
-    # a "seed" field; the lasR/watershed/rw arms are lmf-only -> default to lmf).
+    # Which seed set this arm was grown from. Arms that carry a "seed" field use
+    # that match; lmf-only arms default to seedlmf.
     # Use [["seed"]] (exact match): cg$seed PARTIAL-matches the lasR arm's "seeds"
     # field and returns its coordinate matrix, making sk a vector that breaks
     # seed_sets[[sk]] with "no such index at level 1".

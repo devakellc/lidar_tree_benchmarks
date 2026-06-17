@@ -1,4 +1,4 @@
-# Cross-model density-ladder benchmark (SOAP)
+# Cross-model density-ladder benchmark (SOAP, with cross-site extensions)
 
 Cross-model synthesis (#R10) of every tree detector currently runnable on the
 NEON SOAP density ladder, scored on the same frozen clips by the same field-stem
@@ -10,6 +10,11 @@ as an additive native + 8 pts/m2 comparison.
 SegmentAnyTree (#M6 / #17) is no longer deferred: the rebuilt sm_120 Docker arm
 completed the full SOAP ladder and wrote 90 rows to
 `work/neon/SOAP/segmentanytree_results.csv` (18 plots x 5 rungs).
+TreeisoNet and SegmentAnyTree have also now completed the cross-site SJER and
+TEAK ladders: SJER wrote 39 rows per arm (8 plots, with one 8 pts/m2 cell
+skipped by the density guard) and TEAK wrote 100 rows per arm (20 plots x
+5 rungs). ForestFormer3D has now completed its native + 8 pts/m2 arm on all
+three sites: SJER wrote 15 rows, SOAP wrote 36 rows, and TEAK wrote 40 rows.
 
 Regenerate:
 
@@ -18,10 +23,13 @@ export CLAUDE_JOB_DIR=$(pwd)/work
 Rscript scripts/detect_ams3d_sweep.R       SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_lidrplugins_sweep.R SITE=SOAP PLOTS=ALL CORES=12
 Rscript scripts/detect_li2012_native.R     SITE=SOAP PLOTS=ALL CORES=12
-Rscript scripts/detect_treeisonet_sweep.R  VOXEL=0.8,0.8,2.0
-Rscript scripts/detect_segmentanytree_sweep.R SITE=SOAP IMAGE=sat-sm120-test CORES=2
-Rscript scripts/detect_forestformer3d_sweep.R SITE=SOAP REPO=<FF3D repo>
-Rscript scripts/analyze_model_benchmark.R  SITE=SOAP
+for SITE in SOAP SJER TEAK; do
+  Rscript scripts/detect_treeisonet_sweep.R        SITE=$SITE PLOTS=ALL VOXEL=0.8,0.8,2.0
+  Rscript scripts/detect_segmentanytree_sweep.R    SITE=$SITE PLOTS=ALL IMAGE=sat-sm120-test CORES=4
+  Rscript scripts/detect_forestformer3d_sweep.R    SITE=$SITE PLOTS=ALL REPO=<FF3D repo>
+  Rscript scripts/analyze_model_benchmark.R        SITE=$SITE
+done
+Rscript scripts/compare_model_sites.R
 ```
 
 ## What this is
@@ -49,14 +57,19 @@ Rscript scripts/analyze_model_benchmark.R  SITE=SOAP
 - **SegmentAnyTree is density-sensitive.** It remains competitive at 8 and
   4 pts/m2 (F1 0.43 and 0.45), then drops below CHM-VWF at 2 and 1 pts/m2.
   The lowest rung has high precision but very low recall.
+- **SegmentAnyTree now transfers across sites better than the other deep
+  point arm.** Native F1 is 0.48 on both SOAP and TEAK and 0.29 on SJER; SJER's
+  lower F1 is mostly precision-limited in the open savanna, not recall-limited.
 - **`multichm` is still the most stable classical ladder arm.** It beats CHM-VWF
   on F1 at every rung and keeps recall nearly flat across density.
-- **TreeisoNet is now a real competitor rather than the old failed run shown in
-  stale report text.** With the current result CSV it stays near F1 0.39-0.41
-  through native/8/4/2 and only weakens at rung 1.
-- **ForestFormer3D remains additive and weaker zero-shot on SOAP.** It trails
-  CHM-VWF and TreeisoNet in the native + 8 comparison, so the full-ladder
-  conclusions should not be inferred from FF3D.
+- **TreeisoNet is now a real SOAP competitor rather than the old failed run
+  shown in stale report text.** With the current SOAP result CSV it stays near
+  F1 0.39-0.41 through native/8/4/2 and only weakens at rung 1. The same arm
+  does not transfer well to SJER or TEAK in the current zero-shot run.
+- **ForestFormer3D is now a three-site native + 8 comparison, not a full ladder.**
+  It is more useful than TreeisoNet off SOAP (native F1 0.25 on SJER and 0.30 on
+  TEAK), but still trails CHM-VWF at native density on every site and should stay
+  outside the full-ladder conclusions.
 
 ## Generated Tables
 
@@ -201,14 +214,71 @@ The tables below are copied from
 | treeisonet | native | 11.78 | 18 | 232 | 0.60 | 0.29 | 0.39 | 0.72 | 0.62 | 0.33 |
 | treeisonet | 8 | 5.79 | 18 | 232 | 0.61 | 0.29 | 0.39 | 0.73 | 0.63 | 0.33 |
 
+## Cross-site deep-arm extension
+
+TreeisoNet and SegmentAnyTree now have full ladder outputs on SJER, SOAP, and
+TEAK. ForestFormer3D has native + 8 pts/m2 outputs on the same three sites. The
+generated per-site tables are:
+`work/neon/SJER/model_bench_tables.md`,
+`work/neon/SOAP/model_bench_tables.md`, and
+`work/neon/TEAK/model_bench_tables.md`.
+
+Result coverage:
+
+| site | TreeisoNet rows | SegmentAnyTree rows | ForestFormer3D rows | notes |
+| --- | --- | --- | --- | --- |
+| SJER | 39 | 39 | 15 | 8 plots; rung 8 has 7 cells after density guard |
+| SOAP | 90 | 90 | 36 | 18 plots; FF3D native + 8 only |
+| TEAK | 100 | 100 | 40 | 20 plots; FF3D native + 8 only |
+
+### Native density, deep arms x site
+
+| detector | site | frdens | n_plots | n_ref | recall | precision | F1 | rec_understory | n_understory |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| forestformer3d | SJER | 8.62 | 8 | 71 | 0.65 | 0.16 | 0.25 | 0.50 | 2 |
+| forestformer3d | SOAP | 11.78 | 18 | 232 | 0.42 | 0.20 | 0.27 | 0.20 | 45 |
+| forestformer3d | TEAK | 11.65 | 20 | 396 | 0.29 | 0.31 | 0.30 | 0.19 | 58 |
+| segmentanytree | SJER | 8.62 | 8 | 71 | 0.70 | 0.18 | 0.29 | 1.00 | 2 |
+| segmentanytree | SOAP | 11.78 | 18 | 232 | 0.66 | 0.38 | 0.48 | 0.49 | 45 |
+| segmentanytree | TEAK | 11.65 | 20 | 396 | 0.65 | 0.38 | 0.48 | 0.40 | 58 |
+| treeisonet | SJER | 8.62 | 8 | 71 | 0.11 | 0.06 | 0.07 | 0.00 | 2 |
+| treeisonet | SOAP | 11.78 | 18 | 232 | 0.60 | 0.29 | 0.39 | 0.33 | 45 |
+| treeisonet | TEAK | 11.65 | 20 | 396 | 0.13 | 0.12 | 0.12 | 0.02 | 58 |
+
+**Deep-arm readings.**
+
+- **SegmentAnyTree is the strongest full-ladder deep arm across the structure
+  gradient.** Native recall stays high from SJER to TEAK (0.70, 0.66, 0.65),
+  while precision rises with denser stem fields (0.18, 0.38, 0.38). Its native
+  F1 is essentially tied between SOAP and TEAK (0.48) and lower in SJER because
+  the open savanna produces many unmatched detections.
+- **SegmentAnyTree remains density-sensitive everywhere.** Native-to-rung-1 F1
+  drops 0.29 -> 0.23 on SJER, 0.48 -> 0.13 on SOAP, and 0.48 -> 0.07 on TEAK.
+  The 8 and 4 pts/m2 rungs are the useful sparse range; 1 pts/m2 is too sparse
+  for this zero-shot arm.
+- **TreeisoNet is site-specific in the current zero-shot setup.** It is stable
+  and competitive on SOAP (native F1 0.39; rung-1 F1 0.40), but it collapses on
+  SJER and TEAK (native F1 0.07 and 0.12; no meaningful rung-1 detections). The
+  current TreeisoNet conclusion should therefore be read as "works on SOAP" not
+  "general ALS transfer."
+- **ForestFormer3D is steadier than TreeisoNet off SOAP but remains weaker than
+  CHM-VWF.** Native F1 is 0.25 / 0.27 / 0.30 on SJER / SOAP / TEAK, versus
+  CHM-VWF's 0.32 / 0.38 / 0.37. At the 8 pts/m2 rung it is similar but still
+  below CHM-VWF on every site (0.25 / 0.31 / 0.31 versus 0.34 / 0.39 / 0.34).
+- **SJER understory remains too small for strong interpretation.** The SJER
+  understory count is only 2 stems, so the 1.00 SegmentAnyTree understory recall
+  at native density is reported for completeness but should not be compared
+  directly with SOAP/TEAK's larger understory samples.
+
 ## Cross-site structure gradient (SJER → SOAP → TEAK)
 
 The five classical arms (CHM-VWF, lmfauto, multichm, ptrees, AMS3D) were run on
 all three NEON sites across the full density ladder and pooled by
 `compare_model_sites.R` (each site equal-set-guarded to its own all-five-arm
 plot population: SJER 8 plots / 71 stems, SOAP 18 / 232, TEAK 20 / 396; SJER
-rung 8 keeps 7 plots after the guard). The deep GPU arms and Li 2012 remain
-SOAP-only.
+rung 8 keeps 7 plots after the guard). This section remains the classical-arm
+structure-gradient view; TreeisoNet, SegmentAnyTree, and ForestFormer3D are
+summarized in the deep-arm section above, while Li 2012 remains SOAP-only.
 
 **This is a structure gradient at matched density, not a density gradient.** All
 three native clouds sit at essentially the same density — ~18–19 all-return
@@ -274,5 +344,6 @@ writes `model_cross_site_summary.csv` and the per-arm + summary
 - Scoring reduces every model to apex detections against mapped stems. It does
   not evaluate point-level instance IoU or crown-shape quality.
 - The cross-site structure gradient (SJER → SOAP → TEAK) above extends the five
-  classical arms to all three sites; the deep arms (TreeisoNet, SegmentAnyTree,
-  ForestFormer3D) and Li 2012 remain SOAP-only.
+  classical arms to all three sites; TreeisoNet and SegmentAnyTree now also have
+  full SJER/SOAP/TEAK ladders. ForestFormer3D has SJER/SOAP/TEAK native + 8
+  results, and Li 2012 remains SOAP-only in this report.

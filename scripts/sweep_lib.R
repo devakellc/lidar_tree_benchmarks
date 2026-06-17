@@ -85,9 +85,9 @@ detect_lasr <- function(las_file, res, a, dens, smooth_below = 8) {
 # The crown benchmark (crown_metrics_sweep.R) normally seeds every segmenter
 # from one CHM-VWF lmf top set. The model benchmark shows `multichm` is the best
 # classical *detector* on SOAP (Eysn-style multi-layer CHM local maxima), so this
-# helper produces an ALTERNATIVE seed set the lidR segmenters (dalponte2016,
-# silva2016) can consume in place of the lmf tops, to test whether better tops
-# improve crown-width RMSE (detection and segmentation are decoupled).
+# helper produces an ALTERNATIVE seed set that external-seed crown arms can
+# consume in place of the lmf tops, to test whether better tops improve
+# crown-width RMSE (detection and segmentation are decoupled).
 #
 # multichm runs on the POINT CLOUD `las` (mirrors detect_multichm_sweep.R::
 # det_multichm_run) at a density-derived res and the SAME clamped variable window

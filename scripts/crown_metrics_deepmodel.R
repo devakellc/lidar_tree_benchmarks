@@ -69,7 +69,7 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 # Writes (NEW per-model files, never overwrites the #7/#30 CSVs):
 #   work/neon/<SITE>/segmentanytree_crown_metrics.csv
 #   work/neon/<SITE>/forestformer3d_crown_metrics.csv  (one row per matched tree,
-#   canonical cols: site, plot, algo, crown_class, individualID, d_eq, d_caliper,
+#   columns: site, plot, rung, algo, crown_class, individualID, d_eq, d_caliper,
 #   area, field_maxCD, field_ninetyCD; algo in {segmentanytree,forestformer3d}).
 suppressMessages({
   library(lidR); library(data.table); library(parallel)
@@ -206,7 +206,12 @@ run_plot_model <- function(site, pid, mname, model, pc, gt, fc, nd) {
     if (is.null(apex_agl) || !nrow(apex_agl)) next  # all apexes off-DTM -> skip
     r <- score_crowns_against_field(sg$diam, apex_agl, stems, fc, tol = TOL,
                                     site = site, plot = pid, algo = mname)
-    if (nrow(r)) rows[[length(rows) + 1]] <- r
+    if (nrow(r)) {
+      r$rung <- rung
+      rows[[length(rows) + 1]] <- r[, c("site", "plot", "rung",
+                                        setdiff(names(r), c("site", "plot", "rung"))),
+                                    drop = FALSE]
+    }
   }
   if (!length(rows)) return(NULL)
   do.call(rbind, rows)

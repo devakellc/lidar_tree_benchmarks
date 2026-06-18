@@ -1,3 +1,4 @@
+source(file.path("..", "..", "scripts", "sweep_lib.R"), local = TRUE)        # greedy_match
 source(file.path("..", "..", "scripts", "model_bench_lib.R"), local = TRUE)
 
 # FF3D dedup -> crown-diameter glue (#34). ff3d_crown_table composes the #M8
@@ -37,7 +38,6 @@ test_that("ff3d_crown_table: per-global_id diameters after cross-block dedup", {
 })
 
 test_that("ff3d_crown_table feeds score_crowns_against_field end to end", {
-  source(file.path("..", "..", "scripts", "sweep_lib.R"), local = TRUE)  # greedy_match
   ct <- ff3d_crown_table(synth_block_points(), merge_tol = 2.0, min_pts = 5)
   # a field stem sitting on the merged-C apex (40,40) at a height-consistent 14 m
   # (apex z=12 is within [0.5*14, 14+8]); carries crown_class + field diameters.

@@ -341,8 +341,14 @@ writes `model_cross_site_summary.csv` and the per-arm + summary
 - Deep arms are zero-shot on NEON ALS. These results measure transfer to sparse
   discrete-return airborne LiDAR, not performance at the dense ULS/UAS/TLS
   densities many source models were designed for.
-- Scoring reduces every model to apex detections against mapped stems. It does
-  not evaluate point-level instance IoU or crown-shape quality.
+- Scoring here reduces every model to apex detections against mapped stems; it
+  does not evaluate point-level instance IoU or crown-shape quality. The deep
+  arms' persisted per-point instance clouds are now also graded that way —
+  point-set IoU≥0.5, Coverage, and Panoptic Quality against a Voronoi-on-stems
+  reference — by the #V1 scorer in
+  [`instance-iou-pq-results.md`](instance-iou-pq-results.md), which finds the
+  apex-distance recall above overstates instance quality roughly two- to
+  threefold.
 - The cross-site structure gradient (SJER → SOAP → TEAK) above extends the five
   classical arms to all three sites; TreeisoNet and SegmentAnyTree now also have
   full SJER/SOAP/TEAK ladders. ForestFormer3D has SJER/SOAP/TEAK native + 8

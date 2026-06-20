@@ -8,10 +8,11 @@ detected tops, run per plot on a native-density pit-free CHM, matched back to
 field stems, and scored RMSE/MAE/bias/R² by crown class (the original #7 tables
 score five; issues #35 and #32 add the `random_walker_thcr` and `watershed_seeded`
 arms, and issue #31 adds a multichm-seeded variant of the lidR segmenters, in
-dedicated sections below). A SOAP-only TreeisoNet
-`treeOff` crown arm is unioned by
+dedicated sections below; issue #34 adds deep instance segmenters). A SOAP-only
+TreeisoNet `treeOff` crown arm and the deep instance segmenters SegmentAnyTree
+(#M6) and ForestFormer3D (#M8) are unioned by
 [`scripts/analyze_crown_metrics.R`](../scripts/analyze_crown_metrics.R) into the
-deep-model section below. Driver:
+summary tables where data exist. Driver:
 [`scripts/crown_metrics_sweep.R`](../scripts/crown_metrics_sweep.R). Sites: NEON
 SJER (open oak savanna), SOAP (mixed conifer), TEAK (red-fir). Last run:
 2026-06-12.*
@@ -718,6 +719,105 @@ and its detection is poor, so n is limited to its matches.
 
 ---
 
+## Deep instance segmenters: SegmentAnyTree, ForestFormer3D (issue #34)
+
+The two deep instance-segmentation **detection** arms — SegmentAnyTree
+([#M6](https://github.com/agrigoriev/lidar_tree_benchmarks/issues/17)) and
+ForestFormer3D
+([#M8](https://github.com/agrigoriev/lidar_tree_benchmarks/issues/18)) — already
+produce per-point instance labels on the **same** frozen clips the detection
+benchmark scored, but were never crown-scored. This section closes that gap by
+piping each model's instance labelling through the **same** #7/#30 crown-scoring
+harness (`crown_diameter_table` → `greedy_match` to field stems → `d_eq` /
+`d_caliper` vs the NEON columns), so they sit head-to-head with the classical CHM
+arms and the TreeisoNet negative result. Driver:
+[`scripts/crown_metrics_deepmodel.R`](../scripts/crown_metrics_deepmodel.R).
+
+The comparison **starts SOAP-native** — the site/rung where the GPU detection
+arms run today (SAT covers the SOAP density ladder; FF3D runs SOAP native + 8).
+The detection arms now persist their merged per-point instance cloud under
+`work/neon/<SITE>/{segmentanytree,forestformer3d}_instances/<plot>_<rung>.laz`,
+which is what this crown arm consumes; that persistence hook was added with this
+arm, so the SOAP instance clouds must be **regenerated** by re-running the
+detection arms before the crown CSVs can be produced (the earlier SOAP detection
+runs wrote only the `*_results.csv` apex/score rows and discarded the per-point
+cloud to tempdir). The arm extends to SJER + TEAK automatically once those sites'
+GPU instance clouds exist; a requested site/model with no persisted instance
+cloud is **skipped with a message, never fabricated**.
+
+### Method
+
+Both arms consume **persisted** per-point instance clouds (the script never runs
+a GPU container) and reuse the #30 glue verbatim:
+
+- **SegmentAnyTree** — the merged per-point LAS carries the instance label as
+  the `PredInstance` extra dim (`0` = non-tree, `1..N`; see
+  [`scripts/detect_segmentanytree_sweep.R`](../scripts/detect_segmentanytree_sweep.R)).
+  The full labelled table is read via `read_instance_points_laz(PredInstance)`
+  (the new full-table reader in
+  [`scripts/io_bridge.R`](../scripts/io_bridge.R), `0` → NA so it is dropped),
+  then `crown_diameter_table()` + `instance_apex()` come from that **same**
+  labelling. `algo = "segmentanytree"`.
+- **ForestFormer3D** — the merged per-cylinder labelled LAZ (`UserData` = block,
+  `PointSourceID` = per-cylinder instance id; see
+  [`scripts/detect_forestformer3d_sweep.R`](../scripts/detect_forestformer3d_sweep.R))
+  is stacked into `(block, inst, X, Y, Z)` and passed through the new
+  `ff3d_crown_table()` helper in
+  [`scripts/model_bench_lib.R`](../scripts/model_bench_lib.R): it runs
+  `dedup_blocks()` (the #M8 cross-block apex-cluster merge — which merges only
+  duplicate detections across overlapping cylinders and **never** launders the
+  model's within-cylinder over-segmentation), then derives
+  `crown_diameter_table(id_col = "global_id")` + `instance_apex(id_col =
+  "global_id")` so diameters are **per tree**, not per cylinder.
+  `algo = "forestformer3d"`.
+
+Both clouds keep **absolute UTM Z**, but the crown diameter (a horizontal X/Y
+convex hull) is invariant to the Z datum; only the apex z feeds the matching
+height gate, where the field heights are AGL. Each instance apex is therefore
+converted to AGL via the cached frozen clip's `ground_dtm.tif` (`det_to_agl`,
+the same transform the detection arms use) before `greedy_match`. Crown diameter
+is scored at **one rung per plot** (native by default) so the pooled table is
+one row per matched tree, exactly as #30 — mixing rungs would double-count a
+stem. Pooling is by **summed** squared errors (RMSE/MAE/bias/R²), never a mean of
+per-plot rates.
+
+Estimator caveat (same as #30): this is a **convex hull of the instance's
+points**, not the dissolved-CHM polygon the #7 classical arms use — not
+identical estimators, though both target the same field column. Compare `d_eq`
+only against `ninetyCrownDiameter` and `d_caliper` only against
+`maxCrownDiameter`.
+
+### Results — deep instance segmenters (SOAP-native)
+
+*Results pending regeneration (run the command above on a data-equipped machine).*
+
+The numbers require the persisted GPU instance clouds under
+`work/neon/SOAP/{segmentanytree,forestformer3d}_instances/`. Those clouds are
+written by the detection arms' persistence hook (added with this crown arm), so
+they must be **regenerated** by re-running the SOAP detection arms on a
+GPU-equipped machine — the prior SOAP runs predate the hook and left only the
+`*_results.csv` rows. SJER/TEAK remain pending GPU clips. Once the clouds exist,
+the crown CSVs are produced by:
+
+```sh
+# (re-run the detection arms first so the instance clouds are persisted)
+Rscript scripts/detect_segmentanytree_sweep.R SITE=SOAP
+Rscript scripts/detect_forestformer3d_sweep.R SITE=SOAP
+# then crown-score the persisted clouds:
+Rscript scripts/crown_metrics_deepmodel.R SITE=SOAP
+Rscript scripts/analyze_crown_metrics.R   SITES=SOAP
+```
+
+The expectation to test on regeneration: like TreeisoNet, these deep arms are
+zero-shot on sparse NEON ALS, so a heavy-tailed diameter error (RMSE ≫ MAE) and
+a strongly negative R² versus the classical CHM arms (`lasr_region_growing`,
+`dalponte2016`) would be the documented-negative-result pattern; the union into
+[`scripts/analyze_crown_metrics.R`](../scripts/analyze_crown_metrics.R) re-pools
+the classical and TreeisoNet arms on the same rows for the head-to-head. Do not
+assume the outcome — record what regeneration produces.
+
+---
+
 ## 3-D instance segmenters: Li 2012, ptrees, AMS3D (issue #30)
 
 The five arms above all delineate crowns on a **CHM**. The model-benchmark
@@ -909,6 +1009,18 @@ Rscript scripts/analyze_crown_metrics.R SITES=SJER,SOAP,TEAK
 # TreeisoNet treeOff crown arm (SOAP, GPU; needs gpu/setup_treeisonet_env.sh):
 Rscript scripts/detect_treeisonet_crowns.R SITE=SOAP PLOTS=ALL CONF=0.22
 Rscript scripts/analyze_crown_metrics.R    SITE=SOAP   # union + SOAP RMSE table
+
+# Deep instance-segmenter crown arm (SegmentAnyTree #M6 + ForestFormer3D #M8;
+# issue #34). Reads PERSISTED per-point instance clouds (no GPU container is run
+# here) under work/neon/<SITE>/{segmentanytree,forestformer3d}_instances/ and
+# reuses the cached frozen DTMs. Those clouds are written by the detection arms'
+# persistence hook, so re-run the SOAP detection arms first (they predate the
+# hook); SJER/TEAK once GPU clips exist. Writes the NEW per-model
+# segmentanytree_/forestformer3d_crown_metrics.csv:
+Rscript scripts/detect_segmentanytree_sweep.R SITE=SOAP   # persists instance clouds
+Rscript scripts/detect_forestformer3d_sweep.R SITE=SOAP   # persists instance clouds
+Rscript scripts/crown_metrics_deepmodel.R SITE=SOAP
+Rscript scripts/analyze_crown_metrics.R   SITES=SOAP  # union + SOAP RMSE table
 ```
 
 Requires lidR + lasR (`pre-devel`), **lidRplugins** (multichm seed arm), terra,

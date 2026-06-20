@@ -113,6 +113,28 @@ run_main <- function() {
     write.csv(results[keep_rows, , drop = FALSE], result_file, row.names = FALSE)
   }
 
+  # Durable per-point instance dir the #34 crown-diameter arm
+  # (crown_metrics_deepmodel.R) consumes: the merged PredInstance-labelled LAS for
+  # each successful (plot, rung) is persisted here as <plot>_<rung>.laz so the
+  # crown arm can re-derive crown_diameter_table + instance_apex from the SAME
+  # labelling without re-running the container. The merged LAS already carries the
+  # PredInstance extra dim (verified by read_instances_laz above), so a plain copy
+  # preserves the schema the crown arm reads.
+  inst_dir <- file.path(nd, "segmentanytree_instances")
+  dir.create(inst_dir, recursive = TRUE, showWarnings = FALSE)
+  instance_candidates <- function(plot, tag) {
+    file.path(inst_dir, paste0(plot, "_", tag, c(".laz", ".las")))
+  }
+  has_persisted_instance <- function(plot, tag) {
+    any(file.exists(instance_candidates(plot, tag)))
+  }
+  persist_instances <- function(src, plot, tag) {
+    if (is.null(src) || is.na(src) || !file.exists(src)) return(invisible())
+    dst <- file.path(inst_dir, sprintf("%s_%s.laz", plot, tag))
+    tryCatch(file.copy(src, dst, overwrite = TRUE), error = function(e) FALSE)
+    invisible()
+  }
+
   for (pid in keep) {                       # per plot; cells may run in parallel
     ci <- pc[pc$plotID == pid, ][1, ]
     cx <- ci$easting; cy <- ci$northing; ph <- plot_half(ci$plotType)
@@ -134,7 +156,10 @@ run_main <- function() {
       else if (is.na(native_pdens) || rung >= native_pdens) next
       tag  <- ifelse(is.na(rung), "native", as.character(rung))
       key <- cell_key(SITE, pid, tag)
-      if (key %in% done) { nskip <- nskip + 1L; next }
+      if (key %in% done && has_persisted_instance(pid, tag)) {
+        nskip <- nskip + 1L
+        next
+      }
       stem <- sprintf("sat_%s_%s", pid, tag)
       ply  <- file.path(batch_in, paste0(stem, ".ply"))
       # Absolute-UTM double PLY (lossless); SAT does its own XY localization.
@@ -155,6 +180,13 @@ run_main <- function() {
                      reader  = function(p) read_instances_laz(p, id_field = ID_FIELD),
                      gpus    = "all", timeout = TIMEOUT,
                      label   = sprintf("%s/%s", pid, cell$tag))
+        # Persist the merged instance LAS for the #34 crown-diameter arm before the
+        # tempdir is reused (run_docker_arm wrote it to `olas`, or, if it relocated
+        # it, .find_las recovers it under the same tempdir).
+        if (!is.null(det_abs)) {
+          src <- if (file.exists(olas)) olas else .find_las(tempdir(), cell$stem)
+          persist_instances(src, pid, cell$tag)
+        }
         list(cell = cell, det_abs = det_abs)
     }
 
@@ -166,8 +198,11 @@ run_main <- function() {
         det_abs <- NULL
         if (batch_ok) {
           las <- .find_las(batch_out, cell$stem)
-          if (!is.na(las))
+          if (!is.na(las)) {
             det_abs <- read_instances_laz(las, id_field = ID_FIELD)
+            # Persist the batch-merged LAS for the #34 crown arm (same schema).
+            if (!is.null(det_abs)) persist_instances(las, pid, cell$tag)
+          }
         }
         if (!is.null(det_abs)) list(cell = cell, det_abs = det_abs)
         else run_one_cell(cell)

@@ -14,9 +14,11 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 
 # Crown-diameter comparison (#20, extended #30/#34): union the five CHM
 # segmenters from #7 (crown_metrics_results.csv), the 3-D point-instance
-# segmenters from #30 (crown_metrics_3d_results.csv: li2012, ptrees, ams3d), and
-# the SOAP-only TreeisoNet treeOff arm (treeisonet_crown_metrics.csv), then score
-# pooled crown-diameter RMSE/MAE/bias/R2 per algorithm. All three sources share
+# segmenters from #30 (crown_metrics_3d_results.csv: li2012, ptrees, ams3d), the
+# SOAP-only TreeisoNet treeOff arm (treeisonet_crown_metrics.csv), and the #34
+# deep instance-segmentation arms SegmentAnyTree + ForestFormer3D
+# (segmentanytree_crown_metrics.csv, forestformer3d_crown_metrics.csv), then
+# score pooled crown-diameter RMSE/MAE/bias/R2 per algorithm. All sources share
 # the canonical crown-metrics columns and a per-algo `algo` label, so the union
 # is a straight rbind; pooling is by SUMMED squared errors over matched trees,
 # never a mean of per-plot rates.
@@ -115,6 +117,15 @@ collect_site <- function(site, chm_required) {
                         optional = TRUE)
   if (!is.null(ti)) parts[[length(parts) + 1]] <- ti[ti$site == site, cols,
                                                       drop = FALSE]
+  # #34 deep-model arms (SegmentAnyTree, ForestFormer3D): one optional per-model
+  # CSV each, written by crown_metrics_deepmodel.R. Absent until the GPU instance
+  # clouds exist for the site, so optional like the 3-D / TreeisoNet arms.
+  for (dm in c("segmentanytree_crown_metrics.csv",
+               "forestformer3d_crown_metrics.csv")) {
+    x <- read_metric_csv(file.path(nd, dm), optional = TRUE)
+    if (!is.null(x)) parts[[length(parts) + 1]] <- x[x$site == site, cols,
+                                                     drop = FALSE]
+  }
   if (!length(parts)) return(NULL)
   do.call(rbind, parts)
 }

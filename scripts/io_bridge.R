@@ -33,6 +33,27 @@ read_instances_laz <- function(path, id_field = "pred_itc") {
   instances_to_det(las@data, id_field = id_field)
 }
 
+# Like read_instances_laz, but returns the FULL labelled point table (not just
+# the apex) so the crown-diameter arm can derive both crown_diameter_table and
+# instance_apex from the SAME labelling (#34). The instance id is normalized to
+# an integer `crown_id` column with the unassigned label (0) mapped to NA, so
+# the bridge's crown_diameter_table/instance_apex drop it. Strict on schema: a
+# missing id_field returns NULL (-> skip the cell), never a fabricated 0-row; a
+# valid-but-empty cloud returns a 0-row data.frame carrying the X,Y,Z,crown_id
+# columns. Returns data.frame(X, Y, Z, crown_id).
+read_instance_points_laz <- function(path, id_field = "pred_itc") {
+  empty <- data.frame(X = numeric(), Y = numeric(), Z = numeric(),
+                      crown_id = integer())
+  las <- tryCatch(lidR::readLAS(path), error = function(e) NULL)
+  if (is.null(las)) return(NULL)
+  if (!id_field %in% names(las@data)) return(NULL)   # schema failure -> skip cell
+  if (lidR::is.empty(las)) return(empty)              # legit empty with schema
+  d <- las@data
+  ids <- as.integer(d[[id_field]])
+  ids[!is.na(ids) & ids == 0L] <- NA_integer_         # 0 = unassigned -> dropped
+  data.frame(X = d$X, Y = d$Y, Z = d$Z, crown_id = ids)
+}
+
 # Subtract ground elevation at each apex's (x,y). Apexes off the DTM are dropped;
 # attr(.,"n_dropped") carries the count so callers can refuse a wholesale drop.
 det_to_agl <- function(det, dtm_path) {

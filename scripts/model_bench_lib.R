@@ -602,3 +602,76 @@ pool_pq <- function(df, classes = POOL_CLASSES) {
     (s("sumcov_intermediate") + s("sumcov_suppressed")) / n_u else NA_real_
   out
 }
+
+## ==========================================================================
+## #P1 cross-arm detector fusion =============================================
+## ==========================================================================
+# Every arm is scored in isolation today; nothing combines them. The per-class
+# table shows complementarity to exploit (CHM-VWF/multichm carry overstory,
+# SegmentAnyTree carries understory), so a consensus/NMS layer should trade recall
+# against precision. These helpers cluster per-cell apexes across arms and emit
+# the union / majority / height-layered operating points the fusion driver scores.
+
+## ---- cross-arm apex clustering (single-linkage, height-gated) -------------
+# Stacked per-cell apexes from N detector arms (arm, x, y, z) -> fused trees.
+# Union-find over apex pairs from DIFFERENT arms within horizontal merge_tol AND
+# |dz| <= z_tol (the dedup_blocks union-find + a fusion height gate, so an
+# overstory CHM apex and an understory point apex at the same x,y stay SEPARATE
+# trees). Same-arm apexes never merge directly (each arm's detections are distinct
+# trees), though single-linkage can transitively chain through a cross-arm bridge.
+# Per cluster: representative = the max-Z member; votes = number of DISTINCT arms;
+# arms = sorted comma string. Returns data.frame(cluster,x,y,z,votes,arms); 0-row
+# when empty.
+fuse_apexes <- function(arm, x, y, z, merge_tol = 2.0, z_tol = 5.0) {
+  empty <- data.frame(cluster = integer(), x = numeric(), y = numeric(),
+                      z = numeric(), votes = integer(), arms = character(),
+                      stringsAsFactors = FALSE)
+  n <- length(x)
+  if (!n) return(empty)
+  arm <- as.character(arm)
+  parent <- seq_len(n)
+  find <- function(i) { r <- i; while (parent[r] != r) r <- parent[r]
+                        while (parent[i] != r) { nx <- parent[i]; parent[i] <<- r; i <- nx }
+                        r }
+  if (n > 1L) for (i in seq_len(n - 1L)) for (j in (i + 1L):n)
+    if (arm[i] != arm[j] &&
+        (x[i] - x[j])^2 + (y[i] - y[j])^2 <= merge_tol^2 &&
+        abs(z[i] - z[j]) <= z_tol) {
+      ri <- find(i); rj <- find(j); if (ri != rj) parent[rj] <- ri
+    }
+  roots <- vapply(seq_len(n), find, integer(1))
+  cl <- match(roots, sort(unique(roots)))
+  dt <- as.data.table(list(cluster = cl, arm = arm, x = x, y = y, z = z))
+  agg <- dt[, { k <- which.max(z)
+                .(x = x[k], y = y[k], z = z[k],
+                  votes = length(unique(arm)),
+                  arms = paste(sort(unique(arm)), collapse = ",")) },
+            by = cluster][order(cluster)]
+  as.data.frame(agg)
+}
+
+## ---- fusion operating points: union / majority / layered -----------------
+# Three operating points over the stacked per-cell apexes:
+#   union    -- every fused cluster (k>=1): recall-max.
+#   majority -- clusters seen by >= ceil(n_arms/2) arms: precision-max.
+#   layered  -- height-stratified: chm-family apexes in the overstory band
+#               (z >= overstory_frac * max z) + point/deep apexes in the
+#               understory band (z < that split), then fused -- trusting the CHM
+#               for the overstory and the point/deep arms for the understory.
+# n_arms = the number of arms actually scored in this cell (the majority
+# denominator). Returns list(union, majority, layered), each data.frame(x,y,z,votes).
+fusion_points <- function(arm, x, y, z, n_arms, merge_tol = 2.0, z_tol = 5.0,
+                          chm_arms = c("chm_vwf", "multichm"),
+                          overstory_frac = 0.5) {
+  cols <- function(f) f[, c("x", "y", "z", "votes"), drop = FALSE]
+  f_all <- fuse_apexes(arm, x, y, z, merge_tol, z_tol)
+  union <- cols(f_all)
+  majority <- cols(f_all[f_all$votes >= ceiling(n_arms / 2), , drop = FALSE])
+  layered <- if (!length(x)) cols(f_all) else {
+    H <- overstory_frac * max(z)
+    is_chm <- arm %in% chm_arms
+    keep <- (is_chm & z >= H) | (!is_chm & z < H)
+    cols(fuse_apexes(arm[keep], x[keep], y[keep], z[keep], merge_tol, z_tol))
+  }
+  list(union = union, majority = majority, layered = layered)
+}

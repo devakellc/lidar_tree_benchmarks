@@ -328,3 +328,277 @@ assert_detection_contract <- function(det) {
     stop("detection columns x, y, z must be numeric")
   invisible(TRUE)
 }
+
+## ==========================================================================
+## #V1 point-set IoU / Coverage / Panoptic-Quality scorer ===================
+## ==========================================================================
+# The whole benchmark is graded by greedy_match apex-distance 1:1 matching,
+# which model-benchmark-results.md flags as blind to point-level IoU and crown
+# shape. These pure helpers add the mask-aware suite the external leaderboards
+# (FGI-EMIT, FOR-instanceV2) use -- point-set IoU>=0.5 matching, Coverage, and
+# Panoptic Quality -- alongside that distance matching (NOT replacing it).
+#
+# All five helpers below are pure set-algebra / geometry over a SHARED point
+# substrate: `pred` and `ref` are equal-length integer label vectors (one entry
+# per substrate point; NA = unassigned), so they are unit-testable with no NEON
+# data. The driver (score_instances_iou.R) builds those vectors -- ref = the
+# Voronoi-on-stems partition of the frozen normalized cloud (assign_points_to_
+# stems), pred = the model's per-point labels projected onto that SAME cloud
+# (transfer_labels) -- then accumulates per (plot, rung, crown_class) and pools
+# by SUMMING the accumulators (sum matched-IoU, sum TP/FP/FN), mirroring the
+# sum(TP)/sum(n_ref) rule in pool().
+
+## ---- pairwise point-set IoU ----------------------------------------------
+# pred, ref: equal-length integer label vectors over the shared substrate (NA =
+# unassigned, dropped). Returns one row per (pred instance, ref instance) pair
+# that shares >=1 point: inter = shared points; pred_size/ref_size = each label's
+# TOTAL point count over the whole substrate (so the union counts points the
+# other partition left unassigned); union = pred_size + ref_size - inter;
+# iou = inter / union. Pairs with zero intersection have IoU 0 and are omitted
+# (they never match and never raise Coverage). 0-row frame when nothing overlaps.
+point_set_iou <- function(pred, ref) {
+  stopifnot(length(pred) == length(ref))
+  empty <- data.frame(pred_id = integer(), ref_id = integer(), inter = integer(),
+                      pred_size = integer(), ref_size = integer(),
+                      union = integer(), iou = numeric())
+  pred <- as.integer(pred); ref <- as.integer(ref)
+  if (!length(pred)) return(empty)
+  psz <- table(pred[!is.na(pred)])                  # total size of each pred label
+  rsz <- table(ref[!is.na(ref)])                    # total size of each ref label
+  both <- !is.na(pred) & !is.na(ref)
+  if (!any(both)) return(empty)
+  agg <- as.data.table(list(p = pred[both], r = ref[both]))[, .(inter = .N),
+                                                            by = .(p, r)]
+  agg[, pred_size := as.integer(psz[as.character(p)])]
+  agg[, ref_size  := as.integer(rsz[as.character(r)])]
+  agg[, union := pred_size + ref_size - inter]
+  agg[, iou := inter / union]
+  data.frame(pred_id = agg$p, ref_id = agg$r, inter = agg$inter,
+             pred_size = agg$pred_size, ref_size = agg$ref_size,
+             union = agg$union, iou = agg$iou)
+}
+
+## ---- greedy max-IoU 1:1 matcher with an IoU>=gate gate --------------------
+# Sibling of greedy_match (sweep_lib.R), but ranks candidate (pred, ref) pairs by
+# DESCENDING IoU instead of ascending distance: the best-IoU pair is claimed
+# first, so a dominant crown's prediction is matched before a worse overlap can
+# steal either side. 1:1 (each pred and each ref used once); only pairs with
+# IoU >= gate (default 0.5, the FGI-EMIT/FOR-instance threshold) are accepted.
+# iou_df: point_set_iou() output. Returns the matched pairs (pred_id, ref_id, iou)
+# = the true positives; 0-row frame when none clear the gate.
+iou_match <- function(iou_df, gate = 0.5) {
+  empty <- data.frame(pred_id = integer(), ref_id = integer(), iou = numeric())
+  if (is.null(iou_df) || !nrow(iou_df)) return(empty)
+  d <- as.data.frame(iou_df)[, c("pred_id", "ref_id", "iou"), drop = FALSE]
+  d <- d[d$iou >= gate, , drop = FALSE]
+  if (!nrow(d)) return(empty)
+  d <- d[order(-d$iou), , drop = FALSE]
+  seen_p <- integer(0); seen_r <- integer(0); keep <- logical(nrow(d))
+  for (k in seq_len(nrow(d))) {
+    if (!(d$pred_id[k] %in% seen_p) && !(d$ref_id[k] %in% seen_r)) {
+      keep[k] <- TRUE
+      seen_p <- c(seen_p, d$pred_id[k]); seen_r <- c(seen_r, d$ref_id[k])
+    }
+  }
+  out <- d[keep, , drop = FALSE]; rownames(out) <- NULL
+  out
+}
+
+## ---- Coverage: per-reference max IoU over predictions ---------------------
+# For every reference instance, the maximum IoU against ANY predicted instance
+# (0 when no prediction overlaps it). Coverage = mean(max_iou) over references is
+# the ungated companion to recall@0.5: how well each tree's points are captured
+# by its best-matching prediction, regardless of the 0.5 cutoff. Returns one row
+# per reference id (zero-overlap refs included with max_iou 0); 0-row frame when
+# there are no references.
+coverage_table <- function(pred, ref) {
+  empty <- data.frame(ref_id = integer(), max_iou = numeric())
+  ref <- as.integer(ref)
+  ref_ids <- sort(unique(ref[!is.na(ref)]))
+  if (!length(ref_ids)) return(empty)
+  io <- point_set_iou(pred, ref)
+  mx <- if (nrow(io)) tapply(io$iou, io$ref_id, max) else numeric(0)
+  out <- data.frame(ref_id = ref_ids,
+                    max_iou = as.numeric(mx[as.character(ref_ids)]))
+  out$max_iou[is.na(out$max_iou)] <- 0                # refs with no overlap -> 0
+  out
+}
+
+## ---- Panoptic Quality (PQ = SQ * RQ) -------------------------------------
+# matched: iou_match() output (the TP pairs + their IoUs). n_pred / n_ref: the
+# number of predicted / reference instances on the substrate. Accumulators (TP,
+# FP, FN, sum_iou) are returned RAW so the driver pools them by summing, then
+# recomputes the rates from the pooled sums:
+#   SQ (segmentation quality) = mean IoU over matched pairs = sum_iou / TP
+#   RQ (recognition quality)  = TP / (TP + 0.5 FP + 0.5 FN)  (== F1 over matches)
+#   PQ                        = SQ * RQ
+# SQ is NA when there are no matches (mean over nothing); PQ is 0 then (RQ 0).
+panoptic_quality <- function(matched, n_pred, n_ref) {
+  TP <- if (is.null(matched)) 0L else nrow(matched)
+  sum_iou <- if (TP > 0) sum(matched$iou) else 0
+  FP <- n_pred - TP; FN <- n_ref - TP
+  SQ <- if (TP > 0) sum_iou / TP else NA_real_
+  denom <- TP + 0.5 * FP + 0.5 * FN
+  RQ <- if (denom > 0) TP / denom else NA_real_
+  PQ <- if (TP > 0 && is.finite(SQ) && is.finite(RQ)) SQ * RQ else 0
+  precision <- if (n_pred > 0) TP / n_pred else NA_real_
+  recall    <- if (n_ref > 0)  TP / n_ref  else NA_real_
+  F1 <- if (!is.na(precision) && !is.na(recall) && (precision + recall) > 0)
+    2 * precision * recall / (precision + recall) else NA_real_
+  data.frame(TP = TP, FP = FP, FN = FN, sum_iou = sum_iou,
+             n_pred = n_pred, n_ref = n_ref,
+             SQ = SQ, RQ = RQ, PQ = PQ,
+             precision = precision, recall = recall, F1 = F1)
+}
+
+## ---- reference instances: Voronoi-on-stems within a per-stem crown radius -
+# Builds the ground-truth point partition the IoU suite scores against. Each
+# substrate point (px, py) is assigned to the NEAREST field stem, but only if it
+# falls within THAT stem's crown radius (radius = field maxCrownDiameter / 2,
+# per stem); otherwise it is left unassigned (NA). This is an explicit
+# Voronoi-on-stems PROXY for true field crown masks -- it is the best reference
+# obtainable from stem points + a measured crown width, and is documented as such
+# in results/instance-iou-pq-results.md. radius may be a scalar or a per-stem
+# vector (recycled to length(sx)). Ties go to the first stem (which.min). Returns
+# an integer vector (stem index 1..n, or NA) of length(px).
+assign_points_to_stems <- function(px, py, sx, sy, radius) {
+  n <- length(px); out <- rep(NA_integer_, n); ns <- length(sx)
+  if (!n || !ns) return(out)
+  radius <- rep_len(radius, ns)
+  best_d2 <- rep(Inf, n); best_s <- rep(NA_integer_, n)
+  for (s in seq_len(ns)) {
+    d2  <- (px - sx[s])^2 + (py - sy[s])^2
+    upd <- d2 < best_d2                              # strict -> first stem wins ties
+    best_d2[upd] <- d2[upd]; best_s[upd] <- s
+  }
+  r <- radius[best_s]                                 # NA for unmatched/NA-radius stems
+  ok <- !is.na(best_s) & is.finite(r) & best_d2 <= r^2
+  out[ok] <- best_s[ok]
+  out
+}
+
+## ---- dependency-free nearest-neighbour label transfer --------------------
+# Projects a model's per-point instance labels onto the reference substrate so
+# both partitions live on the SAME points (the standard instance-IoU evaluation
+# uses one fixed eval cloud). The persisted model clouds are NOT the frozen
+# normalized cloud point-for-point (different Z datum, container voxel
+# downsampling, FF3D cylinder overlap), so each substrate point (dx, dy) takes
+# the label of the nearest SOURCE point (sx, sy, sid) within `tol` metres in XY;
+# beyond tol it stays NA (the prediction did not reach that point). Implemented
+# as a grid hash (cell = tol; each source serves its own cell + 8 neighbours, so
+# any source within tol of a destination is in the searched 3x3 block) to avoid a
+# new spatial-index dependency (RANN/FNN are not installed). Deterministic.
+# Returns an integer vector of length(dx).
+transfer_labels <- function(sx, sy, sid, dx, dy, tol = 0.5) {
+  n <- length(dx); out <- rep(NA_integer_, n)
+  if (!n || !length(sx)) return(out)
+  cs  <- tol
+  src <- data.table(sx = sx, sy = sy, sid = as.integer(sid),
+                    cx = floor(sx / cs), cy = floor(sy / cs))
+  ns  <- nrow(src)
+  off <- expand.grid(ox = -1:1, oy = -1:1)           # 3x3 serving offsets
+  srv <- src[rep(seq_len(ns), 9L)]
+  srv[, kx := cx + rep(off$ox, each = ns)]
+  srv[, ky := cy + rep(off$oy, each = ns)]
+  dst <- data.table(di = seq_len(n), dx = dx, dy = dy,
+                    kx = floor(dx / cs), ky = floor(dy / cs))
+  j <- merge(dst, srv, by = c("kx", "ky"), allow.cartesian = TRUE)
+  if (!nrow(j)) return(out)
+  j[, d2 := (dx - sx)^2 + (dy - sy)^2]
+  j <- j[d2 <= tol^2]
+  if (!nrow(j)) return(out)
+  setorder(j, di, d2)
+  best <- j[, .(sid = sid[1L]), by = di]             # nearest source per dest
+  out[best$di] <- best$sid
+  out
+}
+
+## ---- one (plot x rung x model) accumulator row ---------------------------
+# Scores ONE predicted partition against the reference partition on a shared
+# substrate and returns a single long-form row of SUMMABLE accumulators (the
+# rate columns are per-cell convenience; pool_pq recomputes them from the sums).
+# pred, ref: integer label vectors over the substrate (NA = unassigned).
+# ref_class: named character vector keyed by ref id (as character) giving each
+# reference instance's crown_class (a ref id absent from it -> NA class: counted
+# in the cell totals but in no per-class bucket). n_ref counts reference
+# instances that captured >=1 substrate point (the natural denominator for a
+# point-set metric -- a stem with no canopy points has no mask to detect).
+# Per class cl: n_ (ref instances), tp_ (matched), fn_, sumiou_ (matched-IoU sum
+# = the class SQ numerator), sumcov_ (max-IoU sum = the class Coverage numerator).
+score_instance_cell <- function(pred, ref, ref_class, gate = 0.5,
+                               classes = POOL_CLASSES) {
+  io  <- point_set_iou(pred, ref)
+  mt  <- iou_match(io, gate = gate)
+  cov <- coverage_table(pred, ref)
+  n_pred <- length(unique(pred[!is.na(pred)]))
+  n_ref  <- nrow(cov)
+  pq <- panoptic_quality(mt, n_pred = n_pred, n_ref = n_ref)
+  sum_maxiou <- if (nrow(cov)) sum(cov$max_iou) else 0
+  out <- data.frame(
+    n_pred = n_pred, n_ref = n_ref, TP = pq$TP, FP = pq$FP, FN = pq$FN,
+    sum_iou = pq$sum_iou, sum_maxiou = sum_maxiou,
+    SQ = pq$SQ, RQ = pq$RQ, PQ = pq$PQ, precision = pq$precision,
+    recall = pq$recall, F1 = pq$F1,
+    coverage = if (n_ref > 0) sum_maxiou / n_ref else NA_real_)
+  rc <- function(id) if (length(ref_class)) ref_class[as.character(id)] else
+    rep(NA_character_, length(id))
+  matched_cls <- if (nrow(mt))  rc(mt$ref_id)  else character(0)
+  cov_cls     <- if (nrow(cov)) rc(cov$ref_id) else character(0)
+  for (cl in classes) {
+    n_c  <- sum(cov_cls == cl, na.rm = TRUE)
+    tp_c <- sum(matched_cls == cl, na.rm = TRUE)
+    out[[paste0("n_",  cl)]]     <- n_c
+    out[[paste0("tp_", cl)]]     <- tp_c
+    out[[paste0("fn_", cl)]]     <- n_c - tp_c
+    out[[paste0("sumiou_", cl)]] <- if (nrow(mt))
+      sum(mt$iou[matched_cls == cl], na.rm = TRUE) else 0
+    out[[paste0("sumcov_", cl)]] <- if (nrow(cov))
+      sum(cov$max_iou[cov_cls == cl], na.rm = TRUE) else 0
+  }
+  out
+}
+
+## ---- canonical PQ pooler: SUM accumulators, recompute rates ---------------
+# The IoU-suite sibling of pool(): pools long-form score_instance_cell rows to a
+# single row by SUMMING the panoptic accumulators (TP/FP/FN, sum_iou, sum_maxiou,
+# per-class counts) -- never averaging the per-cell rates, the same rule that
+# makes pool() recall sum(TP)/sum(n_ref). Pooled rates are then recomputed from
+# the sums: SQ = sum_iou/TP, RQ = TP/(TP+0.5FP+0.5FN), PQ = SQ*RQ, precision =
+# TP/n_pred, recall = TP/n_ref, Coverage = sum_maxiou/n_ref; per class rec_ =
+# tp/n, SQ_ = sumiou/tp, cov_ = sumcov/n. understory = intermediate + suppressed.
+pool_pq <- function(df, classes = POOL_CLASSES) {
+  s <- function(col) if (is.null(df[[col]])) 0 else sum(df[[col]], na.rm = TRUE)
+  TP <- s("TP"); FP <- s("FP"); FN <- s("FN")
+  sum_iou <- s("sum_iou"); sum_maxiou <- s("sum_maxiou")
+  n_pred <- s("n_pred"); n_ref <- s("n_ref")
+  SQ <- if (TP > 0) sum_iou / TP else NA_real_
+  denom <- TP + 0.5 * FP + 0.5 * FN
+  RQ <- if (denom > 0) TP / denom else NA_real_
+  precision <- if (n_pred > 0) TP / n_pred else NA_real_
+  recall    <- if (n_ref  > 0) TP / n_ref  else NA_real_
+  F1 <- if (!is.na(precision) && !is.na(recall) && (precision + recall) > 0)
+    2 * precision * recall / (precision + recall) else NA_real_
+  out <- data.frame(
+    n_cells = nrow(df), n_pred = n_pred, n_ref = n_ref,
+    TP = TP, FP = FP, FN = FN, sum_iou = sum_iou, sum_maxiou = sum_maxiou,
+    SQ = SQ, RQ = RQ,
+    PQ = if (TP > 0 && is.finite(SQ) && is.finite(RQ)) SQ * RQ else 0,
+    precision = precision, recall = recall, F1 = F1,
+    coverage = if (n_ref > 0) sum_maxiou / n_ref else NA_real_)
+  for (cl in classes) {
+    n_c  <- s(paste0("n_", cl)); tp_c <- s(paste0("tp_", cl))
+    out[[paste0("n_",   cl)]] <- n_c
+    out[[paste0("rec_", cl)]] <- if (n_c  > 0) tp_c / n_c else NA_real_
+    out[[paste0("SQ_",  cl)]] <- if (tp_c > 0) s(paste0("sumiou_", cl)) / tp_c else NA_real_
+    out[[paste0("cov_", cl)]] <- if (n_c  > 0) s(paste0("sumcov_", cl)) / n_c else NA_real_
+  }
+  n_u  <- s("n_intermediate") + s("n_suppressed")
+  tp_u <- s("tp_intermediate") + s("tp_suppressed")
+  out$n_understory   <- n_u
+  out$rec_understory <- if (n_u  > 0) tp_u / n_u else NA_real_
+  out$SQ_understory  <- if (tp_u > 0)
+    (s("sumiou_intermediate") + s("sumiou_suppressed")) / tp_u else NA_real_
+  out$cov_understory <- if (n_u  > 0)
+    (s("sumcov_intermediate") + s("sumcov_suppressed")) / n_u else NA_real_
+  out
+}

@@ -39,10 +39,11 @@ greedy_match <- function(ax, ay, bx, by, tol, az = NULL, bz = NULL,
                          tol_z_up = 8) {
   m <- integer(length(ax))
   if (!length(ax) || !length(bx)) return(m)
+  tol <- rep_len(tol, length(ax))            # scalar OR per-stem (#V4); scalar=back-compat
   # candidate pairs within tol (vectorised over the typically small sets)
   pr <- do.call(rbind, lapply(seq_along(ax), function(i) {
     dd <- sqrt((bx - ax[i])^2 + (by - ay[i])^2)
-    j  <- which(dd <= tol)
+    j  <- which(dd <= tol[i])
     if (length(j) && !is.null(az) && !is.null(bz) && !is.na(az[i])) {
       j <- j[bz[j] >= 0.5 * az[i] & bz[j] <= az[i] + tol_z_up]
     }
@@ -57,6 +58,93 @@ greedy_match <- function(ax, ay, bx, by, tol, az = NULL, bz = NULL,
     if (!su[i] && !du[j]) { su[i] <- TRUE; du[j] <- TRUE; m[i] <- j }
   }
   m
+}
+
+## ---- size/uncertainty-scaled per-stem matching tolerance (#V4) ------------
+# Replaces the flat tol_xy with a per-stem tol_i = max(base_tol, k*crown_radius_i,
+# pos_unc_i). The base->apex horizontal offset grows with height, crown size,
+# lean, and slope, so a tall dominant needs a wider radius than a dense-understory
+# stem; the field maxCrownDiameter (radius = diam/2) and the stem's mapped pos_unc
+# (both carried in ground_truth_stems.csv) supply that per stem. NA / non-positive
+# terms drop out so the base_tol floor stands. crown_diam and/or pos_unc may be
+# NULL; k scales the crown-radius term (default 1.0 = full radius). Returns a
+# numeric vector (base_tol everywhere both inputs are absent/NA).
+match_tol <- function(crown_diam = NULL, pos_unc = NULL, base_tol = 4.0, k = 1.0) {
+  len <- max(length(crown_diam), length(pos_unc))
+  if (!len) return(numeric(0))
+  cr <- if (length(crown_diam))
+    ifelse(is.finite(crown_diam) & crown_diam > 0, k * crown_diam / 2, 0) else 0
+  pu <- if (length(pos_unc))
+    ifelse(is.finite(pos_unc) & pos_unc > 0, pos_unc, 0) else 0
+  pmax(base_tol, cr, pu)
+}
+
+## ---- optimal (Hungarian) 1:1 assignment, drop-in for greedy_match (#V4) ----
+# Same contract as greedy_match (returns m: for each stem the matched detection
+# index, 0 = unmatched) but GLOBALLY optimal instead of greedy-by-distance, so a
+# locally-shortest edge can no longer steal a detection another stem needs in a
+# dense cluster. `tol` is scalar or a per-stem vector (from match_tol). Builds a
+# stem x det Euclidean cost matrix, set to a large FINITE sentinel (not +Inf,
+# which some solvers reject) outside tol -- and outside the [0.5*az, az+tol_z_up]
+# height band when az/bz are supplied. With `lambda` set, the hard height band is
+# replaced by a soft 3-D cost sqrt(dxy^2 + (lambda*dz)^2) (still horizontally
+# gated by tol), dropping the magic height numbers. The matrix is augmented with
+# per-stem and per-det "stay unmatched" dummies (cost just above any in-gate
+# distance, below the sentinel) so non-square sets and unmatched stems fall out
+# naturally. Hungarian solve via clue::solve_LSAP; requires the `clue` package.
+optimal_match <- function(ax, ay, bx, by, tol, az = NULL, bz = NULL,
+                          tol_z_up = 8, lambda = NULL) {
+  na <- length(ax); nb <- length(bx)
+  m <- integer(na)
+  if (!na || !nb) return(m)
+  if (!requireNamespace("clue", quietly = TRUE))
+    stop("optimal_match needs the 'clue' package (install.packages('clue'))")
+  tol <- rep_len(tol, na)
+  BIG <- 1e9
+  C <- matrix(BIG, na, nb)
+  for (i in seq_len(na)) {
+    dxy <- sqrt((bx - ax[i])^2 + (by - ay[i])^2)
+    ok  <- dxy <= tol[i]
+    if (is.null(lambda)) {
+      if (!is.null(az) && !is.null(bz) && !is.na(az[i]))
+        ok <- ok & bz >= 0.5 * az[i] & bz <= az[i] + tol_z_up
+      C[i, ok] <- dxy[ok]
+    } else {
+      dz <- if (!is.null(az) && !is.null(bz) && !is.na(az[i])) bz - az[i] else 0
+      d3 <- sqrt(dxy^2 + (lambda * dz)^2)
+      C[i, ok] <- d3[ok]
+    }
+  }
+  finite  <- C[C < BIG]
+  unmatch <- if (length(finite)) max(finite) + 1 else 1   # < BIG, > any real cost
+  # Augmented square cost: rows = na stems + nb det-dummies; cols = nb dets + na
+  # stem-dummies. Stem i -> col nb+i means "stem i unmatched"; det j -> row na+j.
+  N <- na + nb
+  S <- matrix(BIG, N, N)
+  S[seq_len(na), seq_len(nb)] <- C
+  S[cbind(seq_len(na), nb + seq_len(na))] <- unmatch      # stem-unmatched diagonal
+  S[cbind(na + seq_len(nb), seq_len(nb))] <- unmatch      # det-unmatched diagonal
+  S[(na + 1L):N, (nb + 1L):N] <- 0                        # dummy-dummy block
+  asg <- as.integer(clue::solve_LSAP(S))                  # column assigned to row i
+  for (i in seq_len(na)) {
+    j <- asg[i]
+    if (j <= nb && C[i, j] < BIG) m[i] <- j                # real, in-gate match
+  }
+  m
+}
+
+## ---- false-positive error-structure split (#V4) --------------------------
+# Tags each core false-positive detection (fpx,fpy) as `near` a matched stem
+# (within near_tol -> likely over-segmentation of a real tree) or `isolated`
+# (-> likely a real understory tree the field map missed, or a true commission),
+# feeding the #P2 density/structure router and #P1 fusion. Returns
+# c(near=, isolated=).
+fp_structure <- function(fpx, fpy, mstemx, mstemy, near_tol = 4.0) {
+  if (!length(fpx)) return(c(near = 0L, isolated = 0L))
+  if (!length(mstemx)) return(c(near = 0L, isolated = length(fpx)))
+  near <- vapply(seq_along(fpx), function(i)
+    any(sqrt((mstemx - fpx[i])^2 + (mstemy - fpy[i])^2) <= near_tol), logical(1))
+  c(near = sum(near), isolated = sum(!near))
 }
 
 ## ---- one detection run on a prepared (decimated+normalized) LAS file -----
@@ -161,18 +249,28 @@ prepare_clip <- function(ctg, cx, cy, rung, tmpdir, core_half = PLOT_HALF) {
 
 ## ---- score detections vs field stems within a plot core ------------------
 # stems: data.frame with E,N,crown_class,height (live trees, plot core).
-# det:   data.frame x,y,z. tol_xy in m. Returns a one-row metrics data.frame
-# plus per-crown-class recall.
+# det:   data.frame x,y,z. tol_xy in m (scalar OR a per-stem vector from
+# match_tol). Returns a one-row metrics data.frame plus per-crown-class recall.
+# method="greedy" (default, the back-compat baseline) or "optimal" (Hungarian).
+# tol_z_up/lambda are passed to the matcher (lambda swaps the hard height band
+# for the soft 3-D cost). FP-structure columns fp_near/fp_isolated split the core
+# false positives (over-segmentation vs isolated commission) via fp_structure().
 score_plot <- function(stems, det, tol_xy = 4.0, core_cx, core_cy,
-                       core_half = PLOT_HALF) {
-  # Recall region: detections within the core expanded by tol_xy, so a stem at
-  # the core boundary can match its apex even if the apex sits just outside.
-  in_reg  <- abs(det$x - core_cx) <= core_half + tol_xy &
-             abs(det$y - core_cy) <= core_half + tol_xy
+                       core_half = PLOT_HALF, method = c("greedy", "optimal"),
+                       tol_z_up = 8, lambda = NULL, near_tol = 4.0) {
+  method  <- match.arg(method)
+  reg_tol <- max(tol_xy)            # region uses the widest per-stem tol (safe)
+  # Recall region: detections within the core expanded by tol, so a stem at the
+  # core boundary can match its apex even if the apex sits just outside.
+  in_reg  <- abs(det$x - core_cx) <= core_half + reg_tol &
+             abs(det$y - core_cy) <= core_half + reg_tol
   detr    <- det[in_reg, , drop = FALSE]
   is_core <- abs(detr$x - core_cx) <= core_half & abs(detr$y - core_cy) <= core_half
-  m <- greedy_match(stems$E, stems$N, detr$x, detr$y, tol_xy,
-                    az = stems$height, bz = detr$z)
+  m <- if (method == "optimal")
+    optimal_match(stems$E, stems$N, detr$x, detr$y, tol_xy,
+                  az = stems$height, bz = detr$z, tol_z_up = tol_z_up, lambda = lambda)
+  else greedy_match(stems$E, stems$N, detr$x, detr$y, tol_xy,
+                    az = stems$height, bz = detr$z, tol_z_up = tol_z_up)
   matched <- m > 0
   TP    <- sum(matched); n_ref <- nrow(stems)
   n_det <- sum(is_core)                       # precision denominator = core dets
@@ -206,6 +304,12 @@ score_plot <- function(stems, det, tol_xy = 4.0, core_cx, core_cy,
     base[[paste0("rec_h_", b)]] <- if (b %in% names(hb_rec)) hb_rec[[b]] else NA_real_
     base[[paste0("n_h_",   b)]] <- sum(hb == b, na.rm = TRUE)
   }
+  # FP error structure: core detections that matched no stem, split into those
+  # near a matched stem (over-segmentation) vs isolated (real understory / map gap)
+  fp_idx <- which(is_core & !(seq_along(detr$x) %in% m[matched]))
+  fps <- fp_structure(detr$x[fp_idx], detr$y[fp_idx],
+                      stems$E[matched], stems$N[matched], near_tol = near_tol)
+  base$fp_near <- unname(fps["near"]); base$fp_isolated <- unname(fps["isolated"])
   base
 }
 

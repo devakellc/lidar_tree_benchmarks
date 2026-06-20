@@ -17,6 +17,7 @@
 # Usage:
 #   Rscript scripts/detect_segmentanytree_sweep.R [SITE=SOAP] [PLOTS=ALL]
 #       [TOL=4] [IMAGE=sat-sm120-test] [TIMEOUT=1800] [CORES=1] [BATCH=0]
+#       [RUNGS=native,8,4,2,1]
 # Requires the sm_120 image:  bash gpu/segmentanytree-sm120/build.sh
 # Output: $CLAUDE_JOB_DIR/neon/<SITE>/segmentanytree_results.csv (one row per
 #         plot x rung).
@@ -41,7 +42,12 @@ IMAGE   <- if (is.null(A$IMAGE)) "sat-sm120-test" else A$IMAGE
 TIMEOUT <- as.numeric(if (is.null(A$TIMEOUT)) 1800 else A$TIMEOUT)
 BATCH   <- !is.null(A$BATCH) && A$BATCH != "0"
 CORES   <- max(1L, as.integer(if (is.null(A$CORES)) 1L else A$CORES))
-RUNGS    <- c(8, 4, 2, 1); MINTREES <- 6
+RUNGS_RAW <- if (is.null(A$RUNGS)) c("native", "8", "4", "2", "1") else
+  strsplit(A$RUNGS, ",")[[1]]
+RUN_NATIVE <- any(tolower(RUNGS_RAW) == "native")
+RUNGS <- as.numeric(RUNGS_RAW[tolower(RUNGS_RAW) != "native"])
+RUNGS <- RUNGS[is.finite(RUNGS)]
+MINTREES <- 6
 DRIVER   <- file.path(.ROOT, "gpu", "run_segmentanytree.py")
 BATCH_DRIVER <- file.path(.ROOT, "gpu", "run_segmentanytree_batch.py")
 # The merged LAS carries the instance label as the PredInstance extra dim
@@ -146,7 +152,7 @@ run_main <- function() {
     batch_out <- file.path(tempdir(), sprintf("sat_%s_batch_out", pid))
     unlink(c(batch_in, batch_out), recursive = TRUE, force = TRUE)
     dir.create(batch_in, recursive = TRUE, showWarnings = FALSE)
-    for (rung in c(NA, RUNGS)) {
+    for (rung in c(if (RUN_NATIVE) NA_real_ else numeric(), RUNGS)) {
       prep <- tryCatch(frozen_clip(ctg, SITE, pid, rung, cx, cy, ph,
                                    out_root = file.path(nd, "frozen")),
                        error = function(e) NULL)

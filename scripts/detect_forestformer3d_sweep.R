@@ -13,7 +13,7 @@
 # Usage:
 #   Rscript scripts/detect_forestformer3d_sweep.R [SITE=SOAP] [PLOTS=ALL]
 #     [SPACING=24] [MERGE_TOL=2.0] [TOL=4] [IMAGE=ff3d-sm120]
-#     [REPO=<abs>] [CKPT=<abs>] [TIMEOUT=3600]
+#     [REPO=<abs>] [CKPT=<abs>] [TIMEOUT=3600] [RUNGS=native,8]
 # Output: $CLAUDE_JOB_DIR/neon/<SITE>/forestformer3d_results.csv (row per plot x rung).
 suppressMessages({ library(lidR); library(data.table) })
 options(lidR.progress = FALSE)
@@ -36,7 +36,13 @@ MERGE_TOL<- as.numeric(if (is.null(A$MERGE_TOL)) 2.0 else A$MERGE_TOL)
 TOL      <- as.numeric(if (is.null(A$TOL)) 4.0 else A$TOL)
 IMAGE    <- if (is.null(A$IMAGE)) "ff3d-sm120" else A$IMAGE
 TIMEOUT  <- as.numeric(if (is.null(A$TIMEOUT)) 3600 else A$TIMEOUT)
-RADIUS   <- 16; RUNGS <- c(8); MINTREES <- 6
+RADIUS   <- 16
+RUNGS_RAW <- if (is.null(A$RUNGS)) c("native", "8") else
+  strsplit(A$RUNGS, ",")[[1]]
+RUN_NATIVE <- any(tolower(RUNGS_RAW) == "native")
+RUNGS <- as.numeric(RUNGS_RAW[tolower(RUNGS_RAW) != "native"])
+RUNGS <- RUNGS[is.finite(RUNGS)]
+MINTREES <- 6
 REPO  <- if (is.null(A$REPO)) file.path(.ROOT, "gpu/store/forestformer3d/ForestFormer3D") else A$REPO
 CKPT  <- if (is.null(A$CKPT)) file.path(REPO, "work_dirs/clean_forestformer/epoch_3000_fix.pth") else A$CKPT
 ENTRY <- file.path(.ROOT, "gpu/forestformer3d-sm120/ff3d_entry.sh")
@@ -89,7 +95,7 @@ run_main <- function() {
     stems <- gt[gt$plotID == pid & abs(gt$E - cx) <= ph & abs(gt$N - cy) <= ph, ]
     if (nrow(stems) < 1) next
     native_pdens <- NA_real_; ncell <- 0L
-    for (rung in c(NA, RUNGS)) {
+    for (rung in c(if (RUN_NATIVE) NA_real_ else numeric(), RUNGS)) {
       prep <- tryCatch(frozen_clip(ctg, SITE, pid, rung, cx, cy, ph,
                                    out_root = file.path(nd, "frozen")),
                        error = function(e) NULL)

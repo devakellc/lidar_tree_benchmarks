@@ -84,8 +84,11 @@ so buffer trees never count as false commissions.
 ## Generated tables
 
 Native density, all three sites. Reference is the Voronoi-on-stems proxy; IoU
-gate 0.5. 699 mapped stems across 46 plot×model cells; 7.3 % of stems lacked a
-measured crown width and used the 2 m fallback radius.
+gate 0.5. 699 mapped stems fall in the 46 plot cores; **n_ref = 686** is the
+recall denominator — the stems that captured ≥1 canopy substrate point, since a
+stem with no point-mask cannot be detected by a point-set metric (13 stems,
+~2 %, captured none and are excluded). 7.3 % of stems lacked a measured crown
+width and used the 2 m fallback radius.
 
 ### Per site × model (pooled by SUM)
 

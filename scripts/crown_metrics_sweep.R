@@ -83,6 +83,8 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 # Usage:
 #   Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK CORES=1 \
 #           RUNGS=native,8,4,2,1 TOL=4 RES=0.5 A=0.10
+#   Rscript scripts/crown_metrics_sweep.R SITES=SJER,SOAP,TEAK CORES=1 \
+#           SEED_POLICY=best OUT=crown_metrics_best_results.csv
 #
 # Reads (read-only): work/neon/<SITE>/{ground_truth_stems.csv,plot_centroids.csv}
 #   the LiDAR catalog work/neon/<SITE>/lidar/, and the cached field-crown widths
@@ -110,6 +112,21 @@ CORES <- as.integer(if (is.null(A$CORES)) 4 else A$CORES)
 TOL   <- as.numeric(if (is.null(A$TOL))  4    else A$TOL)
 RES   <- as.numeric(if (is.null(A$RES))  0.5  else A$RES)
 VWF_A <- as.numeric(if (is.null(A$A))    0.10 else A$A)
+SEED_POLICY <- if (is.null(A$SEED_POLICY)) "all" else tolower(A$SEED_POLICY)
+if (!SEED_POLICY %in% c("all", "best"))
+  stop("SEED_POLICY must be one of all, best", call. = FALSE)
+OUT_FILE <- if (is.null(A$OUT)) "crown_metrics_results.csv" else A$OUT
+BEST_TOPS <- if (is.null(A$BEST_TOPS)) {
+  file.path(d, "neon", "best_treetops_geojson", "best_treetop_selection.csv")
+} else {
+  A$BEST_TOPS
+}
+SAT_IMAGE <- if (is.null(A$SAT_IMAGE)) "sat-sm120-test" else A$SAT_IMAGE
+TREEISONET_CONF <- if (is.null(A$TREEISONET_CONF)) "0.22" else A$TREEISONET_CONF
+TREEISONET_VOXEL <- if (is.null(A$TREEISONET_VOXEL)) "0.8,0.8,2.0" else A$TREEISONET_VOXEL
+FF3D_IMAGE <- if (is.null(A$FF3D_IMAGE)) "ff3d-sm120" else A$FF3D_IMAGE
+FF3D_SPACING <- as.numeric(if (is.null(A$FF3D_SPACING)) 24 else A$FF3D_SPACING)
+FF3D_MERGE_TOL <- as.numeric(if (is.null(A$FF3D_MERGE_TOL)) 2.0 else A$FF3D_MERGE_TOL)
 # RUNGS: density ladder (issue #33). "native" -> no decimation (rung NA); the
 # numeric rungs are pts/m^2 targets passed to frozen_clip's seeded homogenize.
 # Each token is parsed to NA ("native") or a numeric pts/m^2 target.
@@ -121,6 +138,23 @@ MINTREES <- 6
 RW_TIMEOUT <- 120          # seconds; random-walker solve is timeboxed per plot
 TH_CR      <- 0.55         # random_walker_thcr stop rule: drop crown-k pixels
                            # below TH_CR * seed-k apex height (matches dalponte2016)
+
+BEST_SELECTION <- NULL
+if (SEED_POLICY == "best") {
+  if (!file.exists(BEST_TOPS))
+    stop("BEST_TOPS selection CSV not found: ", BEST_TOPS, call. = FALSE)
+  BEST_SELECTION <- read.csv(BEST_TOPS, stringsAsFactors = FALSE)
+  req <- c("site", "method", "rung", "F1")
+  missing <- setdiff(req, names(BEST_SELECTION))
+  if (length(missing))
+    stop("BEST_TOPS missing columns: ", paste(missing, collapse = ", "),
+         call. = FALSE)
+  BEST_SELECTION <- BEST_SELECTION[BEST_SELECTION$site %in% SITES, , drop = FALSE]
+  if (!nrow(BEST_SELECTION))
+    stop("BEST_TOPS has no rows for requested SITES", call. = FALSE)
+}
+
+sanitize_cache_part <- function(x) gsub("[^A-Za-z0-9_.-]+", "_", as.character(x))
 
 ## ---- random walker (Grady 2006) on a CHM raster --------------------------
 # Builds the 4-neighbour pixel graph over canopy pixels (Z>=hmin), Gaussian edge
@@ -238,16 +272,12 @@ field_crowns <- function(site) {
   ai1
 }
 
-## ---- cached SegmentAnyTree treetop seeds ---------------------------------
-# SegmentAnyTree is expensive to rerun. For seed-sensitivity tests, reuse the
-# cached apex CSVs written by export_best_treetops_geojson.R / the detector
-# cache. These are treetop points only, not crown geometries; random_walker grows
-# crowns from them on the same CHM used by the other crown arms.
-segmentanytree_cached_tops <- function(site, pid, rung_lbl, crs) {
-  nd <- file.path(d, "neon", site)
-  f <- file.path(nd, "best_treetop_cache",
-                 sprintf("segmentanytree__%s__%s__%s__imagesat-sm120-test.csv",
-                         site, pid, rung_lbl))
+## ---- cached treetop seeds ------------------------------------------------
+# Deep-model detectors are expensive to rerun. For seed-sensitivity / best-seed
+# tests, reuse the cached apex CSVs written by export_best_treetops_geojson.R /
+# the detector cache. These are treetop points only, not crown geometries; the
+# crown arms grow crowns from them on the same CHM used by the other arms.
+det_cache_to_tops <- function(f, crs) {
   if (!file.exists(f)) return(NULL)
   tt <- read.csv(f, stringsAsFactors = FALSE)
   if (!all(c("x", "y", "z") %in% names(tt)) || !nrow(tt)) return(NULL)
@@ -256,6 +286,64 @@ segmentanytree_cached_tops <- function(site, pid, rung_lbl, crs) {
   sf::st_as_sf(data.frame(treeID = seq_len(sum(keep)),
                           X = tt$x[keep], Y = tt$y[keep], Z = tt$z[keep]),
                coords = c("X", "Y", "Z"), crs = crs)
+}
+
+selection_cache_path <- function(site, pid, sel) {
+  nd <- file.path(d, "neon", site)
+  method <- as.character(sel$method)
+  rung <- as.character(sel$rung)
+  parts <- c(method, site, pid, rung)
+  if (method == "chm_vwf")
+    parts <- c(parts, sprintf("res%s", sel$chm_res), sprintf("a%s", sel$vwf_a))
+  if (method == "treeisonet")
+    parts <- c(parts, sprintf("conf%s", TREEISONET_CONF),
+               sprintf("voxel%s", TREEISONET_VOXEL))
+  if (method == "segmentanytree")
+    parts <- c(parts, sprintf("image%s", SAT_IMAGE))
+  if (method == "forestformer3d")
+    parts <- c(parts, sprintf("image%s", FF3D_IMAGE),
+               sprintf("spacing%s", FF3D_SPACING),
+               sprintf("merge%s", FF3D_MERGE_TOL))
+  file.path(nd, "best_treetop_cache",
+            paste0(sanitize_cache_part(paste(parts, collapse = "__")), ".csv"))
+}
+
+cached_tops_for_selection <- function(site, pid, sel, crs) {
+  f <- selection_cache_path(site, pid, sel)
+  tops <- det_cache_to_tops(f, crs)
+  if (is.null(tops)) return(NULL)
+  list(tops = tops, method = as.character(sel$method),
+       rung = as.character(sel$rung), path = f)
+}
+
+selection_rank <- function(sel) {
+  for (nm in c("recall", "precision")) if (!nm %in% names(sel)) sel[[nm]] <- NA_real_
+  sel[order(-as.numeric(sel$F1), -as.numeric(sel$recall),
+            -as.numeric(sel$precision), as.character(sel$method)), , drop = FALSE]
+}
+
+best_seed_rows <- function(site) {
+  if (is.null(BEST_SELECTION)) return(NULL)
+  selection_rank(BEST_SELECTION[BEST_SELECTION$site == site, , drop = FALSE])
+}
+
+best_seed_tops <- function(site, pid, rung_lbl, crs) {
+  rows <- best_seed_rows(site)
+  if (is.null(rows) || !nrow(rows)) return(NULL)
+  rows <- rows[as.character(rows$rung) == as.character(rung_lbl), , drop = FALSE]
+  if (!nrow(rows)) return(NULL)
+  for (i in seq_len(nrow(rows))) {
+    hit <- cached_tops_for_selection(site, pid, rows[i, , drop = FALSE], crs)
+    if (!is.null(hit)) return(hit)
+  }
+  NULL
+}
+
+segmentanytree_cached_tops <- function(site, pid, rung_lbl, crs) {
+  f <- file.path(d, "neon", site, "best_treetop_cache",
+                 sprintf("segmentanytree__%s__%s__%s__image%s.csv",
+                         site, pid, rung_lbl, SAT_IMAGE))
+  det_cache_to_tops(f, crs)
 }
 
 ## ---- per-(plot, rung) crown benchmark ------------------------------------
@@ -288,14 +376,17 @@ run_plot <- function(site, pid, rung, rung_lbl, ctg, pc, gt, tmpdir, froot) {
   if (is.null(chm)) return(NULL)
   ws <- ws_factory(VWF_A)
 
-  ## shared seeds: detect treetops ONCE on the CHM
+  ## shared seeds: detect treetops ONCE on the CHM. Best-seed mode only needs
+  ## the CHM CRS here; it reads its seed points from the detector cache.
   ttops <- tryCatch(
     locate_trees(chm, lmf(ws = ws, hmin = 2, shape = "circular")),
     error = function(e) NULL)
-  if (is.null(ttops) || nrow(ttops) < 1) return(NULL)
-  tc <- sf::st_coordinates(ttops)
-  seed_x <- tc[, 1]; seed_y <- tc[, 2]; seed_z <- tc[, 3]
-  seed_id <- ttops$treeID
+  if (SEED_POLICY != "best" && (is.null(ttops) || nrow(ttops) < 1)) return(NULL)
+  seed_crs <- if (!is.null(ttops) && nrow(ttops) > 0) {
+    sf::st_crs(ttops)
+  } else {
+    sf::st_crs(terra::crs(chm))
+  }
   max_cr_px <- as.integer(round(10 / RES))
 
   ## ----- seeded segmenters: crown label rasters keyed by ttops treeID -----
@@ -314,22 +405,30 @@ run_plot <- function(site, pid, rung, rung_lbl, ctg, pc, gt, tmpdir, froot) {
   ## (multichm_seed_tops in sweep_lib.R, frdens-gated by prep$frdens). The
   ## multichm-seeded crowns are still keyed by their own treeID but matched to
   ## field stems via the multichm tops' own (x,y) (see below).
-  tt_mc <- tryCatch(
-    multichm_seed_tops(las, chm, a = VWF_A, frdens = prep$frdens),
-    error = function(e) NULL)
-  tt_sat <- tryCatch(
-    segmentanytree_cached_tops(site, pid, rung_lbl, sf::st_crs(ttops)),
-    error = function(e) NULL)
   # Each seed set carries its own (x,y,z,id) and its own greedy match to the field
   # stems, so an alternative-seeded crown is matched via its own tops -- not via
   # the lmf tops -- and scored on the stems ITS OWN seeds found. The seedlmf set
   # reuses the shared seed_*/seed_id/lmf match computed below, so the seedlmf arms
   # remain bit-identical to the #7 control.
-  seed_sets <- list(seedlmf = list(tops = ttops))
-  if (!is.null(tt_mc) && nrow(tt_mc) > 0)
-    seed_sets[["seedmultichm"]] <- list(tops = tt_mc)
-  if (!is.null(tt_sat) && nrow(tt_sat) > 0)
-    seed_sets[["seedsegmentanytree"]] <- list(tops = tt_sat)
+  if (SEED_POLICY == "best") {
+    best <- tryCatch(best_seed_tops(site, pid, rung_lbl, seed_crs),
+                     error = function(e) NULL)
+    if (is.null(best) || is.null(best$tops) || nrow(best$tops) < 1) return(NULL)
+    seed_sets <- list(seedbest = list(tops = best$tops, method = best$method,
+                                      path = best$path))
+  } else {
+    tt_mc <- tryCatch(
+      multichm_seed_tops(las, chm, a = VWF_A, frdens = prep$frdens),
+      error = function(e) NULL)
+    tt_sat <- tryCatch(
+      segmentanytree_cached_tops(site, pid, rung_lbl, seed_crs),
+      error = function(e) NULL)
+    seed_sets <- list(seedlmf = list(tops = ttops))
+    if (!is.null(tt_mc) && nrow(tt_mc) > 0)
+      seed_sets[["seedmultichm"]] <- list(tops = tt_mc)
+    if (!is.null(tt_sat) && nrow(tt_sat) > 0)
+      seed_sets[["seedsegmentanytree"]] <- list(tops = tt_sat)
+  }
 
   for (sk in names(seed_sets)) {
     st <- seed_sets[[sk]]$tops
@@ -342,7 +441,7 @@ run_plot <- function(site, pid, rung, rung_lbl, ctg, pc, gt, tmpdir, froot) {
       seed_sets[[sk]]$x, seed_sets[[sk]]$y, TOL,
       az = stems$height, bz = seed_sets[[sk]]$z)
 
-    if (sk %in% c("seedlmf", "seedmultichm")) {
+    if (sk %in% c("seedlmf", "seedmultichm", "seedbest")) {
       d_r <- tryCatch(dalponte2016(chm, st, th_seed = 0.45, th_cr = 0.55,
                                    max_cr = max_cr_px)(), error = function(e) NULL)
       if (!is.null(d_r)) crowns_by_algo[[paste0("dalponte2016_", sk)]] <-
@@ -363,30 +462,34 @@ run_plot <- function(site, pid, rung, rung_lbl, ctg, pc, gt, tmpdir, froot) {
   ## the residual seed difference is the LM implementation, not the surface).
   ## load_raster -> pit_fill is required: local_maximum_raster on a bare
   ## load_raster stage yields no points; the pit_fill pass-through fixes that.
-  lasr_g <- tryCatch({
-    chm_path <- file.path(tmpdir, paste0("chm_", pid, "_", rung_lbl, "_",
-                                         Sys.getpid(), ".tif"))
-    terra::writeRaster(chm, chm_path, overwrite = TRUE)
-    on.exit(unlink(chm_path), add = TRUE)
-    rr   <- lasR::load_raster(chm_path)
-    pf   <- lasR::pit_fill(rr)
-    seed <- lasR::local_maximum_raster(pf, ws, min_height = 2)
-    cr   <- lasR::region_growing(pf, seed, th_tree = 2, th_seed = 0.45,
-                                 th_cr = 0.55, max_cr = 10)
-    ans <- lasR::exec(rr + pf + seed + cr, on = prep$normalized,
-                      with = list(progress = FALSE, ncores = 1L))
-    cr_r <- terra::rast(terra::sources(ans$region_growing))
-    seeds_sf <- sf::st_as_sf(ans$local_maximum)
-    list(geom = crown_geom(cr_r), seeds = sf::st_coordinates(seeds_sf))
-  }, error = function(e) NULL)
-  if (!is.null(lasr_g) && !is.null(lasr_g$geom))
-    crowns_by_algo[["lasr_region_growing"]] <-
-      list(geom = lasr_g$geom, by = "own_seed", seeds = lasr_g$seeds)
+  if (SEED_POLICY != "best") {
+    lasr_g <- tryCatch({
+      chm_path <- file.path(tmpdir, paste0("chm_", pid, "_", rung_lbl, "_",
+                                           Sys.getpid(), ".tif"))
+      terra::writeRaster(chm, chm_path, overwrite = TRUE)
+      on.exit(unlink(chm_path), add = TRUE)
+      rr   <- lasR::load_raster(chm_path)
+      pf   <- lasR::pit_fill(rr)
+      seed <- lasR::local_maximum_raster(pf, ws, min_height = 2)
+      cr   <- lasR::region_growing(pf, seed, th_tree = 2, th_seed = 0.45,
+                                   th_cr = 0.55, max_cr = 10)
+      ans <- lasR::exec(rr + pf + seed + cr, on = prep$normalized,
+                        with = list(progress = FALSE, ncores = 1L))
+      cr_r <- terra::rast(terra::sources(ans$region_growing))
+      seeds_sf <- sf::st_as_sf(ans$local_maximum)
+      list(geom = crown_geom(cr_r), seeds = sf::st_coordinates(seeds_sf))
+    }, error = function(e) NULL)
+    if (!is.null(lasr_g) && !is.null(lasr_g$geom))
+      crowns_by_algo[["lasr_region_growing"]] <-
+        list(geom = lasr_g$geom, by = "own_seed", seeds = lasr_g$seeds)
+  }
 
   ## marker-FREE watershed: crowns matched to seeds by polygon containment
-  w_r <- tryCatch(lidR::watershed(chm, th_tree = 2)(), error = function(e) NULL)
-  if (!is.null(w_r)) crowns_by_algo[["watershed_markerfree"]] <-
-      list(geom = crown_geom(w_r), by = "contain")
+  if (SEED_POLICY != "best") {
+    w_r <- tryCatch(lidR::watershed(chm, th_tree = 2)(), error = function(e) NULL)
+    if (!is.null(w_r)) crowns_by_algo[["watershed_markerfree"]] <-
+        list(geom = crown_geom(w_r), by = "contain")
+  }
 
   ## marker-CONTROLLED (seeded) watershed (issue #32): the SHARED ttops are the
   ## basin markers, so exactly one crown grows per seed and each crown is keyed by
@@ -395,15 +498,22 @@ run_plot <- function(site, pid, rung, rung_lbl, ctg, pc, gt, tmpdir, froot) {
   ## does this priority-flood from a labelled seed image but imager is not installed
   ## here, so priority_flood_watershed() (sweep_lib.R) runs the flood directly on
   ## the CHM (descending-height flood; seed-less canopy islands -> background).
-  ws_seeded <- tryCatch({
-    markers <- seeds_to_marker_raster(chm, cbind(seed_x, seed_y), seed_id)
-    lab     <- priority_flood_watershed(chm, markers, hmin = 2)
-    ws_r    <- chm
-    terra::values(ws_r) <- ifelse(lab > 0L, lab, NA_integer_)
-    crown_geom(ws_r)
-  }, error = function(e) NULL)
-  if (!is.null(ws_seeded)) crowns_by_algo[["watershed_seeded"]] <-
-      list(geom = ws_seeded, by = "treeID")
+  ws_seed_names <- if (SEED_POLICY == "best") names(seed_sets) else "seedlmf"
+  for (sk in ws_seed_names) {
+    ss <- seed_sets[[sk]]
+    ws_seeded <- tryCatch({
+      markers <- seeds_to_marker_raster(chm, cbind(ss$x, ss$y), ss$id)
+      lab     <- priority_flood_watershed(chm, markers, hmin = 2)
+      ws_r    <- chm
+      terra::values(ws_r) <- ifelse(lab > 0L, lab, NA_integer_)
+      crown_geom(ws_r)
+    }, error = function(e) NULL)
+    if (!is.null(ws_seeded)) {
+      nm <- if (identical(sk, "seedlmf")) "watershed_seeded" else
+        paste0("watershed_seeded_", sk)
+      crowns_by_algo[[nm]] <- list(geom = ws_seeded, by = "treeID", seed = sk)
+    }
+  }
 
   ## random walker, timeboxed per seed set. Two arms share one solve:
   ##  - random_walker      : pure argmax labelling (issue #7 honest negative)
@@ -546,6 +656,17 @@ run_site <- function(site) {
   cat(sprintf("[%s] plots with >=%d stems w/ field CD: %d (%s)\n",
               site, MINTREES, length(keep), paste(keep, collapse = ",")))
   if (!length(keep)) return(NULL)
+  best_rung <- NULL
+  if (SEED_POLICY == "best") {
+    best_rows <- best_seed_rows(site)
+    if (is.null(best_rows) || !nrow(best_rows)) {
+      cat(sprintf("[%s] no best-treetop selection rows; skipping\n", site))
+      return(NULL)
+    }
+    best_rung <- as.character(best_rows$rung[1])
+    cat(sprintf("[%s] best-seed source: %s rung %s (F1 %.3f)\n",
+                site, best_rows$method[1], best_rung, as.numeric(best_rows$F1[1])))
+  }
 
   tmpdir <- file.path(tempdir(), paste0("crown_", site))
   dir.create(tmpdir, showWarnings = FALSE)
@@ -567,6 +688,7 @@ run_site <- function(site) {
     for (i in seq_along(RUNGS)) {
       rung <- RUNGS[[i]]; lbl <- RUNGS_RAW[i]
       if (tolower(lbl) == "native") lbl <- "native"
+      if (SEED_POLICY == "best" && as.character(lbl) != best_rung) next
       if (!is.na(rung) && (is.na(native_pdens) || rung >= native_pdens)) next
       r <- tryCatch(run_plot(site, p, rung, lbl, ctg, pc, gt, tmpdir, froot),
                     error = function(e) { message("  plot ", p, " rung ", lbl,
@@ -591,7 +713,7 @@ run_site <- function(site) {
   names(res)[names(res) == "ninetyCrownDiameter"] <- "field_ninetyCD"
   res <- res[, c("site", "plot", "rung", "algo", "crown_class", "individualID",
                  "d_eq", "d_caliper", "area", "field_maxCD", "field_ninetyCD")]
-  out <- file.path(nd, "crown_metrics_results.csv")
+  out <- file.path(nd, OUT_FILE)
   write.csv(res, out, row.names = FALSE)
   cat(sprintf("[%s] wrote %d matched-tree rows (rungs %s) -> %s\n",
               site, nrow(res), paste(sort(unique(res$rung)), collapse = "/"), out))

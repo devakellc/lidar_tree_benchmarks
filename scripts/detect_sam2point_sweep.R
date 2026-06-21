@@ -79,7 +79,17 @@ for (pid in keep) {
   ci <- pc[pc$plotID == pid, ][1, ]; cx <- ci$easting; cy <- ci$northing; ph <- plot_half(ci$plotType)
   stems <- gt[gt$plotID == pid & abs(gt$E - cx) <= ph & abs(gt$N - cy) <= ph, , drop = FALSE]
   clip <- fz(pid, "clip_normalized.laz"); if (!file.exists(clip) || !nrow(stems)) next
-  det <- tryCatch(detect_lasr(clip, if (TRUE) 0.25 else 0.5, VWF_A, 8), error = function(e) NULL)
+  # Density-derived res/dens (CLAUDE.md: CHM resolution + the <8 pts/m^2 pre-LM
+  # smoothing branch must be functions of measured first-return density, never
+  # hardcoded). Read frdens from the frozen clip's manifest via the SAME helper
+  # frozen_clip() writes (frozen_dir owns the layout), then derive res exactly as
+  # CHM-VWF/multichm_seed_tops does and pass frdens as dens so detect_lasr's
+  # smoothing branch fires on sparse rungs.
+  mf <- file.path(frozen_dir(file.path(nd, "frozen"), SITE, pid, RUNG), "manifest.json")
+  frdens <- tryCatch(as.numeric(jsonlite::read_json(mf, simplifyVector = TRUE)$frdens),
+                     error = function(e) NA_real_)
+  res <- if (!is.na(frdens) && frdens >= 8) 0.25 else 0.5  # density-derived, as CHM-VWF
+  det <- tryCatch(detect_lasr(clip, res, VWF_A, frdens), error = function(e) NULL)
   if (is.null(det) || !nrow(det)) next
   # core+tol apexes, capped to MAXPROMPTS by descending height (overstory seeds)
   inreg <- abs(det$x - cx) <= ph + TOL & abs(det$y - cy) <= ph + TOL
@@ -96,7 +106,10 @@ for (pid in keep) {
            "python3", "/workspace/run_arm.py", "--input", "/data/in.laz",
            "--prompts", "/data/prompts.csv", "--output", paste0("/out/", basename(out)),
            "--voxel_size", as.character(VOXEL))
-  st <- tryCatch(system2("docker", cmd, stdout = FALSE, stderr = FALSE), error = function(e) 1L)
+  # shQuote the docker args (matches run_docker_arm in model_runner.R): system2
+  # pastes into a shell, so an unquoted space/metachar in IMAGE or a
+  # CLAUDE_JOB_DIR-derived path would break sh or inject.
+  st <- tryCatch(system2("docker", shQuote(cmd), stdout = FALSE, stderr = FALSE), error = function(e) 1L)
   unlink(pf)
   # SEEDED SAM2Point: read per-point labels (AGL), reduce to apex
   if (identical(as.integer(st), 0L) && file.exists(out)) {

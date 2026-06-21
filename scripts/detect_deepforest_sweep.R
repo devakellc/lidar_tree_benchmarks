@@ -38,6 +38,7 @@ source(.find("sweep_lib.R")); source(.find("model_bench_lib.R"))
 args <- strsplit(commandArgs(TRUE), "=")
 A    <- setNames(lapply(args, `[`, 2), sapply(args, `[`, 1))
 SITE <- if (!is.null(A$SITE)) A$SITE else "SOAP"
+YEAR <- if (!is.null(A$YEAR)) A$YEAR else "2021"  # match neon_download_aop.R epoch
 TOL  <- as.numeric(if (is.null(A$TOL)) 4 else A$TOL)
 SCORE_THRESH <- as.numeric(if (is.null(A$SCORE_THRESH)) 0.0 else A$SCORE_THRESH)
 CHM_RES <- as.numeric(if (is.null(A$CHM_RES)) 0.5 else A$CHM_RES)
@@ -50,6 +51,14 @@ nd <- file.path(d, "neon", SITE)
 all_boxes <- function() {
   rdir <- file.path(nd, "rgb")
   tifs <- list.files(rdir, pattern = "\\.tif$", recursive = TRUE, full.names = TRUE)
+  # byTileAOP writes into <savepath>/DP3.30010.001/neon-aop-products/<year>/...;
+  # filter to the requested YEAR subdir so multiple downloaded epochs are never
+  # mixed into one DeepForest run (the benchmark matches the 2021 LiDAR/GT epoch).
+  yr_pat <- paste0("/", YEAR, "/")
+  in_year <- grepl(yr_pat, tifs, fixed = TRUE)
+  if (any(in_year)) tifs <- tifs[in_year] else
+    cat(sprintf("WARNING: no RGB tiles under year %s in %s; using all %d tiles\n",
+                YEAR, rdir, length(tifs)))
   if (!length(tifs)) { cat("no RGB tiles under", rdir, "\n"); return(NULL) }
   bdir <- file.path(nd, "deepforest_boxes"); dir.create(bdir, showWarnings = FALSE, recursive = TRUE)
   rows <- list()
@@ -96,6 +105,15 @@ run_main <- function() {
     if (!nrow(stems)) next
     bp <- boxes[abs(boxes$x - cx) <= ph + TOL & abs(boxes$y - cy) <= ph + TOL, , drop = FALSE]
     chm <- plot_chm(pid)
+    if (is.null(chm)) {                                 # frozen clip missing/empty
+      # Without a CHM every box would be floored to z=2.0, which score_plot's
+      # greedy_match height gate (bz >= 0.5*az) then rejects for normal-height
+      # stems -- yet the plot's stems would still pollute the pooled denominator,
+      # silently dragging recall/F1 down. Skip the plot instead (no precedent for
+      # scoring under corrupted heights). Run the frozen-clip sweep first.
+      cat(sprintf("[%s] %s: no frozen CHM -> skipped (re-run the frozen sweep)\n",
+                  SITE, pid)); next
+    }
     z <- if (!is.null(chm) && nrow(bp))
       as.numeric(terra::extract(chm, cbind(bp$x, bp$y))[, 1]) else rep(NA_real_, nrow(bp))
     z[!is.finite(z)] <- 2.0                              # off-CHM crowns: floor at min_height

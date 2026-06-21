@@ -35,7 +35,10 @@ try:
     crowns = clean_crowns(crowns, iou_threshold=0.7, confidence=0.2, verbose=False)
     crowns = crowns[crowns.geometry.notna() & crowns.geometry.is_valid & ~crowns.geometry.is_empty]
 except Exception as e:
-    EMPTY(); sys.stderr.write("detectree2 failed: %s\n" % e); print("detectree2: error"); sys.exit(0)
+    # A genuine failure (model/CRS/dependency/IO) must be distinguishable from a
+    # legitimate no-crown prediction: exit NON-ZERO so the R caller treats it as
+    # a failed run, not as an empty result that would score recall 0.
+    sys.stderr.write("detectree2 failed: %s\n" % e); print("detectree2: error"); sys.exit(1)
 
 if len(crowns) == 0:
     EMPTY(); print("detectree2: 0 crowns -> %s" % out_csv); sys.exit(0)

@@ -93,7 +93,11 @@ run_main <- function() {
       if (!identical(as.integer(st), 0L) || !file.exists(ocsv)) { cat(sprintf("[%s] %s: runner failed\n", SITE, pid)); next }
     }
     b <- tryCatch(read.csv(ocsv, stringsAsFactors = FALSE), error = function(e) NULL)
-    if (is.null(b) || !nrow(b)) { cat(sprintf("[%s] %s: 0 crowns\n", SITE, pid)); next }
+    if (is.null(b) || !nrow(b)) {                          # ran fine, found no crowns
+      b <- data.frame(x = numeric(0), y = numeric(0), score = numeric(0),
+                      d_eq = numeric(0), area = numeric(0))
+      cat(sprintf("[%s] %s: 0 crowns\n", SITE, pid))
+    }
     bp <- b[abs(b$x - cx) <= ph + TOL & abs(b$y - cy) <= ph + TOL, , drop = FALSE]
     chm <- plot_chm(pid)
     z <- if (!is.null(chm) && nrow(bp)) as.numeric(terra::extract(chm, cbind(bp$x, bp$y))[, 1]) else rep(NA_real_, nrow(bp))

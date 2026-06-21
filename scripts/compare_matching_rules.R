@@ -51,7 +51,12 @@ DIST_FILES <- c("lidrplugins_results.csv", "ams3d_results.csv", "li2012_results.
                 "treeisonet_results.csv", "segmentanytree_results.csv",
                 "forestformer3d_results.csv")
 read_dist <- function() {
-  rows <- list()
+  # Gather every distance arm's per-(site,plot,rung) cell rows into ONE frame so
+  # the equal_set_guard can intersect them, then pool each arm over the SHARED
+  # cell population. Mirrors analyze_model_benchmark.R::pool_arms: arms ranked
+  # against each other must share a (site,plot,rung) denominator, else a rank-flip
+  # could reflect coverage/denominator differences, not a metric disagreement.
+  cells <- list()
   for (f in DIST_FILES) {
     p <- file.path(nd, f); if (!file.exists(p)) next
     df <- read.csv(p, stringsAsFactors = FALSE)
@@ -59,18 +64,38 @@ read_dist <- function() {
     if (is.na(det_col)) next
     df$rung <- as.character(df$rung)
     df <- df[df$rung == RUNG, , drop = FALSE]; if (!nrow(df)) next
-    for (a in unique(df[[det_col]])) {
-      sub <- df[df[[det_col]] == a, , drop = FALSE]
-      if (is.null(sub$site)) sub$site <- SITE
-      p2 <- tryCatch(pool(sub), error = function(e) NULL)
-      if (!is.null(p2)) rows[[length(rows) + 1]] <-
-        data.frame(arm = a, dist_recall = p2$recall, dist_precision = p2$precision,
-                   dist_F1 = p2$F1, dist_rec_understory = p2$rec_understory,
-                   n_ref = p2$n_ref, stringsAsFactors = FALSE)
-    }
+    df$detector <- df[[det_col]]                     # normalize for the guard
+    if (is.null(df$site)) df$site <- SITE
+    cells[[length(cells) + 1]] <- df
   }
+  if (!length(cells)) return(NULL)
+  all_cells <- do.call(.rbind_common, cells)         # union of compatible columns
+  arms <- unique(all_cells$detector)
+  # Restrict every arm to the (site,plot,rung) cells scored by ALL arms.
+  g <- equal_set_guard(all_cells, arms = arms)
+  dropped <- attr(g, "dropped")
+  if (length(dropped))
+    message(sprintf("equal-set guard dropped %d (site,plot,rung) cell(s) before ranking",
+                    length(dropped)))
+  rows <- list()
+  for (a in arms) {
+    sub <- g[g$detector == a, , drop = FALSE]; if (!nrow(sub)) next
+    p2 <- tryCatch(pool(sub), error = function(e) NULL)
+    if (!is.null(p2)) rows[[length(rows) + 1]] <-
+      data.frame(arm = a, dist_recall = p2$recall, dist_precision = p2$precision,
+                 dist_F1 = p2$F1, dist_rec_understory = p2$rec_understory,
+                 n_ref = p2$n_ref, stringsAsFactors = FALSE)
+  }
+  if (!length(rows)) return(NULL)
   d <- do.call(rbind, rows)
   d[!duplicated(d$arm), , drop = FALSE]              # one row per arm
+}
+
+# rbind rows that may carry different column sets (different detector CSVs):
+# keep only the columns common to every frame, in a stable order.
+.rbind_common <- function(frames) {
+  common <- Reduce(intersect, lapply(frames, names))
+  do.call(rbind, lapply(frames, function(x) x[, common, drop = FALSE]))
 }
 
 ## ---- IoU leaderboard from instance_iou_pq.csv (mask arms only) -------------

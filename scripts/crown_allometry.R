@@ -43,7 +43,7 @@ SITES <- if (!is.null(A$SITES)) strsplit(A$SITES, ",")[[1]] else
 
 CM_FILES <- c("crown_metrics_results.csv", "crown_metrics_3d_results.csv",
               "crown_metrics_best_results.csv", "segmentanytree_crown_metrics.csv",
-              "forestformer3d_crown_metrics.csv")
+              "forestformer3d_crown_metrics.csv", "treeisonet_crown_metrics.csv")
 
 ## ---- assemble matched crowns + field DBH/taxon/height per site -------------
 load_site <- function(site) {
@@ -51,6 +51,14 @@ load_site <- function(site) {
   gtf <- file.path(nd, "ground_truth_stems.csv"); if (!file.exists(gtf)) return(NULL)
   gt <- read.csv(gtf, stringsAsFactors = FALSE)
   fld <- unique(gt[, c("individualID", "stemDiameter", "taxonID", "height")])
+  # Guard: one row per individualID (multi-measurement stems, e.g. multi-year,
+  # would otherwise fan out the merge and double-count in pooled stats). Keep the
+  # most-complete row per ID (fewest NA fields), breaking ties by first seen.
+  if (anyDuplicated(fld$individualID)) {
+    ord <- order(rowSums(is.na(fld[, c("stemDiameter", "taxonID", "height")])))
+    fld <- fld[ord, , drop = FALSE]
+    fld <- fld[!duplicated(fld$individualID), , drop = FALSE]
+  }
   rows <- list()
   for (f in CM_FILES) {
     p <- file.path(nd, f); if (!file.exists(p)) next

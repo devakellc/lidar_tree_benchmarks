@@ -205,10 +205,7 @@ run_site <- function(site) {
               mc.cores = CORES, mc.preschedule = FALSE)))
   if (!nrow(res)) { cat(sprintf("[%s] no detections labelled\n", site)); return(NULL) }
   res <- res[is.finite(res$raw), ]
-  # per-arm min-max -> predicted prob
-  res[, prob := { r <- range(raw); if (diff(r) > 0) (raw - r[1]) / diff(r) else 0.5 }, by = arm]
-  write.csv(res, file.path(nd, "confidence_calibration.csv"), row.names = FALSE)
-  cat(sprintf("[%s] labelled %d detections across %d arms -> confidence_calibration.csv\n",
+  cat(sprintf("[%s] labelled %d detections across %d arms\n",
               site, nrow(res), length(unique(res$arm))))
   as.data.frame(res)
 }
@@ -273,6 +270,15 @@ run_main <- function() {
   res <- if (length(all_res)) do.call(rbind, all_res) else NULL
   dt <- as.numeric(difftime(Sys.time(), t0, units = "mins"))
   if (is.null(res) || !nrow(res)) { cat("\nNo detections labelled.\n"); return(invisible()) }
+  # per-arm min-max -> predicted prob, POOLED across all sites (not per-site), so
+  # the lookup's raw_prob axis is site-independent and reusable by fuse_detectors().
+  res <- as.data.table(res)
+  res[, prob := { r <- range(raw); if (diff(r) > 0) (raw - r[1]) / diff(r) else 0.5 }, by = arm]
+  res <- as.data.frame(res)
+  # write per-site confidence_calibration.csv carrying the pooled prob
+  for (site in names(all_res))
+    write.csv(res[res$site == site, , drop = FALSE],
+              file.path(d, "neon", site, "confidence_calibration.csv"), row.names = FALSE)
   lk <- report(res)
   # write per-arm calibrated lookup to each site dir (fuse_detectors consumes it)
   for (site in names(all_res))

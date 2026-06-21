@@ -148,6 +148,51 @@ recall@IoU0.5 / Coverage / SQ (SQ over matched pairs only; "--" = no match).
   the point-mask analogue of the per-class recall gradient the apex scorer
   reports.
 
+## Matching-rule sensitivity (#V2)
+
+If the router (#P2) selects "best arm per rung", that choice is only trustworthy
+if the ranking is stable across reasonable metrics. This recomputes the SOAP
+native leaderboard under apex-distance F1, point-set IoU≥0.5 recall, and
+threshold-free Coverage (`scripts/compare_matching_rules.R` →
+`work/neon/SOAP/matching_rule_ranks.csv`), and flags reorderings. The hypothesis
+under test: distance matching over-credits high-recall/low-precision point
+segmenters (ptrees, AMS3D — split crowns) that IoU/RQ should demote.
+
+| arm | dist recall | dist F1 | dist rank | IoU R@0.5 | Coverage | mask? |
+|---|--:|--:|--:|--:|--:|:--:|
+| segmentanytree | 0.642 | 0.464 | 1 | 0.216 | 0.342 | yes |
+| multichm | 0.629 | 0.439 | 2 | n/a | n/a | no |
+| treeisonet | 0.599 | 0.393 | 3 | n/a | n/a | no |
+| chm_vwf | 0.478 | 0.382 | 4 | n/a | n/a | no |
+| li2012 | 0.595 | 0.359 | 5 | n/a | n/a | no |
+| lmfauto | 0.509 | 0.337 | 6 | n/a | n/a | no |
+| forestformer3d | 0.409 | 0.262 | 7 | 0.061 | 0.171 | yes |
+| ptrees | 0.849 | 0.259 | 8 | n/a | n/a | no |
+| ams3d | 0.789 | 0.191 | 9 | n/a | n/a | no |
+
+Readings:
+
+- **Only 2 of 9 arms can be ranked by IoU**, because just the deep arms persist
+  per-point masks (the classical/point arms write scored summaries only). So a
+  Kendall τ / Spearman ρ between the distance and IoU leaderboards is **undefined**
+  (needs ≥3 common arms). This is itself a result: **IoU/PQ cannot currently serve
+  as the router's ranking metric** — most arms are uncomparable under it — so #P2
+  must rank on distance F1 and use IoU/Coverage only as a tie-break among the mask
+  arms.
+- **No rank-flip among the mask arms, but the gap widens under IoU.**
+  SegmentAnyTree > ForestFormer3D under both rules, yet distance over-credits FF3D
+  far more (its recall is 6.8× its IoU≥0.5 recall, vs 3.0× for SAT), so the
+  SAT-over-FF3D margin is *larger* under IoU than under distance. Distance is loose
+  but order-preserving for these two; it just compresses the true gap.
+- **The over-crediting hypothesis is already caught by F1's precision term.** The
+  named culprits do show the predicted high recall — ptrees 0.849, AMS3D 0.789,
+  the highest of any arm — but they rank **8th and 9th by distance F1** because
+  splitting crowns destroys precision (F1 0.259 / 0.191). So apex-distance *F1*
+  already demotes the crown-splitters; IoU would demote them further but can't be
+  computed without their masks. The router is therefore safe to rank on F1 (not
+  recall) today; materializing ptrees/AMS3D masks (a #V1 follow-up) would let IoU
+  confirm the demotion directly.
+
 ## Caveats
 
 - **The reference is a proxy, not truth.** Voronoi-on-stems assigns each canopy

@@ -147,6 +147,27 @@ fp_structure <- function(fpx, fpy, mstemx, mstemy, near_tol = 4.0) {
   c(near = sum(near), isolated = sum(!near))
 }
 
+## ---- Monte-Carlo stem-position jitter (#V3) ------------------------------
+# Draws each stem's (E,N) from an independent 2-D Gaussian centred on its mapped
+# position with per-stem sigma = its `pos_unc` (NEON coordinate uncertainty +
+# the TruPulse rangefinder term, already stored per stem). One reproducible draw
+# per `seed` (set.seed locally, restoring the caller's RNG so the surrounding
+# pipeline is unaffected). sigma may be a scalar or a per-stem vector; NA / non-
+# positive sigma is treated as 0 (that stem does not move). Returns list(E, N).
+# The #V3 driver calls this K times (seed = base + draw) and re-runs score_plot
+# each draw, so leaderboard gaps get 5th/95th-percentile bands under field jitter.
+perturb_positions <- function(E, N, sigma, seed) {
+  n <- length(E)
+  s <- rep_len(sigma, n)
+  s[!is.finite(s) | s < 0] <- 0
+  old <- if (exists(".Random.seed", envir = .GlobalEnv))
+    get(".Random.seed", envir = .GlobalEnv) else NULL
+  on.exit(if (!is.null(old)) assign(".Random.seed", old, envir = .GlobalEnv))
+  set.seed(seed)
+  list(E = E + stats::rnorm(n, 0, 1) * s,
+       N = N + stats::rnorm(n, 0, 1) * s)
+}
+
 ## ---- one detection run on a prepared (decimated+normalized) LAS file -----
 # Returns a data.frame of treetops (x,y,z) using lasR VWF on a pit-filled CHM.
 detect_lasr <- function(las_file, res, a, dens, smooth_below = 8) {

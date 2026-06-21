@@ -46,6 +46,11 @@ in [`results/`](results/).
   CHM-VWF, TreeisoNet, SegmentAnyTree, native Li 2012, and the native+8
   ForestFormer3D comparison on shared frozen clips, by crown class and height
   band, with head-to-head deltas vs CHM-VWF.
+- [`results/detector-routing-results.md`](./results/detector-routing-results.md)
+  — per-cell detector routing (#P2): an `rpart` router that selects an arm per
+  cell from cheap structure features vs the oracle and fixed-best arm. The
+  density crossover is real (oracle +0.06 F1) but a learned policy barely beats
+  shipping multichm — fusion beats selection.
 
 ## Headline findings
 
@@ -125,6 +130,7 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `detect_segmentanytree_sweep.R` | SegmentAnyTree deep-model arm (#M6): runs the rebuilt sm_120 Docker image on raw-with-ground frozen clips per plot x rung, reduces `PredInstance` labels to apexes, converts absolute Z to AGL with each clip DTM, and writes checkpointed `neon/<SITE>/segmentanytree_results.csv` rows. `CORES=2` is the tested RTX 5090 throughput setting. See `gpu/segmentanytree-sm120/README.md`. |
 | `analyze_model_benchmark.R` | Cross-model synthesis (#R10): unions every arm on the shared frozen clips, equal-set-guards across arms, pools per (detector, rung) by crown class + height band, and writes the density-robustness figures + table fragment behind [`model-benchmark-results.md`](results/model-benchmark-results.md). |
 | `compare_model_sites.R` | Cross-site structure gradient for the classical model-benchmark arms (#E11): pools per-site ams3d + lidRplugins results across SJER → SOAP → TEAK, writes `model_cross_site_summary.csv` + per-arm structure-gradient figures. |
+| `route_detectors.R` + `route_lib.R` | Per-cell detector routing study (#P2): assembles the per-arm laddered F1, computes deploy-time structure features (`rumple_index`, cover, height CV, gap, density) per frozen clip, labels each cell with its argmax-F1 arm, and fits a leave-one-plot-out `rpart` router scored against the oracle and fixed-best arm with `pool`/`equal_set_guard`. Pure helpers (`oracle_pick`, `select_policy_rows`) live in `route_lib.R`. Writes `neon/<SITE>/router_policy.csv` behind [`detector-routing-results.md`](./results/detector-routing-results.md). |
 | `gpu/setup_treeisonet_env.sh` + `gpu/mirror_weights.sh` | GPU arm prerequisites: create the pinned TreeisoNet venv, mirror weights/configs, and verify the tracked checksum manifest. |
 | `tests/run_tests.R` | Unit-test harness for benchmark library code, model runners, extractors, I/O helpers, pooling guards, and synthesis helpers. |
 

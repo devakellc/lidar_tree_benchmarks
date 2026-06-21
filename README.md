@@ -54,6 +54,10 @@ in [`results/`](results/).
   — cross-arm fusion (#P1): union / majority / height-layered consensus of five
   detector arms + the k-of-N recall–precision Pareto, scored vs the best single
   arm. Union lifts understory recall +0.15 but F1 is coverage-limited.
+- [`results/sam2point-promptable-refine-results.md`](./results/sam2point-promptable-refine-results.md)
+  — seed→refine (#P3): CHM-VWF tops prompt the SAM2Point promptable 3-D
+  segmenter (verified on Blackwell sm_120). The refiner buys precision
+  (0.73 vs 0.41) not recall; cost-bounded 2-plot proof-of-concept.
 
 ## Headline findings
 
@@ -132,6 +136,7 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `analyze_multichm_sweep.R` | Pool the multichm arm and put it head-to-head vs the cached CHM-VWF `sweep_results.csv` on the common (plot, rung) set (same res-rule + `a=0.10`); per-rung + crown-class + height-band tables, Δ of pooled rates, a figure, and the `density-ladder-sweep-results.md` §8 addendum fragment. |
 | `detect_li2012_native.R` | Native-only Li 2012 arm (#R10): lidR `li2012` point segmenter on the native frozen clip, reduced to detections via the bridge; the point-segmenter leg of the head-to-head. Writes `neon/<SITE>/li2012_results.csv`. |
 | `detect_treeisonet_sweep.R` | TreeisoNet deep-model arm (#M7): runs the headless GPU driver (`gpu/run_treeisonet.py`, cu128/sm_120) on the normalized frozen clip per plot x rung, serially (one GPU), apex-only with a local-canopy-max z-snap, at the calibrated zero-shot `CONF=0.22` default. `VOXEL` accepts either a scalar isotropic override or an anisotropic `x,y,z` vector. Writes `neon/<SITE>/treeisonet_results.csv`. See `docs/superpowers/plans/2026-06-08-gpu-arm-infra-m7-first.md`. |
+| `detect_sam2point_sweep.R` | Seed→refine arm (#P3): feeds `detect_lasr` CHM-VWF apexes as 3-D point prompts to the SAM2Point promptable segmenter (`gpu/sam2point-sm120/`, Apache-2.0, Blackwell sm_120) via `run_sam2point_arm.py`, persists per-point `sam2point_instances/`, and scores the seeded crowns vs the bare seeds. Each prompt is a 3-axis SAM2 video segmentation (~10 s), so it caps prompts + accepts `PLOTS=` for a cost-bounded run. Writes `neon/<SITE>/sam2point_results.csv` behind [`sam2point-promptable-refine-results.md`](./results/sam2point-promptable-refine-results.md). |
 | `detect_segmentanytree_sweep.R` | SegmentAnyTree deep-model arm (#M6): runs the rebuilt sm_120 Docker image on raw-with-ground frozen clips per plot x rung, reduces `PredInstance` labels to apexes, converts absolute Z to AGL with each clip DTM, and writes checkpointed `neon/<SITE>/segmentanytree_results.csv` rows. `CORES=2` is the tested RTX 5090 throughput setting. See `gpu/segmentanytree-sm120/README.md`. |
 | `analyze_model_benchmark.R` | Cross-model synthesis (#R10): unions every arm on the shared frozen clips, equal-set-guards across arms, pools per (detector, rung) by crown class + height band, and writes the density-robustness figures + table fragment behind [`model-benchmark-results.md`](results/model-benchmark-results.md). |
 | `score_instances_iou.R` | Mask-aware scorer (#V1): grades the persisted SegmentAnyTree + ForestFormer3D per-point instance clouds on each frozen normalized clip with point-set IoU≥0.5 (P/R/F1), Coverage, and Panoptic Quality, alongside the apex-distance scoring. Reference instances are a Voronoi-on-stems proxy (`maxCrownDiameter`); pools by SUMMING the panoptic accumulators per crown class. Writes `neon/<SITE>/instance_iou_pq.csv` behind [`instance-iou-pq-results.md`](results/instance-iou-pq-results.md). |

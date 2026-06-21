@@ -200,9 +200,21 @@ run_main <- function() {
   row(paste0("FIXED-BEST (", best_arm, ")"), single[[best_arm]])
   row("LEARNED router (LOPO)", learned)
   row("ORACLE (per-cell best)", oracle)
-  if (!is.null(learned) && !is.null(single[[best_arm]]))
+  if (!is.null(learned) && !is.null(single[[best_arm]])) {
+    # Equal-population guard: dF1 is only meaningful if the compared policies
+    # score the SAME cells. select_policy_rows drops a cell whenever the chosen
+    # arm was never scored there, so a learned/oracle pick of a partial-coverage
+    # arm would shrink n_ref and turn the delta into a cross-population compare.
+    # Current results satisfy this (all CORE_ARMS share n_ref), so it is a no-op
+    # here and only catches a future regression.
+    stopifnot(
+      "learned policy must score the same cells as fixed-best" =
+        learned$n_ref == single[[best_arm]]$n_ref,
+      "oracle policy must score the same cells as fixed-best" =
+        is.null(oracle) || oracle$n_ref == single[[best_arm]]$n_ref)
     cat(sprintf("\nlearned vs fixed-best dF1 = %+.3f ; oracle headroom dF1 = %+.3f\n",
                 learned$F1 - single[[best_arm]]$F1, oracle$F1 - single[[best_arm]]$F1))
+  }
 
   ## the deployable CART (fit on all data) + its rules
   feats$arm <- droplevels(feats$arm)

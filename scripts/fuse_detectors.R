@@ -232,6 +232,25 @@ print_report <- function(res) {
     c(rec = if (nref) TP / nref else NA_real_, cov = if (nref) sm / nref else NA_real_,
       PQ = if (is.finite(SQ) && is.finite(RQ)) SQ * RQ else 0)
   }
+  # Equal-set guard: configs are only emitted on cells where their arms ran
+  # (e.g. forestformer3d on native+8 only, single arms on their own subsets),
+  # while union/majority/k* span all fused cells. Pooling each over its OWN cell
+  # set makes the headline fusion-vs-single dF1 (and the k-of-N Pareto) a
+  # cross-denominator comparison. Mirror equal_set_guard: restrict the compared
+  # configs to the COMMON (site,plot,rung) cell set before pool(). `cells` keys a
+  # row to its cell; `common_cells` intersects keys across a config set.
+  cell_key <- function(df) do.call(paste, c(df[c("site", "plot", "rung")], sep = "::"))
+  common_cells <- function(rr, configs) {
+    keys <- lapply(configs, function(nm) {
+      s <- rr[rr$config == nm, , drop = FALSE]; if (!nrow(s)) NULL else unique(cell_key(s)) })
+    keys <- Filter(Negate(is.null), keys)
+    if (!length(keys)) character(0) else Reduce(intersect, keys)
+  }
+  pool_on <- function(rr, nm, cells) {                # pool config nm over `cells` only
+    s <- rr[rr$config == nm, , drop = FALSE]
+    if (nrow(s)) s <- s[cell_key(s) %in% cells, , drop = FALSE]
+    s
+  }
   for (rung in unique(res$rung)) {
     rr <- res[res$rung == rung, , drop = FALSE]
     cat(sprintf("\n===== FUSION @ rung %s (pooled) =====\n", rung))
@@ -246,12 +265,24 @@ print_report <- function(res) {
       cat(sprintf("%-16s %6d %6.3f %6.3f %6.3f | %7.3f %7.3f %7.3f\n",
                   nm, p$n_ref, p$recall, p$precision, p$F1, iu["rec"], iu["cov"], iu["PQ"]))
     }
-    u <- pool(rr[rr$config == "union", ]); mj <- pool(rr[rr$config == "majority", ])
-    cat(sprintf("best single arm: %s (F1 %.3f); union dF1 %+.3f; majority dF1 %+.3f\n",
-                best_arm, best_arm_f1, u$F1 - best_arm_f1, mj$F1 - best_arm_f1))
+    # Headline dF1: pool best_arm / union / majority over their COMMON cell set so
+    # the comparison is single-denominator (not best_arm_f1 from the table above).
+    if (!is.na(best_arm)) {
+      cc <- common_cells(rr, c(best_arm, "union", "majority"))
+      if (length(cc)) {
+        ba <- pool(pool_on(rr, best_arm, cc))
+        u  <- pool(pool_on(rr, "union", cc)); mj <- pool(pool_on(rr, "majority", cc))
+        cat(sprintf(paste0("best single arm: %s (F1 %.3f over %d common cells); ",
+                           "union dF1 %+.3f; majority dF1 %+.3f\n"),
+                    best_arm, ba$F1, length(cc), u$F1 - ba$F1, mj$F1 - ba$F1))
+      } else {
+        cat(sprintf("best single arm: %s -- no cells shared with union/majority\n", best_arm))
+      }
+    }
     cat("Pareto (k-of-N): ")
     ks <- sort(grep("^k[0-9]+$", unique(rr$config), value = TRUE))
-    for (kk in ks) { p <- pool(rr[rr$config == kk, ])
+    kc <- common_cells(rr, ks)                         # k* share a denominator too
+    for (kk in ks) { p <- pool(pool_on(rr, kk, kc))
       cat(sprintf("%s R=%.3f P=%.3f F1=%.3f  ", kk, p$recall, p$precision, p$F1)) }
     cat("\n")
   }

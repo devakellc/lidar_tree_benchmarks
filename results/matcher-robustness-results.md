@@ -19,7 +19,8 @@ The matchers are added to [`sweep_lib.R`](../scripts/sweep_lib.R) and unit-teste
   a finite-sentinel-gated cost matrix with dummy padding for non-square sets and
   unmatched stems; a drop-in for `greedy_match`.
 - a soft scaled-3D cost `d = sqrt(dxy² + (λ·dz)²)` that replaces the hard height
-  band, threaded through `optimal_match`/`score_plot`.
+  band, gated by a 3-D radius (`d ≤ tol`, so it still rejects height-impossible
+  pairs), threaded through `optimal_match`/`score_plot`.
 - `fp_structure()` — splits core false positives into *near a matched stem*
   (over-segmentation) vs *isolated* (real understory / field-map gap).
 
@@ -45,21 +46,24 @@ CHM-VWF native recall/F1 (0.40/0.37 pooled), confirming the harness is unchanged
 
 ### Matcher configs, all sites combined (pooled by SUM)
 
-| config | recall | precision | F1 | ΔRecall | ΔF1 | rec_understory |
-|---|--:|--:|--:|--:|--:|--:|
-| baseline | 0.401 | 0.336 | 0.365 | +0.000 | +0.000 | 0.200 |
-| scaled | 0.412 | 0.343 | 0.375 | +0.011 | +0.009 | 0.200 |
-| optimal | 0.413 | 0.342 | 0.374 | +0.013 | +0.009 | 0.200 |
-| optimal_scaled | 0.426 | 0.351 | 0.385 | +0.026 | +0.020 | 0.200 |
-| soft3d | 0.485 | 0.384 | 0.429 | +0.084 | +0.063 | 0.267 |
+`hRMSE` = TP-weighted pooled apex-height RMSE over matched pairs — a matcher that
+"recovers" matches by admitting height-implausible pairs inflates it.
 
-### Per site: baseline vs soft3d (the best variant)
-
-| site | n_ref | base recall | base F1 | soft3d recall | soft3d F1 | ΔF1 |
+| config | recall | precision | F1 | ΔF1 | hRMSE (m) | rec_understory |
 |---|--:|--:|--:|--:|--:|--:|
-| SOAP | 232 | 0.478 | 0.382 | 0.552 | 0.430 | +0.048 |
-| SJER | 71 | 0.493 | 0.319 | 0.507 | 0.329 | +0.009 |
-| TEAK | 396 | 0.338 | 0.367 | 0.442 | 0.462 | +0.095 |
+| baseline | 0.401 | 0.336 | 0.365 | +0.000 | 3.17 | 0.200 |
+| scaled | 0.411 | 0.343 | 0.374 | +0.009 | 3.20 | 0.200 |
+| optimal | 0.413 | 0.342 | 0.374 | +0.009 | 3.17 | 0.200 |
+| **optimal_scaled** | **0.425** | **0.351** | **0.385** | **+0.019** | 3.20 | 0.200 |
+| soft3d | 0.382 | 0.318 | 0.347 | −0.018 | **2.35** | 0.162 |
+
+### Per site: ΔF1 vs baseline (optimal_scaled and soft3d)
+
+| site | n_ref | base F1 | optimal_scaled ΔF1 | soft3d ΔF1 | soft3d hRMSE | base hRMSE |
+|---|--:|--:|--:|--:|--:|--:|
+| SOAP | 232 | 0.382 | +0.028 | −0.036 | 2.34 | 3.30 |
+| SJER | 71 | 0.319 | +0.019 | +0.009 | 1.91 | 2.04 |
+| TEAK | 396 | 0.367 | +0.013 | −0.012 | 2.47 | 3.29 |
 
 ### tol_xy × tol_z_up sensitivity, combined (greedy F1)
 
@@ -84,21 +88,34 @@ understory / field-map gap) = **478 (94.3 %)**.
 
 ## Readings
 
-- **Not a null result: the matcher is conservative and worth hardening.** Every
-  variant lifts pooled F1, and the soft 3-D cost — which drops the magic
-  `[0.5·az, az+8]` band for `sqrt(dxy² + (λ·dz)²)` — is the clear winner: +0.063
-  F1 and +0.084 recall pooled, recovering matches the hard band rejected.
-  Per-stem scaled tolerance and optimal assignment each add smaller, independent
-  increments (+0.009 to +0.020 F1), so they compose.
-- **The gain tracks terrain, as predicted.** soft3d helps most on steep **TEAK**
-  (+0.095 F1) and least on flat, open **SJER** (+0.009). The base→apex offset
-  that a flat radius + hard height band mishandle is largest exactly where slope
-  and tall dominants are, which is where the hardened matcher pays off.
+- **Modest but consistent gains — close to the "greedy is adequate" the issue
+  anticipated.** The best principled variant is **optimal_scaled** (Hungarian
+  optimal assignment + per-stem size/uncertainty-scaled tolerance): +0.019 F1
+  pooled, and it is the only variant positive at every site (+0.028 SOAP, +0.019
+  SJER, +0.013 TEAK) with no height-RMSE cost (3.20 vs 3.17 m). Scaled tolerance
+  and optimal assignment each contribute ~+0.009 F1 and compose to +0.019. None
+  of the increments is dramatic: the flat-4 m greedy baseline is already close to
+  adequate, and the hardened matcher is worth adopting for the steady gain and
+  the dropped magic numbers, not for a step change.
+- **The soft 3-D cost buys height fidelity, not recall.** Replacing the hard
+  `[0.5·az, az+8]` band with `sqrt(dxy² + (λ·dz)²)` gated by a 3-D radius
+  (`d3 ≤ tol`, which still rejects height-impossible pairs — capping |dz| at
+  tol/λ) slightly *lowers* recall/F1 (−0.018) but gives the **best matched-pair
+  height RMSE of any variant, 2.35 m vs the baseline's 3.17 m**. It declines the
+  marginal, height-implausible matches the hard band let through, trading a hair
+  of recall for cleaner geometry — useful where matched-apex height quality
+  matters (e.g. feeding #V3 error bars), not as a recall booster.
+  (An earlier revision of this arm reported soft3d as a large F1 winner; that was
+  a bug — the soft path had dropped the height gate entirely and was scoring
+  height-impossible matches as true positives, which a #V4 self-review caught.
+  The 3-D-radius gate is the fix.)
 - **The flat-4 m / gate-8 baseline sits on a rising slope.** F1 climbs
   monotonically across the whole tol_xy {2→5} × tol_z_up {5→12} grid, so the
   benchmark's defaults are on the tight side. The principled fix is the per-stem
-  scaled tolerance (loosen for big crowns, not globally), since a globally larger
-  flat radius would eventually inflate true positives with spurious matches.
+  scaled tolerance (loosen for big crowns, not globally, and capped at 12 m so a
+  corrupt field record — SOAP carries a 344 m `maxCrownDiameter` — cannot blow up
+  the radius), since a globally larger flat radius would eventually inflate true
+  positives with spurious matches.
 - **Low precision is a ground-truth coverage gap, not over-segmentation.**
   94.3 % of core false positives are *isolated* (no matched stem within 4 m);
   only 5.7 % sit beside a matched tree. The benchmark's modest precision is
@@ -119,4 +136,5 @@ understory / field-map gap) = **478 (94.3 %)**.
   detection itself; the near/isolated split is the primary signal.
 - **Native density only**; the driver accepts a `RUNGS=` list and extends to the
   sparse ladder once those detections are wanted. Soft-3D `λ` defaults to 0.5
-  (tunable via `LAMBDA=`); the sensitivity above fixes the hard-gate path.
+  (tunable via `LAMBDA=`), and the scaled tolerance is capped at 12 m
+  (`TOL_CAP=`); the sensitivity grid above uses the greedy hard-gate path.

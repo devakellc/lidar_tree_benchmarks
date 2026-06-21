@@ -61,6 +61,10 @@ CORES    <- as.integer(if (is.null(A$CORES)) 4 else A$CORES)
 RUNGS    <- if (is.null(A$RUNGS)) "native" else strsplit(A$RUNGS, ",")[[1]]
 BASE_TOL <- as.numeric(if (is.null(A$BASE_TOL)) 4.0 else A$BASE_TOL)
 K        <- as.numeric(if (is.null(A$K)) 1.0 else A$K)
+# Cap the scaled tolerance: a 24 m crown (radius 12) clears it; it clips only
+# pathological field records (SOAP carries a corrupt 344 m maxCrownDiameter that
+# would otherwise yield a 172 m matching radius). #V4 review.
+TOL_CAP  <- as.numeric(if (is.null(A$TOL_CAP)) 12.0 else A$TOL_CAP)
 NEAR_TOL <- as.numeric(if (is.null(A$NEAR_TOL)) 4.0 else A$NEAR_TOL)
 VWF_A    <- as.numeric(if (is.null(A$VWF_A)) 0.10 else A$VWF_A)
 LAMBDA   <- as.numeric(if (is.null(A$LAMBDA)) 0.5 else A$LAMBDA)
@@ -134,7 +138,7 @@ run_plot <- function(site, pid, pc, gt, nd) {
               abs(gt$E - cx) <= ph & abs(gt$N - cy) <= ph, , drop = FALSE]
   if (nrow(stems) < MINTREES) return(NULL)
   tol_vec <- match_tol(stems$maxCrownDiameter, stems$pos_unc,
-                       base_tol = BASE_TOL, k = K)
+                       base_tol = BASE_TOL, k = K, tol_cap = TOL_CAP)
   rows <- list()
   for (rung in RUNGS) {
     fp <- frozen_norm_path(nd, site, pid, rung)
@@ -207,18 +211,23 @@ run_site <- function(site) {
 ## ---- pooled report --------------------------------------------------------
 print_report <- function(res) {
   cat("\n===== MATCHER ROBUSTNESS (pooled by SUM over plots x rungs) =====\n")
-  cat(sprintf("\n%-16s %6s %6s %6s %6s %6s %6s %7s\n",
+  # TP-weighted pooled apex-height RMSE: a matcher that "recovers" matches by
+  # admitting height-impossible pairs would inflate this (#V4 review guard).
+  hrmse <- function(sub) { ok <- is.finite(sub$height_rmse) & sub$TP > 0
+    if (!any(ok)) return(NA_real_)
+    sqrt(sum(sub$TP[ok] * sub$height_rmse[ok]^2) / sum(sub$TP[ok])) }
+  cat(sprintf("\n%-16s %6s %6s %6s %6s %6s %6s %7s %7s\n",
               "config", "n_ref", "n_det", "recall", "prec", "F1",
-              "dF1", "fp_near%"))
+              "dF1", "hRMSE", "fp_near%"))
   base <- pool(res[res$config == "baseline", , drop = FALSE])
   for (nm in vapply(CONFIGS, `[[`, "", "name")) {
     p <- pool(res[res$config == nm, , drop = FALSE])
     sub <- res[res$config == nm, , drop = FALSE]
     fn <- sum(sub$fp_near, na.rm = TRUE); fi <- sum(sub$fp_isolated, na.rm = TRUE)
     pct <- if (fn + fi > 0) 100 * fn / (fn + fi) else NA_real_
-    cat(sprintf("%-16s %6d %6d %6.3f %6.3f %6.3f %+6.3f %6.1f\n",
+    cat(sprintf("%-16s %6d %6d %6.3f %6.3f %6.3f %+6.3f %7.2f %7.1f\n",
                 nm, p$n_ref, p$n_det, p$recall, p$precision, p$F1,
-                p$F1 - base$F1, pct))
+                p$F1 - base$F1, hrmse(sub), pct))
   }
   cat("\n--- tol_xy x tol_z_up sensitivity (greedy, pooled F1) ---\n")
   cat(sprintf("%-8s", "tol_xy")); for (tz in TZ_SET) cat(sprintf(" tz=%-4g", tz)); cat("\n")

@@ -73,6 +73,22 @@ test_that("optimal_match soft 3-D cost (lambda) prefers the height-consistent de
   expect_equal(o, 2L)                     # 3-D cost picks the aligned det
 })
 
+test_that("optimal_match soft 3-D cost still rejects height-IMPOSSIBLE matches", {
+  # The soft path must keep a GENEROUS-but-finite height envelope, not drop the
+  # gate: a 10 m stem can never own a 50 m apex even at lambda > 0 (#V4 review).
+  expect_equal(optimal_match(0, 0, 0.3, 0, tol = 4, az = 10, bz = 50, lambda = 0.5), 0L)
+  # but a near-band miss the HARD gate rejects (bz just below 0.5*az) is still
+  # recoverable inside the soft envelope:
+  expect_equal(optimal_match(0, 0, 0.3, 0, tol = 4, az = 10, bz = 4.5, lambda = 0.5), 1L)
+})
+
+test_that("match_tol caps the crown-radius term so a corrupt crown record can't blow up tol", {
+  # a 70 m maxCrownDiameter (radius 35) must clamp to tol_cap, mirroring ws_factory.
+  expect_equal(match_tol(crown_diam = c(70, 6), pos_unc = NULL,
+                         base_tol = 4, k = 1.0, tol_cap = 12),
+               c(12, 4))
+})
+
 ## ---- fp_structure --------------------------------------------------------
 test_that("fp_structure splits false positives into near-a-stem vs isolated", {
   s <- fp_structure(fpx = c(1, 50), fpy = c(0, 50),

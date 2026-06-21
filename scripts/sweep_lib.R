@@ -69,14 +69,15 @@ greedy_match <- function(ax, ay, bx, by, tol, az = NULL, bz = NULL,
 # terms drop out so the base_tol floor stands. crown_diam and/or pos_unc may be
 # NULL; k scales the crown-radius term (default 1.0 = full radius). Returns a
 # numeric vector (base_tol everywhere both inputs are absent/NA).
-match_tol <- function(crown_diam = NULL, pos_unc = NULL, base_tol = 4.0, k = 1.0) {
+match_tol <- function(crown_diam = NULL, pos_unc = NULL, base_tol = 4.0, k = 1.0,
+                      tol_cap = Inf) {
   len <- max(length(crown_diam), length(pos_unc))
   if (!len) return(numeric(0))
   cr <- if (length(crown_diam))
     ifelse(is.finite(crown_diam) & crown_diam > 0, k * crown_diam / 2, 0) else 0
   pu <- if (length(pos_unc))
     ifelse(is.finite(pos_unc) & pos_unc > 0, pos_unc, 0) else 0
-  pmax(base_tol, cr, pu)
+  pmin(tol_cap, pmax(base_tol, cr, pu))   # tol_cap clamps a corrupt/huge crown record
 }
 
 ## ---- optimal (Hungarian) 1:1 assignment, drop-in for greedy_match (#V4) ----
@@ -87,8 +88,9 @@ match_tol <- function(crown_diam = NULL, pos_unc = NULL, base_tol = 4.0, k = 1.0
 # stem x det Euclidean cost matrix, set to a large FINITE sentinel (not +Inf,
 # which some solvers reject) outside tol -- and outside the [0.5*az, az+tol_z_up]
 # height band when az/bz are supplied. With `lambda` set, the hard height band is
-# replaced by a soft 3-D cost sqrt(dxy^2 + (lambda*dz)^2) (still horizontally
-# gated by tol), dropping the magic height numbers. The matrix is augmented with
+# replaced by a soft 3-D cost sqrt(dxy^2 + (lambda*dz)^2) gated by d3 <= tol (a
+# 3-D radius that still rejects height-impossible pairs, capping |dz| at
+# tol/lambda), dropping the magic [0.5*az, az+8] numbers. The matrix is augmented with
 # per-stem and per-det "stay unmatched" dummies (cost just above any in-gate
 # distance, below the sentinel) so non-square sets and unmatched stems fall out
 # naturally. Hungarian solve via clue::solve_LSAP; requires the `clue` package.
@@ -104,14 +106,19 @@ optimal_match <- function(ax, ay, bx, by, tol, az = NULL, bz = NULL,
   C <- matrix(BIG, na, nb)
   for (i in seq_len(na)) {
     dxy <- sqrt((bx - ax[i])^2 + (by - ay[i])^2)
-    ok  <- dxy <= tol[i]
     if (is.null(lambda)) {
+      ok <- dxy <= tol[i]
       if (!is.null(az) && !is.null(bz) && !is.na(az[i]))
         ok <- ok & bz >= 0.5 * az[i] & bz <= az[i] + tol_z_up
       C[i, ok] <- dxy[ok]
     } else {
-      dz <- if (!is.null(az) && !is.null(bz) && !is.na(az[i])) bz - az[i] else 0
+      # Soft 3-D cost replaces the hard height BAND, but must still reject
+      # height-IMPOSSIBLE pairs (#V4 review): gate on the 3-D distance d3 <= tol
+      # (a 3-D radius), which subsumes the horizontal gate and caps the vertical
+      # offset at tol/lambda -- no magic [0.5*az, az+8] numbers, no open height.
+      dz <- if (!is.null(az) && !is.null(bz) && !is.na(az[i])) bz - az[i] else rep(0, nb)
       d3 <- sqrt(dxy^2 + (lambda * dz)^2)
+      ok <- d3 <= tol[i]
       C[i, ok] <- d3[ok]
     }
   }

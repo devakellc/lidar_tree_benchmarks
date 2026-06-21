@@ -675,3 +675,94 @@ fusion_points <- function(arm, x, y, z, n_arms, merge_tol = 2.0, z_tol = 5.0,
   }
   list(union = union, majority = majority, layered = layered)
 }
+
+## ==========================================================================
+## #P4 per-detection confidence calibration =================================
+## ==========================================================================
+# Weighted consensus in #P1 needs each detection to carry a TRUSTWORTHY
+# probability, but raw scores are not comparable across arms (a CNN's 0.6 != a
+# watershed prominence of 0.6). These pure helpers turn a per-arm raw score +
+# TP/FP labels into a reliability diagram, an Expected Calibration Error, and a
+# monotone isotonic calibrator that maps raw scores to empirical precision -- so
+# a calibrated 0.7 means ~70% precision for EVERY arm and fuse_detectors() can
+# compare them. precision_at_recall measures the ensemble payoff: ranking the
+# pooled multi-arm detections by calibrated (comparable) score vs raw score.
+
+## ---- reliability table (equal-width bins over [0,1]) ----------------------
+# prob: predicted probability in [0,1]; label: 0/1 (TP=1). Splits [0,1] into
+# `bins` equal-width bins; per bin reports n, mean predicted prob, and observed
+# accuracy (TP rate). Empty bins are kept (n=0, NaN stats) so the table is a
+# stable length. The companion to expected_calibration_error.
+reliability_table <- function(prob, label, bins = 10) {
+  prob <- as.numeric(prob); label <- as.numeric(label)
+  br <- seq(0, 1, length.out = bins + 1L)
+  idx <- findInterval(pmin(pmax(prob, 0), 1), br, rightmost.closed = TRUE,
+                      all.inside = TRUE)
+  out <- data.frame(bin = seq_len(bins), n = 0L,
+                    mean_prob = NA_real_, obs_acc = NA_real_)
+  if (length(prob)) for (b in seq_len(bins)) {
+    sel <- idx == b
+    if (any(sel)) { out$n[b] <- sum(sel)
+      out$mean_prob[b] <- mean(prob[sel]); out$obs_acc[b] <- mean(label[sel]) }
+  }
+  out
+}
+
+## ---- Expected Calibration Error ------------------------------------------
+# The n-weighted mean gap between predicted confidence and observed accuracy
+# across the reliability bins: ECE = sum_b (n_b/N) * |obs_acc_b - mean_prob_b|.
+# 0 = perfectly calibrated. NA when there are no observations.
+expected_calibration_error <- function(prob, label, bins = 10) {
+  rt <- reliability_table(prob, label, bins = bins)
+  rt <- rt[rt$n > 0, , drop = FALSE]
+  N <- sum(rt$n)
+  if (!N) return(NA_real_)
+  sum(rt$n / N * abs(rt$obs_acc - rt$mean_prob))
+}
+
+## ---- isotonic (monotone) post-hoc calibrator ------------------------------
+# Fits a non-decreasing step mapping raw score -> P(TP) via stats::isoreg (PAVA),
+# then returns a function that interpolates it to arbitrary new scores (constant
+# extrapolation past the trained range). Monotone, so it NEVER changes a single
+# arm's detection RANKING (precision-recall is rank-based) -- its value is making
+# scores COMPARABLE across arms. With no positives it calibrates everything to 0
+# (and to 1 with no negatives). NA scores map to NA.
+isotonic_calibrate <- function(score, label) {
+  score <- as.numeric(score); label <- as.numeric(label)
+  ok <- is.finite(score) & is.finite(label)
+  s <- score[ok]; y <- label[ok]
+  if (!length(s)) return(function(z) rep(NA_real_, length(z)))
+  if (all(y == y[1])) { const <- y[1]; return(function(z) ifelse(is.na(z), NA_real_, const)) }
+  o <- order(s); ss <- s[o]
+  fit <- stats::isoreg(ss, y[o])
+  yf  <- fit$yf                                   # fitted, in ss order, non-decreasing
+  # collapse ties in ss to the last fitted value, then linear-interpolate
+  ux <- !duplicated(ss, fromLast = TRUE)
+  kx <- ss[ux]; ky <- yf[ux]
+  function(z) {
+    z <- as.numeric(z)
+    out <- approx(kx, ky, xout = z, rule = 2, ties = "ordered")$y
+    out[is.na(z)] <- NA_real_
+    pmin(pmax(out, 0), 1)
+  }
+}
+
+## ---- precision at a fixed recall over a scored detection set --------------
+# Rank detections by DESCENDING score, walk the threshold down, and return the
+# precision at the first point where cumulative recall (TP_kept / total_TP)
+# reaches target_recall. This is the ensemble calibration payoff: comparing the
+# pooled multi-arm ranking under raw vs calibrated scores. NA if no positives.
+# Ties in score are broken stably (label order preserved) -- callers compare
+# the SAME detections under two scorings, so the comparison is fair.
+precision_at_recall <- function(score, label, target_recall = 0.8) {
+  score <- as.numeric(score); label <- as.numeric(label)
+  P <- sum(label == 1)
+  if (!P) return(NA_real_)
+  o <- order(-score)
+  y <- label[o]
+  tp <- cumsum(y == 1); kept <- seq_along(y)
+  recall <- tp / P; precision <- tp / kept
+  hit <- which(recall >= target_recall)
+  if (!length(hit)) return(NA_real_)
+  precision[hit[1]]
+}

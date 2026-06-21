@@ -54,6 +54,10 @@ in [`results/`](results/).
   — cross-arm fusion (#P1): union / majority / height-layered consensus of five
   detector arms + the k-of-N recall–precision Pareto, scored vs the best single
   arm. Union lifts understory recall +0.15 but F1 is coverage-limited.
+- [`results/confidence-calibration-results.md`](./results/confidence-calibration-results.md)
+  — per-detection confidence calibration (#P4): per-arm reliability + ECE and an
+  isotonic calibrator that makes scores cross-arm-comparable, so ranking the
+  pooled ensemble by calibrated score lifts precision at fixed recall.
 
 ## Headline findings
 
@@ -119,6 +123,7 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `run_sweep.R` + `sweep_lib.R` | NEON density-ladder sweep: per plot x rung x `chm_res` x `vwf_a`, scored vs stems. `MEAS_YEAR=2021` restricts to exact-year stems (issue #5); use a distinct `OUT=` to keep the +/-4 yr baseline. |
 | `matcher_robustness.R` | Matcher hardening (#V4): re-scores the CHM-VWF detector on the frozen clips with size/uncertainty-scaled tolerance (`match_tol`), optimal Hungarian assignment (`optimal_match`, needs `clue`), and a soft 3-D cost vs the flat-4 m greedy baseline, plus a tol_xy x tol_z_up sensitivity grid and a false-positive over-seg-vs-isolated split. Writes `neon/<SITE>/matcher_robustness.csv` behind [`matcher-robustness-results.md`](results/matcher-robustness-results.md). |
 | `fuse_detectors.R` | Cross-arm fusion arm (#P1): materializes per-cell apexes for CHM-VWF, multichm, Li2012, SegmentAnyTree, ForestFormer3D on the frozen cells, clusters them across arms (`fuse_apexes`, height-gated single-linkage) into union/majority/layered operating points + the k-of-N Pareto, and scores each with `score_plot` (distance) + a Voronoi-on-apexes #V1 IoU/PQ proxy vs the best single arm. Writes `neon/<SITE>/fusion_results.csv` behind [`detector-fusion-results.md`](results/detector-fusion-results.md). |
+| `calibrate_confidence.R` | Per-detection confidence calibration (#P4): labels each arm's detections TP/FP, builds per-arm reliability + ECE, fits an isotonic calibrator (`stats::isoreg`) mapping raw score to empirical precision, and reports the held-out (5-fold CV) ECE and the pooled-ensemble precision gain at fixed recall. Exposes ForestFormer3D's native `ff3d_score`; proxies (crown point count, apex height) for the rest. Writes `neon/<SITE>/{confidence_calibration.csv,confidence_lookup.csv}` behind [`confidence-calibration-results.md`](./results/confidence-calibration-results.md). |
 | `analyze_sweep.R` / `compare_sites.R` | Pool the sweep (sum TP / sum n_ref) + figures; cross-site structure gradient SJER -> SOAP -> TEAK. |
 | `export_geojson.R` | Export benchmark geography as WGS84 GeoJSON: `sites` (convex-hull footprints), `plots` (scoring-box polygons with a `swept` flag + native density, null where unswept), `stems` (field points, `is_tree`); writes the tracked `data/{sites,plots,stems}.geojson`. |
 | `validate_heights.R` | Apex-vs-field height bias/RMSE at native density; `MEAS_YEAR=2021` writes a distinct `height_pairs_2021.csv` for the temporal cut. |

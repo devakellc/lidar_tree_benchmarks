@@ -54,6 +54,10 @@ in [`results/`](results/).
   — cross-arm fusion (#P1): union / majority / height-layered consensus of five
   detector arms + the k-of-N recall–precision Pareto, scored vs the best single
   arm. Union lifts understory recall +0.15 but F1 is coverage-limited.
+- [`results/rgb-lidar-fusion-results.md`](./results/rgb-lidar-fusion-results.md)
+  — DeepForest RGB arm (#X1): the density-INVARIANT optical anchor (flat F1 0.37)
+  that SegmentAnyTree falls below at ≤2 pts/m²; RGB also catches understory the
+  CHM misses. The router floor below which optical beats LiDAR.
 
 ## Headline findings
 
@@ -112,6 +116,8 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `calval_multichm.R` | multichm cal/val (issue #39): on the SAME stratified split as `calval_split.R`, pool multichm vs CHM-VWF (matched-discipline + calib-tuned) on held-out plots per rung; paired complete-case, multi-seed win-fraction; verdict on whether multichm's SOAP/TEAK advantage survives out-of-sample. Reads cached `multichm_sweep_results.csv` + `sweep_results.csv`. |
 | `ept_discovery.R` | Find public USGS 3DEP EPT projects covering each NEON site (point-in-polygon vs the entwine boundary index); writes `neon/<SITE>/ql2/ept_candidates.csv`. |
 | `neon_download_lidar.R` | Fetch NEON DP1.30003.001 LiDAR tiles overlapping a site/plot set; populates `neon/<SITE>/lidar/` for the density-ladder runs. |
+| `neon_download_aop.R` | Fetch NEON DP3.30010.001 RGB camera mosaics overlapping a site's stems (`byTileAOP`, `YEAR=2021` to match the LiDAR epoch); populates `neon/<SITE>/rgb/` for the DeepForest arm (#X1). |
+| `detect_deepforest_sweep.R` + `gpu/run_deepforest.py` | DeepForest RGB arm (#X1): runs the NEON-pretrained crown model (`predict_tile`, CPU) on each RGB tile, georeferences the boxes to UTM, samples an apex Z from the frozen-clip CHM, and scores `neon/<SITE>/deepforest_results.csv` (detector `deepforest`, rung `rgb`) — the density-invariant optical anchor. Needs the `deepforest` conda env. Behind [`rgb-lidar-fusion-results.md`](./results/rgb-lidar-fusion-results.md). |
 | `verify_geolocation.R` | Audit stem coordinates by re-deriving NEON plot/stem offsets from the API and comparing them with `ground_truth_stems.csv`. |
 | `native_ql2_crosscheck.R` | Pull the native 3DEP cloud per NEON plot via PDAL (reproject 3857 -> UTM 11N), run BOTH the CHM-VWF and multichm pipelines (issues #4, #39), and compare each detector's native (+ decimated-to-2) detection to its OWN cached decimated-2 rung by crown class. |
 | `bench_lasr_ept_acquisition.R` / `sweep_lasr_ept_params.R` / `sweep_lasr_ept_partitions.R` | EPT acquisition benchmarks for lasR remote reads: throughput, chunking, and partition-parameter sensitivity. |

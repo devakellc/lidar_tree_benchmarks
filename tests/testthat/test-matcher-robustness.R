@@ -21,6 +21,7 @@ test_that("match_tol floors at base_tol and honours k", {
 
 ## ---- optimal_match: drop-in agreement on uncontested sets ------------------
 test_that("optimal_match matches within tol and leaves out-of-tol stems unmatched", {
+  testthat::skip_if_not_installed("clue")
   expect_equal(optimal_match(0, 0, 1, 0, tol = 2), 1L)     # within tol -> det 1
   expect_equal(optimal_match(0, 0, 5, 0, tol = 2), 0L)     # outside tol -> unmatched
   # two cleanly separated pairs: same as greedy
@@ -34,6 +35,7 @@ test_that("optimal_match matches within tol and leaves out-of-tol stems unmatche
 # other det (d2 at 1.8) is out of tol -> greedy leaves a unmatched (1 match).
 # Hungarian assigns a->d1 (0.6) + b->d2 (0.8) for 2 matches.
 test_that("optimal_match recovers a match greedy loses to a closer neighbour", {
+  testthat::skip_if_not_installed("clue")
   ax <- c(0, 1); ay <- c(0, 0); bx <- c(0.6, 1.8); by <- c(0, 0)
   g <- greedy_match(ax, ay, bx, by, tol = 1.0)
   o <- optimal_match(ax, ay, bx, by, tol = 1.0)
@@ -44,6 +46,7 @@ test_that("optimal_match recovers a match greedy loses to a closer neighbour", {
 
 ## ---- optimal_match honours the height gate (same as greedy) ---------------
 test_that("optimal_match applies the [0.5*az, az+tol_z_up] height gate", {
+  testthat::skip_if_not_installed("clue")
   # d1 is closer (0.5 m) but far too short (z=2 vs stem 20 m); d2 is height-OK.
   o <- optimal_match(0, 0, c(0.5, 1.0), c(0, 0), tol = 3,
                      az = 20, bz = c(2, 18), tol_z_up = 8)
@@ -52,6 +55,7 @@ test_that("optimal_match applies the [0.5*az, az+tol_z_up] height gate", {
 
 ## ---- optimal_match: non-square sets ---------------------------------------
 test_that("optimal_match handles more detections than stems and vice versa", {
+  testthat::skip_if_not_installed("clue")
   # 1 stem, 3 dets -> nearest only
   expect_equal(optimal_match(0, 0, c(2.5, 0.4, 5), c(0, 0, 0), tol = 3), 2L)
   # 3 stems, 1 det -> exactly one stem matched
@@ -61,12 +65,14 @@ test_that("optimal_match handles more detections than stems and vice versa", {
 
 ## ---- optimal_match: per-stem tol vector + soft 3-D cost -------------------
 test_that("optimal_match accepts a per-stem tol vector", {
+  testthat::skip_if_not_installed("clue")
   # stem1 tol 1 (det at 0.9 ok); stem2 tol 0.5 (det at 0.9 out) -> stem2 unmatched
   m <- optimal_match(c(0, 10), c(0, 0), c(0.9, 10.9), c(0, 0), tol = c(1.0, 0.5))
   expect_equal(m, c(1L, 0L))
 })
 
 test_that("optimal_match soft 3-D cost (lambda) prefers the height-consistent det", {
+  testthat::skip_if_not_installed("clue")
   # both within horizontal tol; d1 closer in XY but 8 m off in height, d2 aligned.
   o <- optimal_match(0, 0, c(0.5, 0.9), c(0, 0), tol = 3,
                      az = 10, bz = c(2, 10), lambda = 1)
@@ -74,6 +80,7 @@ test_that("optimal_match soft 3-D cost (lambda) prefers the height-consistent de
 })
 
 test_that("optimal_match soft 3-D cost still rejects height-IMPOSSIBLE matches", {
+  testthat::skip_if_not_installed("clue")
   # The soft path must keep a GENEROUS-but-finite height envelope, not drop the
   # gate: a 10 m stem can never own a 50 m apex even at lambda > 0 (#V4 review).
   expect_equal(optimal_match(0, 0, 0.3, 0, tol = 4, az = 10, bz = 50, lambda = 0.5), 0L)
@@ -117,6 +124,7 @@ test_that("greedy_match applies a per-stem tolerance vector", {
 
 ## ---- score_plot: optimal method + FP-structure columns --------------------
 test_that("score_plot exposes method='optimal' and FP-structure columns", {
+  testthat::skip_if_not_installed("clue")
   stems <- data.frame(E = c(0, 1), N = c(0, 0), height = c(10, 10),
                       crown_class = c("dominant", "dominant"),
                       stringsAsFactors = FALSE)

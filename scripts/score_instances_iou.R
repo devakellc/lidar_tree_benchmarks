@@ -186,7 +186,11 @@ run_plot <- function(site, pid, pc, gt, nd) {
       ipath <- instance_path(file.path(nd, model$dir), pid, rung)
       if (is.na(ipath)) next                             # model not run on this cell
       pp <- tryCatch(model$load(ipath), error = function(e) NULL)
-      if (is.null(pp) || !nrow(pp)) next
+      # Skip ONLY when the loader returned NULL (artifact absent / schema fail).
+      # A 0-row pp means the model ran but predicted nothing -> let it fall
+      # through so transfer_labels yields all-NA labels and score_instance_cell
+      # records it as TP=0 / FN=n_ref rather than silently dropping the cell.
+      if (is.null(pp)) next
       pred <- transfer_labels(pp$X, pp$Y, pp$id, sx, sy, tol = XFER_TOL)
       row <- score_instance_cell(pred, ref, ref_class = ref_class, gate = IOU_GATE)
       row$site <- site; row$plot <- pid; row$rung <- rung; row$model <- mname
@@ -208,9 +212,21 @@ run_site <- function(site) {
   gt <- read.csv(gtf, stringsAsFactors = FALSE)
   pc <- read.csv(pcf, stringsAsFactors = FALSE)
   gt <- gt[gt$live & gt$is_tree & !is.na(gt$E), , drop = FALSE]
+  # COALESCE the crown diameter: the CSV already carries maxCrownDiameter; the
+  # cached VST RDS may carry a (more authoritative) value. Keep the CSV value as
+  # a fallback and overwrite it only where the RDS provides a finite value, so a
+  # missing/incomplete RDS no longer silently collapses every reference radius to
+  # FALLBACK_RADIUS. RDS present (the committed run) -> numbers unchanged.
+  mcd_csv <- if (is.null(gt$maxCrownDiameter)) rep(NA_real_, nrow(gt)) else
+    as.numeric(gt$maxCrownDiameter)
   gt <- gt[, setdiff(names(gt), "maxCrownDiameter"), drop = FALSE]
-  gt <- merge(gt, field_crowns(site), by = "individualID", all.x = TRUE)
-  if (is.null(gt$maxCrownDiameter)) gt$maxCrownDiameter <- NA_real_
+  gt$maxCrownDiameter <- mcd_csv
+  fc <- field_crowns(site)
+  names(fc)[names(fc) == "maxCrownDiameter"] <- "maxCrownDiameter_rds"
+  gt <- merge(gt, fc, by = "individualID", all.x = TRUE)
+  rds_ok <- is.finite(gt$maxCrownDiameter_rds)
+  gt$maxCrownDiameter[rds_ok] <- gt$maxCrownDiameter_rds[rds_ok]
+  gt$maxCrownDiameter_rds <- NULL
 
   plots <- intersect(unique(gt$plotID), pc$plotID)
   cat(sprintf("[%s] scoring %d plots over rungs {%s}\n",

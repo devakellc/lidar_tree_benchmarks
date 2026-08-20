@@ -154,6 +154,57 @@ fp_structure <- function(fpx, fpy, mstemx, mstemy, near_tol = 4.0) {
   c(near = sum(near), isolated = sum(!near))
 }
 
+## ---- core false-positive coordinates + near/isolated split (#V5) ----------
+# The coordinate-level companion to score_plot's fp_near/fp_isolated counts:
+# reruns the identical baseline match (same recall region, core mask, greedy
+# matcher and height gate) and returns each CORE false positive as a row
+# (x, y, z, isolated). `isolated` mirrors fp_structure: not within near_tol of
+# any stem the arm itself matched. The #V5 crediting pass consumes these
+# coordinates to ask other modalities whether an isolated FP is a real tree
+# the field map never recorded.
+fp_points <- function(stems, det, tol_xy = 4.0, core_cx, core_cy,
+                      core_half = PLOT_HALF, tol_z_up = 8, near_tol = 4.0) {
+  empty <- data.frame(x = numeric(), y = numeric(), z = numeric(),
+                      isolated = logical())
+  if (is.null(det) || !nrow(det)) return(empty)
+  reg_tol <- max(tol_xy)
+  in_reg  <- abs(det$x - core_cx) <= core_half + reg_tol &
+             abs(det$y - core_cy) <= core_half + reg_tol
+  detr    <- det[in_reg, , drop = FALSE]
+  if (!nrow(detr)) return(empty)
+  is_core <- abs(detr$x - core_cx) <= core_half & abs(detr$y - core_cy) <= core_half
+  m <- greedy_match(stems$E, stems$N, detr$x, detr$y, tol_xy,
+                    az = stems$height, bz = detr$z, tol_z_up = tol_z_up)
+  matched <- m > 0
+  fp_idx  <- which(is_core & !(seq_along(detr$x) %in% m[matched]))
+  if (!length(fp_idx)) return(empty)
+  mx <- stems$E[matched]; my <- stems$N[matched]
+  near <- if (!length(mx)) rep(FALSE, length(fp_idx)) else
+    vapply(fp_idx, function(i)
+      any(sqrt((mx - detr$x[i])^2 + (my - detr$y[i])^2) <= near_tol), logical(1))
+  data.frame(x = detr$x[fp_idx], y = detr$y[fp_idx], z = detr$z[fp_idx],
+             isolated = !near)
+}
+
+## ---- co-detection crediting of isolated false positives (#V5) --------------
+# An isolated core FP is reclassified probable-real (a tree the NEON field map
+# never recorded, per the #V4 finding that ~94% of core FPs are isolated) when
+# witness detections from >= min_fam DISTINCT modality families (wfam, e.g.
+# chm / pc / deep / rgb -- the target arm's own family must be excluded by the
+# caller) sit within r metres. Witnesses should themselves be unexplained by
+# the field map (other arms' isolated FPs), so agreement means "several
+# independent systems see a tree where the map has nothing". Returns a logical
+# per FP; the credited count feeds pool()'s corrected-precision denominator.
+co_detect_credit <- function(fpx, fpy, wx, wy, wfam, r = 2.0, min_fam = 2) {
+  n <- length(fpx)
+  if (!n) return(logical(0))
+  if (!length(wx)) return(rep(FALSE, n))
+  vapply(seq_len(n), function(i) {
+    hit <- sqrt((wx - fpx[i])^2 + (wy - fpy[i])^2) <= r
+    length(unique(wfam[hit])) >= min_fam
+  }, logical(1))
+}
+
 ## ---- Monte-Carlo stem-position jitter (#V3) ------------------------------
 # Draws each stem's (E,N) from an independent 2-D Gaussian centred on its mapped
 # position with per-stem sigma = its `pos_unc` (NEON coordinate uncertainty +

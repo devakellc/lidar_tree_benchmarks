@@ -75,6 +75,11 @@ in [`results/`](results/).
   — seed→refine (#P3): CHM-VWF tops prompt the SAM2Point promptable 3-D
   segmenter (verified on Blackwell sm_120). The refiner buys precision
   (0.73 vs 0.41) not recall; cost-bounded 2-plot proof-of-concept.
+- [`results/coverage-gap-results.md`](./results/coverage-gap-results.md)
+  — coverage-gap crediting (#V5): isolated core FPs co-detected by ≥2 other
+  modality families are probable real unmapped trees; corrected precision/F1
+  re-grade the leaderboard (order changes on all three sites) and the bias
+  grows with density.
 - [`results/rgb-lidar-fusion-results.md`](./results/rgb-lidar-fusion-results.md)
   — DeepForest RGB arm (#X1): the density-INVARIANT optical anchor (flat F1 0.37)
   that SegmentAnyTree falls below at ≤2 pts/m²; RGB also catches understory the
@@ -173,6 +178,7 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `compare_matching_rules.R` | Arm-ranking sensitivity (#V2): recomputes the SOAP leaderboard under apex-distance F1 vs point-set IoU≥0.5 vs Coverage and flags rank-flips. Marks the non-mask arms `n/a` (only the deep arms persist masks), so Kendall τ is honestly undefined — IoU can't yet rank the router's full field. Writes `neon/<SITE>/matching_rule_ranks.csv` and appends the "Matching-rule sensitivity" section to [`instance-iou-pq-results.md`](results/instance-iou-pq-results.md). |
 | `compare_model_sites.R` | Cross-site structure gradient for the classical model-benchmark arms (#E11): pools per-site ams3d + lidRplugins results across SJER → SOAP → TEAK, writes `model_cross_site_summary.csv` + per-arm structure-gradient figures. |
 | `route_detectors.R` + `route_lib.R` | Per-cell detector routing study (#P2): assembles the per-arm laddered F1, computes deploy-time structure features (`rumple_index`, cover, height CV, gap, density) per frozen clip, labels each cell with its argmax-F1 arm, and fits a leave-one-plot-out `rpart` router scored against the oracle and fixed-best arm with `pool`/`equal_set_guard`. Pure helpers (`oracle_pick`, `select_policy_rows`) live in `route_lib.R`. Writes `neon/<SITE>/router_policy.csv` behind [`detector-routing-results.md`](./results/detector-routing-results.md). |
+| `coverage_gap.R` + `coverage_lib.R` | Coverage-gap crediting study (#V5): re-scores every arm's `best_treetop_cache` cells (+ the persisted RGB boxes) with the baseline matcher, splits core FPs near/isolated (`fp_points`), and credits an isolated FP as probable-real when ≥`MIN_FAM` other modality families (`FAMILY_MAP`: chm/pc/deep/rgb) co-detect it within `CRED_R` m (`co_detect_credit`/`credit_isolated`). `pool()` turns the summed `fp_credited` into `precision_cred`/`F1_cred`; `LADDER=1` regenerates CHM-VWF per frozen rung for the bias-vs-density curve. Writes `neon/<SITE>/coverage_gap.csv` behind [`coverage-gap-results.md`](./results/coverage-gap-results.md). |
 | `gpu/setup_treeisonet_env.sh` + `gpu/mirror_weights.sh` | GPU arm prerequisites: create the pinned TreeisoNet venv, mirror weights/configs, and verify the tracked checksum manifest. |
 | `tests/run_tests.R` | Unit-test harness for benchmark library code, model runners, extractors, I/O helpers, pooling guards, and synthesis helpers. |
 

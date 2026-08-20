@@ -272,6 +272,23 @@ pool <- function(df, classes = POOL_CLASSES) {
   out$F1 <- if (!is.na(out$recall) && !is.na(out$precision) &&
                 (out$recall + out$precision) > 0)
     2 * out$recall * out$precision / (out$recall + out$precision) else NA_real_
+  # #V5 corrected precision: rows carrying an fp_credited count (isolated core
+  # FPs co-detected by other modality families -> probable real unmapped trees)
+  # get a de-biased precision whose denominator drops the credited FPs, summed
+  # like every other count. The denominator is floored at pooled tp_core so a
+  # pathological credit count can never push precision past 1. Raw precision/F1
+  # stay untouched alongside, so the bias is visible, never hidden.
+  if (!is.null(df$fp_credited) && any(is.finite(df$fp_credited))) {
+    cred <- sum(df$fp_credited, na.rm = TRUE)
+    tpc  <- sum(df$tp_core, na.rm = TRUE)
+    den  <- max(sum(df$n_det) - cred, tpc)
+    out$fp_credited    <- as.integer(cred)
+    out$precision_cred <- if (den > 0) tpc / den else NA_real_
+    out$F1_cred <- if (!is.na(out$recall) && !is.na(out$precision_cred) &&
+                       (out$recall + out$precision_cred) > 0)
+      2 * out$recall * out$precision_cred / (out$recall + out$precision_cred)
+    else NA_real_
+  }
   for (cl in classes) {
     nref <- sum(df[[paste0("n_", cl)]], na.rm = TRUE)
     tp   <- sum(ifelse(df[[paste0("n_", cl)]] > 0,

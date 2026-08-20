@@ -31,11 +31,16 @@ d <- .job_dir()
                                            file.path(getwd(), "scripts", rel)))
 source(.find("sweep_lib.R"))
 source(.find("model_bench_lib.R"))
+source(.find("io_bridge.R"))        # write_instances_laz (#V6)
 
 # li2012 on a normalized clip -> per-point treeID -> reduce_instances apex set.
 # Guard the no-canopy case (parity with ptrees): too few returns above hmin
 # means no trees anyway, so return a 0-row frame without entering the segmenter.
-det_li2012 <- function(las, hmin = 2, dt1 = 1.5, dt2 = 2, R = 2) {
+# inst_path (#V6): when set, the segmented cloud is persisted (treeID as an
+# integer extra dim, 0 = unassigned) BEFORE the apex collapse, so the IoU/PQ
+# board and mask-aware fusion can reuse the labelling.
+det_li2012 <- function(las, hmin = 2, dt1 = 1.5, dt2 = 2, R = 2,
+                       inst_path = NULL) {
   empty <- data.frame(x = numeric(), y = numeric(), z = numeric())
   if (sum(las$Z >= hmin) < 1) { assert_detection_contract(empty); return(empty) }
   seg <- tryCatch(lidR::segment_trees(las,
@@ -43,6 +48,10 @@ det_li2012 <- function(las, hmin = 2, dt1 = 1.5, dt2 = 2, R = 2) {
                   error = function(e) NULL)
   if (is.null(seg)) return(NULL)               # crash -> skip (guard drops cell)
   if (!"treeID" %in% names(seg@data)) return(NULL)
+  if (!is.null(inst_path))
+    tryCatch(write_instances_laz(seg, inst_path, id_col = "treeID"),
+             error = function(e) warning("instance persist failed: ",
+                                         conditionMessage(e), call. = FALSE))
   det <- reduce_instances(seg@data, id_col = "treeID", x = "X", y = "Y", z = "Z")
   assert_detection_contract(det)
   det
@@ -83,7 +92,9 @@ run_main <- function() {
     if (is.null(prep)) return(NULL)
     las <- tryCatch(readLAS(prep$normalized), error = function(e) NULL)
     if (is.null(las) || is.empty(las)) return(NULL)
-    det <- det_li2012(las, hmin = 2)
+    det <- det_li2012(las, hmin = 2,
+                      inst_path = file.path(nd, "li2012_instances",
+                                            paste0(pid, "_native.laz")))
     if (is.null(det)) return(NULL)
     sc <- tryCatch(score_plot(stems, det, tol_xy = TOL, core_cx = cx,
                               core_cy = cy, core_half = ph),

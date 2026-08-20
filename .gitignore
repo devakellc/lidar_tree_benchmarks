@@ -25,3 +25,4 @@ gpu/TreeAIBox/
 # Python bytecode (e.g. from in-container py_compile / imports)
 __pycache__/
 *.pyc
+lightning_logs/

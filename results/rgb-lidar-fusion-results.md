@@ -78,6 +78,42 @@ directly as a seventh, optical member. Running that full consensus across the
 density ladder (and SJER/TEAK) is follow-up; this PR establishes the arm and the
 density-invariant anchor it provides.
 
+## Detectree2 — a second optical detector (#X3)
+
+A meta-pipeline ensemble is only as good as its member diversity. DeepForest is
+a RetinaNet box detector; **Detectree2** (Ball et al., MIT) is architecturally
+different **Mask R-CNN** crown *polygon* segmenter, so its agreement with
+DeepForest is a confidence signal and its polygons let the optical modality
+contribute crown **width** (`d_eq`), not just detection.
+`scripts/detect_detectree2_sweep.R` runs it (`gpu/run_detectree2.py`) on per-plot
+RGB crops.
+
+**The risky build is solved.** Detectron2 was the flagged unknown — it has no
+Blackwell (sm_120) wheels. It builds **CPU-only against torch 2.12** (gcc 13) and
+imports + runs cleanly; inference on a plot-sized crop is ~5 s, so a whole 1 km²
+mosaic (~625 Mask R-CNN sub-tiles) is avoided by cropping to plots.
+
+**But the pretrained weights transfer poorly to CA conifer** — the tested unknown,
+answered. The `250312_flexi` model is tropical/temperate-trained:
+
+| optical arm | n_ref | recall | precision | F1 | crown d_eq |
+|---|--:|--:|--:|--:|--:|
+| deepforest (RetinaNet, NEON-trained) | 253 | 0.506 | 0.289 | **0.368** | (boxes) |
+| detectree2 (Mask R-CNN, tropical-trained) | 147 | 0.265 | 0.245 | **0.255** | 4.8 m median |
+
+Readings:
+
+- **Domain-matched training beats architecture.** DeepForest's NEON-trained
+  RetinaNet (F1 0.368) clearly outperforms Detectree2's tropical-trained Mask R-CNN
+  (0.255) on CA conifer — the transfer gap, not the detector family, dominates.
+  Detectree2 under-detects (recall 0.265, ~10–14 crowns per plot core vs
+  DeepForest's many), as expected when the training canopy is wrong.
+- **Its value is diversity + crown width, not standalone accuracy.** The polygons
+  give a usable crown-diameter product (`d_eq` median 4.8 m, IQR 4.0–6.5 m) a box
+  detector cannot, and the architectural independence makes DeepForest∩Detectree2
+  agreement a stronger optical confidence signal than either alone — the intended
+  fusion role. A CA-conifer-fine-tuned Detectree2 would close the gap.
+
 ## Caveats
 
 - **SOAP only, 2021 RGB.** SJER/TEAK 2021 RGB are available (the downloader is

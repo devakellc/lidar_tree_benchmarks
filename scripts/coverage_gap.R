@@ -119,10 +119,18 @@ run_plot <- function(site, pid, pc, gt, nd, df_boxes, sel) {
   cache_dir <- file.path(nd, "best_treetop_cache")
   cells <- list()
   for (arm in LIDAR_ARMS) {
-    rungs <- if (!is.null(sel) && arm %in% sel$method)
-      sel$rung[sel$method == arm] else cached_rungs(cache_dir, arm, site, pid)$rung
+    in_sel <- !is.null(sel) && arm %in% sel$method
+    rungs <- if (in_sel) sel$rung[sel$method == arm] else
+      cached_rungs(cache_dir, arm, site, pid)$rung
+    # exact parameter pinning where the manifest carries it (chm_vwf)
+    pr <- NULL
+    if (in_sel && all(c("chm_res", "vwf_a") %in% names(sel))) {
+      sr <- sel[sel$method == arm, ][1, ]
+      if (is.finite(sr$chm_res) && is.finite(sr$vwf_a))
+        pr <- c(sprintf("res%s", sr$chm_res), sprintf("a%s", sr$vwf_a))
+    }
     for (rung in rungs) {
-      det <- read_arm_cache(cache_dir, arm, site, pid, rung)
+      det <- read_arm_cache(cache_dir, arm, site, pid, rung, params = pr)
       if (!is.null(det))
         cells[[length(cells) + 1]] <- list(arm = arm, rung = rung, det = det)
     }
@@ -174,7 +182,8 @@ run_plot <- function(site, pid, pc, gt, nd, df_boxes, sel) {
       sc)
     row$fp_credited <- credit_isolated(fps, wit, fam, r = CRED_R,
                                        min_fam = MIN_FAM)
-    row$n_wit_fam <- length(unique(wit$fam[wit$isolated & wit$fam != fam]))
+    row$fp_elig <- sum(fps$credit_eligible)
+    row$n_wit_fam <- length(unique(wit$fam[wit$credit_eligible & wit$fam != fam]))
     row$cred_r <- CRED_R; row$min_fam <- MIN_FAM
     for (r in SENS_R) for (f in SENS_F)
       row[[sprintf("fp_cred_r%g_f%d", r, f)]] <-
@@ -242,21 +251,22 @@ print_report <- function(res) {
   lead <- res[res$detector != "chm_vwf_ladder", , drop = FALSE]
   cat(sprintf("\n===== COVERAGE-GAP CREDITING (pooled by SUM; CRED_R=%.1f, MIN_FAM=%d) =====\n",
               CRED_R, MIN_FAM))
-  cat(sprintf("%-16s %-5s %5s %6s %6s %6s | %6s %6s | %7s %8s\n",
+  cat(sprintf("%-16s %-5s %5s %6s %6s %6s | %6s %6s | %7s %9s\n",
               "arm", "rung", "n_ref", "recall", "prec", "F1",
-              "prec'", "F1'", "dF1", "cred/iso"))
+              "prec'", "F1'", "dF1", "cred/elig"))
   arms <- unique(lead$detector)
   tab <- list()
   for (a in arms) {
     sub <- lead[lead$detector == a, , drop = FALSE]
     p <- pool(sub)
-    iso <- sum(sub$fp_isolated, na.rm = TRUE)
+    elig <- if (!is.null(sub$fp_elig)) sum(sub$fp_elig, na.rm = TRUE) else
+      sum(sub$fp_isolated, na.rm = TRUE)
     cred <- sum(sub$fp_credited, na.rm = TRUE)
     tab[[a]] <- p
     cat(sprintf("%-16s %-5s %5d %6.3f %6.3f %6.3f | %6.3f %6.3f | %+6.3f %4d/%-4d\n",
                 a, paste(unique(sub$rung), collapse = ","), p$n_ref, p$recall,
                 p$precision, p$F1, p$precision_cred, p$F1_cred,
-                p$F1_cred - p$F1, cred, iso))
+                p$F1_cred - p$F1, cred, elig))
   }
   f1_raw  <- vapply(tab, function(p) p$F1, numeric(1))
   f1_cred <- vapply(tab, function(p) p$F1_cred, numeric(1))

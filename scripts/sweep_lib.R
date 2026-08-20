@@ -165,7 +165,7 @@ fp_structure <- function(fpx, fpy, mstemx, mstemy, near_tol = 4.0) {
 fp_points <- function(stems, det, tol_xy = 4.0, core_cx, core_cy,
                       core_half = PLOT_HALF, tol_z_up = 8, near_tol = 4.0) {
   empty <- data.frame(x = numeric(), y = numeric(), z = numeric(),
-                      isolated = logical())
+                      isolated = logical(), credit_eligible = logical())
   if (is.null(det) || !nrow(det)) return(empty)
   reg_tol <- max(tol_xy)
   in_reg  <- abs(det$x - core_cx) <= core_half + reg_tol &
@@ -182,8 +182,16 @@ fp_points <- function(stems, det, tol_xy = 4.0, core_cx, core_cy,
   near <- if (!length(mx)) rep(FALSE, length(fp_idx)) else
     vapply(fp_idx, function(i)
       any(sqrt((mx - detr$x[i])^2 + (my - detr$y[i])^2) <= near_tol), logical(1))
+  # credit_eligible (#V5, hardened per review): an FP within near_tol of ANY
+  # mapped stem -- matched or not -- is explained by the field map (a missed or
+  # height-gated known stem, not an unmapped tree), so it may never be credited.
+  # `isolated` keeps the #V4 matched-stems-only semantics for fp_near/fp_isolated.
+  near_any <- if (!nrow(stems)) rep(FALSE, length(fp_idx)) else
+    vapply(fp_idx, function(i)
+      any(sqrt((stems$E - detr$x[i])^2 + (stems$N - detr$y[i])^2) <= near_tol),
+      logical(1))
   data.frame(x = detr$x[fp_idx], y = detr$y[fp_idx], z = detr$z[fp_idx],
-             isolated = !near)
+             isolated = !near, credit_eligible = !near_any)
 }
 
 ## ---- co-detection crediting of isolated false positives (#V5) --------------

@@ -58,8 +58,13 @@ in [`results/`](results/).
   — per-detection confidence calibration (#P4): per-arm reliability + ECE and an
   isotonic calibrator that makes scores cross-arm-comparable, so ranking the
   pooled ensemble by calibrated score lifts precision at fixed recall.
+- [`results/detector-routing-results.md`](./results/detector-routing-results.md)
+  — per-cell detector routing (#P2): an `rpart` router that selects an arm per
+  cell from cheap structure features vs the oracle and fixed-best arm. The
+  density crossover is real (oracle +0.06 F1) but a learned policy barely beats
+  shipping multichm — fusion beats selection.
 
-## Headline findings
+### Headline findings
 
 - Given the **same CHM**, lasR and lidR local-maximum detectors are effectively
   **identical** (Jaccard 0.95–1.0); the CHM construction drives almost all of
@@ -80,7 +85,7 @@ in [`results/`](results/).
   6,809), while the lidR LAScatalog path **over-counts by ~13%** at the same
   `opt_chunk_buffer = 20 m`. Prefer lasR streaming for wall-to-wall work.
 
-## Scripts
+### Scripts
 
 Most entry points live under [`scripts/`](scripts/); GPU prerequisites and tests
 are listed where they belong. The analysis scripts expect an environment
@@ -141,10 +146,11 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `analyze_model_benchmark.R` | Cross-model synthesis (#R10): unions every arm on the shared frozen clips, equal-set-guards across arms, pools per (detector, rung) by crown class + height band, and writes the density-robustness figures + table fragment behind [`model-benchmark-results.md`](results/model-benchmark-results.md). |
 | `score_instances_iou.R` | Mask-aware scorer (#V1): grades the persisted SegmentAnyTree + ForestFormer3D per-point instance clouds on each frozen normalized clip with point-set IoU≥0.5 (P/R/F1), Coverage, and Panoptic Quality, alongside the apex-distance scoring. Reference instances are a Voronoi-on-stems proxy (`maxCrownDiameter`); pools by SUMMING the panoptic accumulators per crown class. Writes `neon/<SITE>/instance_iou_pq.csv` behind [`instance-iou-pq-results.md`](results/instance-iou-pq-results.md). |
 | `compare_model_sites.R` | Cross-site structure gradient for the classical model-benchmark arms (#E11): pools per-site ams3d + lidRplugins results across SJER → SOAP → TEAK, writes `model_cross_site_summary.csv` + per-arm structure-gradient figures. |
+| `route_detectors.R` + `route_lib.R` | Per-cell detector routing study (#P2): assembles the per-arm laddered F1, computes deploy-time structure features (`rumple_index`, cover, height CV, gap, density) per frozen clip, labels each cell with its argmax-F1 arm, and fits a leave-one-plot-out `rpart` router scored against the oracle and fixed-best arm with `pool`/`equal_set_guard`. Pure helpers (`oracle_pick`, `select_policy_rows`) live in `route_lib.R`. Writes `neon/<SITE>/router_policy.csv` behind [`detector-routing-results.md`](./results/detector-routing-results.md). |
 | `gpu/setup_treeisonet_env.sh` + `gpu/mirror_weights.sh` | GPU arm prerequisites: create the pinned TreeisoNet venv, mirror weights/configs, and verify the tracked checksum manifest. |
 | `tests/run_tests.R` | Unit-test harness for benchmark library code, model runners, extractors, I/O helpers, pooling guards, and synthesis helpers. |
 
-## Reproduce
+### Reproduce
 
 Requirements: R with `lasR` (>= 0.21, dev/`pre-devel` build with EPT parallel
 acquisition and variable-window `ws`) and `lidR`; PDAL (>= 2.9) for the EPT
@@ -232,7 +238,7 @@ ported runtime described under `gpu/forestformer3d-sm120/`.
 Data (`*.laz`, `*.tif`, `*.csv`, `*.gpkg`, and `tiles/`) is gitignored —
 regenerate it with the steps above.
 
-## Notes
+### Notes
 
 - The EPT is in EPSG:3857 (Web Mercator); distances there are inflated ~1.32x at
   this latitude. The lasR-only EPT script keeps processing in 3857 for a fully

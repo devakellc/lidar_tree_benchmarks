@@ -130,3 +130,16 @@ Best single arm: SegmentAnyTree (F1 0.443, understory 0.448). Union recall
   recorded per cell so the majority threshold adapts.
 - The fusion `merge_tol` (2 m) and height gate `z_tol` (5 m) are the `dedup_blocks`
   defaults; `OVERSTORY_FRAC` (0.5) sets the layered split. All are CLI-tunable.
+
+## #V6 update (2026-08-20): ptrees + AMS3D join the pool
+
+The classical segmenters now persist per-point instance clouds
+(`<arm>_instances/`, issue #94), so `fuse_detectors.R` materializes **ptrees
+and AMS3D** apexes from them (already AGL; no DTM step) alongside the original
+five members. SOAP-native smoke on the 7-arm pool: best single arm stays
+SegmentAnyTree (F1 0.464 over 18 common cells; union ΔF1 −0.181, majority
+−0.051), and the k-of-N Pareto peaks at **k5 F1 0.430** (R 0.448 / P 0.414) —
+the extra members raise the consensus operating point (the old 5-arm majority
+was the peak). Full cross-site re-synthesis of this doc's tables on the 7-arm
+pool is future work; the numbers above are from `fusion_results.csv` as
+regenerated at `RUNGS=native CORES=1`.

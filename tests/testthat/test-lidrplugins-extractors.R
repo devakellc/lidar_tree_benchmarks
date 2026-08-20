@@ -36,3 +36,18 @@ test_that("det_ptrees does not segfault on a no-canopy cloud (returns 0-row)", {
   expect_identical(names(det), c("x", "y", "z"))
   expect_equal(nrow(det), 0L)
 })
+
+## ---- #V6 instance persistence ----------------------------------------------
+test_that("det_ptrees persists the per-point treeID cloud when inst_path is set", {
+  testthat::skip_if_not_installed("lidRplugins")
+  las <- synth_las_normalized()
+  f <- tempfile(fileext = ".laz")
+  on.exit(unlink(f), add = TRUE)
+  det <- det_ptrees(las, hmin = 2, inst_path = f)
+  skip_if(is.null(det), "ptrees crashed on the synthetic clip")
+  expect_true(file.exists(f))
+  pts <- read_instance_points_laz(f, id_field = "treeID")
+  redet <- instances_to_det(pts, id_field = "crown_id")
+  expect_equal(redet[order(redet$x), ], det[order(det$x), ],
+               ignore_attr = TRUE, tolerance = 1e-6)
+})

@@ -54,6 +54,28 @@ read_instance_points_laz <- function(path, id_field = "pred_itc") {
   data.frame(X = d$X, Y = d$Y, Z = d$Z, crown_id = ids)
 }
 
+# Persist a segmented LAS's per-point instance labelling (#V6): registers the
+# id column as an integer extra-bytes attribute (NA -> 0 = unassigned, the SAT
+# layout) and writes the LAZ, preserving the source header/CRS. segment_trees
+# puts treeID in @data WITHOUT registering it, so writeLAS alone would silently
+# drop it -- this is the piece the classical arms were missing. An empty LAS
+# returns NA and writes nothing (lidR cannot write empty LAS; a ran-but-empty
+# cell simply has no artifact, like the GPU arms). Returns the path invisibly.
+write_instances_laz <- function(las, path, id_col = "treeID") {
+  if (is.null(las) || lidR::is.empty(las)) return(NA_character_)
+  d <- las@data
+  if (!id_col %in% names(d))
+    stop("write_instances_laz: no '", id_col, "' column in the LAS")
+  ids <- as.integer(d[[id_col]])
+  ids[is.na(ids)] <- 0L
+  las@data[[id_col]] <- ids
+  las <- lidR::add_lasattribute(las, ids, id_col,
+                                paste0(id_col, " (0 = unassigned)"))
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  lidR::writeLAS(las, path)
+  invisible(path)
+}
+
 # Subtract ground elevation at each apex's (x,y). Apexes off the DTM are dropped;
 # attr(.,"n_dropped") carries the count so callers can refuse a wholesale drop.
 det_to_agl <- function(det, dtm_path) {

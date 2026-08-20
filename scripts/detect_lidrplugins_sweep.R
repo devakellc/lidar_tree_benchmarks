@@ -38,6 +38,7 @@ d <- .job_dir()
                                            file.path(getwd(), "scripts", rel)))
 source(.find("sweep_lib.R"))
 source(.find("model_bench_lib.R"))
+source(.find("io_bridge.R"))        # write_instances_laz (#V6)
 
 ## ---- tops sf -> (x,y,z) detection contract -------------------------------
 # Pull lowercase x,y,z from a locate_trees() sf. Prefer 3D geometry; fall back
@@ -75,7 +76,9 @@ det_multichm <- function(las, res = 0.5, a = 0.10) {
 # lidR 4.3.2 ("object not a >= 2-column array"), but segment_trees works and
 # returns per-point treeID -- an instance segmentation -- which collapses through
 # the bridge's reduce_instances() exactly like the AMS3D crown_id arm.
-det_ptrees <- function(las, hmin = 2, k = c(30, 15)) {
+# inst_path (#V6): when set, the segmented cloud is persisted (treeID as an
+# integer extra dim, 0 = unassigned) BEFORE the apex collapse.
+det_ptrees <- function(las, hmin = 2, k = c(30, 15), inst_path = NULL) {
   # ptrees' C routine (C_lastrees_ptrees) hard-segfaults -- uncatchable by the
   # tryCatch below -- when there are too few returns above hmin (e.g. a treeless
   # clip on a sparse rung). Under mclapply such a segfault silently nulls the
@@ -91,6 +94,10 @@ det_ptrees <- function(las, hmin = 2, k = c(30, 15)) {
                   error = function(e) NULL)
   if (is.null(seg)) return(NULL)            # crash -> skip (equal-set guard drops it)
   if (!"treeID" %in% names(seg@data)) return(NULL)
+  if (!is.null(inst_path))
+    tryCatch(write_instances_laz(seg, inst_path, id_col = "treeID"),
+             error = function(e) warning("instance persist failed: ",
+                                         conditionMessage(e), call. = FALSE))
   det <- reduce_instances(seg@data, id_col = "treeID", x = "X", y = "Y", z = "Z")
   assert_detection_contract(det)
   det
@@ -141,10 +148,13 @@ run_main <- function() {
       las <- tryCatch(readLAS(prep$normalized), error = function(e) NULL)
       if (is.null(las) || is.empty(las)) next
       res <- if (frdens >= 8) 0.25 else 0.5     # density-derived, like CHM-VWF
+      rlab <- ifelse(is.na(rung), "native", as.character(rung))
       dets <- list(
         lmfauto  = det_lmfauto(las, hmin = 2),
         multichm = det_multichm(las, res = res, a = A_VWF),
-        ptrees   = det_ptrees(las, hmin = 2),
+        ptrees   = det_ptrees(las, hmin = 2,
+                              inst_path = file.path(nd, "ptrees_instances",
+                                                    paste0(pid, "_", rlab, ".laz"))),
         chm_vwf  = tryCatch(detect_lasr(prep$normalized, res, A_VWF, frdens),
                             error = function(e) NULL))
       for (nm in names(dets)) {

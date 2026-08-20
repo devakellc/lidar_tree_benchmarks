@@ -258,3 +258,38 @@ test_that("emitted binary PLY is readable by Python plyfile (non-circular check)
   expect_lt(abs(vals[2] - p$x[1]), 1e-6)       # ... at the same coords
   expect_equal(vals[3], p$Intensity[1])        # ... with the field intact
 })
+
+## ---- write_instances_laz (#V6) ---------------------------------------------
+test_that("write_instances_laz persists an id column readable by read_instance_points_laz", {
+  las <- synth_las_normalized()
+  ids <- rep(c(1L, 2L), each = 60)
+  ids[c(1, 61)] <- NA_integer_           # unassigned -> 0 on disk -> NA on read
+  las@data$treeID <- ids
+  f <- tempfile(fileext = ".laz")
+  on.exit(unlink(f), add = TRUE)
+  out <- write_instances_laz(las, f, id_col = "treeID")
+  expect_equal(out, f)
+  pts <- read_instance_points_laz(f, id_field = "treeID")
+  expect_equal(nrow(pts), lidR::npoints(las))
+  expect_equal(sum(is.na(pts$crown_id)), 2L)
+  expect_setequal(unique(stats::na.omit(pts$crown_id)), c(1L, 2L))
+})
+
+test_that("write_instances_laz preserves a non-treeID id column name", {
+  las <- synth_las_normalized()
+  las@data$crown_id <- rep(c(3L, 7L), each = 60)
+  f <- tempfile(fileext = ".laz")
+  on.exit(unlink(f), add = TRUE)
+  write_instances_laz(las, f, id_col = "crown_id")
+  pts <- read_instance_points_laz(f, id_field = "crown_id")
+  expect_setequal(unique(pts$crown_id), c(3L, 7L))
+})
+
+test_that("write_instances_laz declines an empty LAS (no artifact = cell skipped)", {
+  las <- synth_las_normalized()
+  las@data$treeID <- 1L
+  empty <- lidR::filter_poi(las, Z > 1000)
+  f <- tempfile(fileext = ".laz")
+  expect_true(is.na(write_instances_laz(empty, f, id_col = "treeID")))
+  expect_false(file.exists(f))
+})

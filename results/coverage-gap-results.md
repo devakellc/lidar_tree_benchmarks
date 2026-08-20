@@ -79,12 +79,13 @@ Defaults: `CRED_R = 2.0` m (the fusion apex-cluster radius), `MIN_FAM = 2`.
 
 ### Generated tables
 
-`prec'`/`F1'` = corrected (credited) precision/F1; `cred/iso` = credited over
-isolated core FPs.
+`prec'`/`F1'` = corrected (credited) precision/F1; `cred/elig` = credited
+over credit-ELIGIBLE core FPs (isolated AND not near any mapped stem), the
+denominator `coverage_gap.R` prints.
 
 #### SOAP (18 plots, n_ref 232; rgb family present)
 
-| arm | rung | recall | prec | F1 | prec' | F1' | ΔF1 | cred/iso |
+| arm | rung | recall | prec | F1 | prec' | F1' | ΔF1 | cred/elig |
 |---|---|--:|--:|--:|--:|--:|--:|--:|
 | chm_vwf | 4 | 0.366 | 0.482 | 0.416 | 0.835 | 0.509 | +0.093 | 71/74 |
 | lmfauto | 4 | 0.664 | 0.254 | 0.367 | 0.434 | 0.525 | +0.158 | 228/334 |
@@ -109,7 +110,7 @@ corrected precision 0.84 but the lowest recall).
 
 #### SJER (n_ref 71; no rgb family)
 
-| arm | rung | recall | prec | F1 | prec' | F1' | ΔF1 | cred/iso |
+| arm | rung | recall | prec | F1 | prec' | F1' | ΔF1 | cred/elig |
 |---|---|--:|--:|--:|--:|--:|--:|--:|
 | chm_vwf | 4 | 0.437 | 0.308 | 0.361 | 0.757 | 0.554 | +0.193 | 54/58 |
 | lmfauto | native | 0.606 | 0.210 | 0.312 | 0.477 | 0.534 | +0.222 | 112/147 |
@@ -129,7 +130,7 @@ i.e. genuinely low precision, while chm_vwf's 54/58 are.
 
 #### TEAK (n_ref 358–396; no rgb family)
 
-| arm | rung | recall | prec | F1 | prec' | F1' | ΔF1 | cred/iso |
+| arm | rung | recall | prec | F1 | prec' | F1' | ΔF1 | cred/elig |
 |---|---|--:|--:|--:|--:|--:|--:|--:|
 | chm_vwf | native | 0.394 | 0.421 | 0.407 | 0.692 | 0.502 | +0.095 | 117/145 |
 | lmfauto | 2 | 0.571 | 0.347 | 0.432 | 0.504 | 0.535 | +0.104 | 191/314 |
@@ -142,8 +143,9 @@ i.e. genuinely low precision, while chm_vwf's 54/58 are.
 | treeisonet | native | 0.359 | 0.332 | 0.345 | 0.553 | 0.435 | +0.090 | 150/187 |
 | segmentanytree | native | 0.654 | 0.383 | 0.483 | 0.559 | 0.603 | +0.120 | 194/286 |
 
-SegmentAnyTree leads raw **and** credited (F1' 0.608, equal-set confirmed);
-chm_vwf passes ams3d under crediting.
+SegmentAnyTree leads raw **and** credited (F1' 0.603). TEAK is the one site
+whose per-arm ordering does **not** move under crediting; on the 17-plot equal
+set only chm_vwf and lidr_li2012 swap.
 
 #### CHM-VWF ladder: how the bias moves with density
 
@@ -165,9 +167,9 @@ ladders scored on raw F1 therefore **under-state the native advantage**.
 
 | site | r=1.5 f=1 | r=1.5 f=2 | r=2 f=1 | r=2 f=2 | r=3 f=1 | r=3 f=2 |
 |---|--:|--:|--:|--:|--:|--:|
-| SOAP | +0.179 | +0.127 | +0.184 | +0.141 | +0.162 | +0.139 |
+| SOAP | +0.170 | +0.122 | +0.175 | +0.135 | +0.153 | +0.133 |
 | SJER | +0.255 | +0.143 | +0.269 | +0.167 | +0.245 | +0.189 |
-| TEAK | +0.141 | +0.102 | +0.145 | +0.110 | +0.131 | +0.109 |
+| TEAK | +0.125 | +0.093 | +0.128 | +0.100 | +0.114 | +0.097 |
 
 Smooth in both knobs, and no longer monotone in `r`: past ~2 m the
 one-credit-per-tree dedup suppresses more than the wider radius admits — the
@@ -225,3 +227,12 @@ conservative middle.
   the classical arms persist masks and the IoU/PQ board covers all arms.
 - SJER/TEAK lack the rgb family, so `MIN_FAM=2` there means chm/pc/deep
   agreement only; SOAP's numbers are the strongest-evidence configuration.
+- **Cache pinning is exact only for CHM-VWF.** `best_treetop_selection.csv`
+  records `chm_res`/`vwf_a` but not the GPU arms' `conf`/`voxel`/`image`/
+  `spacing`/`merge` suffixes, so `treeisonet`/`segmentanytree`/`forestformer3d`
+  cells still resolve by glob. That is exact whenever only one variant was ever
+  cached (the committed state) and warns whenever more than one exists, but
+  pinning those arms properly needs the selection writer to record their knobs.
+  A pinned-but-missing CHM-VWF variant also warns and falls back to the glob
+  rather than dropping the cell, so a re-parameterized re-run is loud, not
+  silent.

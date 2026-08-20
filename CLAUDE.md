@@ -104,7 +104,11 @@ Sweep invariants — get these wrong and the metrics are silently misleading:
   is the decimation/no-upsampling guard. Don't conflate them.
 - **Matching** is global nearest-distance greedy 1:1 with a height-consistency
   gate (`greedy_match`), so a short understory stem can't steal a tall
-  neighbour's apex.
+  neighbour's apex. #V4 (`matcher_robustness.R`) adds hardened drop-ins in
+  `sweep_lib.R` — `match_tol` (per-stem size/uncertainty-scaled tolerance),
+  `optimal_match` (Hungarian optimal assignment), and a soft 3-D cost, all
+  threaded through `score_plot` with the flat-4 m greedy path as the back-compat
+  default.
 
 ## Analyses that branch off the sweep
 

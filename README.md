@@ -46,6 +46,10 @@ in [`results/`](results/).
   CHM-VWF, TreeisoNet, SegmentAnyTree, native Li 2012, and the native+8
   ForestFormer3D comparison on shared frozen clips, by crown class and height
   band, with head-to-head deltas vs CHM-VWF.
+- [`results/matcher-robustness-results.md`](results/matcher-robustness-results.md)
+  — matcher hardening (#V4): size/uncertainty-scaled tolerance + optimal
+  Hungarian assignment + soft 3-D cost vs the flat-4 m greedy baseline, a tol
+  sensitivity grid, and the false-positive over-seg-vs-isolated split.
 
 ## Headline findings
 
@@ -109,6 +113,7 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `bench_lasr_ept_acquisition.R` / `sweep_lasr_ept_params.R` / `sweep_lasr_ept_partitions.R` | EPT acquisition benchmarks for lasR remote reads: throughput, chunking, and partition-parameter sensitivity. |
 | `neon_ground_truth.R` | Build NEON field-stem ground truth (`DP1.10098.001`); writes `ground_truth_stems.csv` with `meas_year`/`dist21` for exact-year filtering. |
 | `run_sweep.R` + `sweep_lib.R` | NEON density-ladder sweep: per plot x rung x `chm_res` x `vwf_a`, scored vs stems. `MEAS_YEAR=2021` restricts to exact-year stems (issue #5); use a distinct `OUT=` to keep the +/-4 yr baseline. |
+| `matcher_robustness.R` | Matcher hardening (#V4): re-scores the CHM-VWF detector on the frozen clips with size/uncertainty-scaled tolerance (`match_tol`), optimal Hungarian assignment (`optimal_match`, needs `clue`), and a soft 3-D cost vs the flat-4 m greedy baseline, plus a tol_xy x tol_z_up sensitivity grid and a false-positive over-seg-vs-isolated split. Writes `neon/<SITE>/matcher_robustness.csv` behind [`matcher-robustness-results.md`](results/matcher-robustness-results.md). |
 | `analyze_sweep.R` / `compare_sites.R` | Pool the sweep (sum TP / sum n_ref) + figures; cross-site structure gradient SJER -> SOAP -> TEAK. |
 | `export_geojson.R` | Export benchmark geography as WGS84 GeoJSON: `sites` (convex-hull footprints), `plots` (scoring-box polygons with a `swept` flag + native density, null where unswept), `stems` (field points, `is_tree`); writes the tracked `data/{sites,plots,stems}.geojson`. |
 | `validate_heights.R` | Apex-vs-field height bias/RMSE at native density; `MEAS_YEAR=2021` writes a distinct `height_pairs_2021.csv` for the temporal cut. |

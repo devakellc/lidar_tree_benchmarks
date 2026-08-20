@@ -301,20 +301,29 @@ print_tables <- function(res) {
   cat("\n===== POINT-SET IoU / COVERAGE / PANOPTIC QUALITY (pooled by SUM) =====\n")
   cat(sprintf("(IoU gate %.2f; reference = Voronoi-on-stems proxy)\n", IOU_GATE))
   if (is.null(res$mask_source)) res$mask_source <- "native"
-  key <- paste(res$model, res$mask_source, sep = "  ")
-  cat(sprintf("\n%-30s %5s %6s %6s %6s %6s %6s %6s %6s\n",
-              "model  mask", "cells", "nref", "P", "R", "F1", "Cov", "SQ", "PQ"))
-  for (k in sort(unique(key))) {
-    p <- pool_pq(res[key == k, , drop = FALSE])
-    cat(sprintf("%-30s %5d %6d %6.3f %6.3f %6.3f %6.3f %6.3f %6.3f\n",
-                k, p$n_cells, p$n_ref, p$precision, p$recall, p$F1,
-                p$coverage, p$SQ, p$PQ))
+  # Per-rung sections: arms cover different rung subsets (li2012 native-only,
+  # the proxy rows one cached rung each), so one table pooled across rungs
+  # would mix denominators unequally across arms.
+  for (rung in intersect(c("native", "8", "4", "2", "1"), unique(res$rung))) {
+    rr <- res[res$rung == rung, , drop = FALSE]
+    key <- paste(rr$model, rr$mask_source, sep = "  ")
+    cat(sprintf("\n----- rung %s -----\n", rung))
+    cat(sprintf("%-30s %5s %6s %6s %6s %6s %6s %6s %6s\n",
+                "model  mask", "cells", "nref", "P", "R", "F1", "Cov", "SQ", "PQ"))
+    for (k in sort(unique(key))) {
+      p <- pool_pq(rr[key == k, , drop = FALSE])
+      cat(sprintf("%-30s %5d %6d %6.3f %6.3f %6.3f %6.3f %6.3f %6.3f\n",
+                  k, p$n_cells, p$n_ref, p$precision, p$recall, p$F1,
+                  p$coverage, p$SQ, p$PQ))
+    }
   }
-  cat("\n--- per crown class: recall@IoU0.5 / Coverage (pooled) ---\n")
+  cat("\n--- per crown class: recall@IoU0.5 / Coverage (pooled, native rung) ---\n")
+  nat <- res[res$rung == "native", , drop = FALSE]
+  key <- paste(nat$model, nat$mask_source, sep = "  ")
   cat(sprintf("%-30s %-12s %6s %6s %6s\n",
               "model  mask", "class", "nref", "recall", "Cov"))
   for (k in sort(unique(key))) {
-    p <- pool_pq(res[key == k, , drop = FALSE])
+    p <- pool_pq(nat[key == k, , drop = FALSE])
     for (cl in c(POOL_CLASSES, "understory")) {
       n <- p[[paste0("n_", cl)]]; rec <- p[[paste0("rec_", cl)]]
       cov <- p[[paste0("cov_", cl)]]

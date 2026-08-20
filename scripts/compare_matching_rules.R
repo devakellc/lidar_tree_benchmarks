@@ -108,6 +108,14 @@ read_iou <- function() {
   # ranking, or provenance would masquerade as performance.
   if ("mask_source" %in% names(iq)) iq <- iq[mask_source == "native"]
   if (!nrow(iq)) return(NULL)
+  # Equal-set guard across the mask arms (mirrors read_dist): tau/rho compare
+  # this board against the guarded distance board, so every mask arm must pool
+  # over the IDENTICAL cell set (treeiso misses a few cells; unguarded pools
+  # would mix denominators into the correlation).
+  iq$detector <- iq$model
+  iq <- as.data.table(equal_set_guard(as.data.frame(iq),
+                                      arms = unique(iq$model)))
+  if (!nrow(iq)) return(NULL)
   # instance_iou_pq.csv carries the score_instance_cell accumulators (#V1):
   # n_ref, TP, sum_iou, sum_maxiou -- pooled here by SUM (the #V1 rule).
   iq[, .(iou_recall = sum(TP) / sum(n_ref),

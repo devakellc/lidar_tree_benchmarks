@@ -234,7 +234,10 @@ segmenters (ptrees, AMS3D — split crowns) that IoU/RQ should demote.
 | treeiso | 0.086 | 0.151 | 10 | 0.035 | 0.100 | 0.033 | yes |
 
 Rank correlations over the **six** native-mask arms (dist F1 vs IoU recall@0.5,
-then vs native PQ):
+then vs native PQ). Both boards are equal-set guarded — the IoU pools are
+restricted to the cells every mask arm scored (treeiso misses 3 TEAK cells),
+mirroring the distance side, so the correlations never mix denominators
+(guarding moves no rank):
 
 | site | τ (IoU R) | ρ (IoU R) | τ (PQ) | ρ (PQ) |
 |---|--:|--:|--:|--:|

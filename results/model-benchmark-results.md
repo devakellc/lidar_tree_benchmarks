@@ -334,6 +334,47 @@ Regenerate with `compare_model_sites.R` (see the Regenerate block above); it
 writes `model_cross_site_summary.csv` and the per-arm + summary
 `model_structure_gradient*.png` density curves under `neon/figs/`.
 
+## Classical Treeiso, the unsupervised 3-D baseline (#P5)
+
+The learned TreeisoNet (#M7) was already here; the **classical** cut-pursuit
+Treeiso (Xi & Hopkinson 2022; vendored MIT under `external/treeiso/`, run by
+`detect_treeiso_sweep.R`) is the non-learned 3-D instance segmenter FGI-EMIT uses
+as its baseline. Its graph-cut errors are decorrelated from the CHM/local-maximum
+arms, so it is a diversity member for the #P1 consensus pool — but it was
+designed for dense TLS/ULS, and on sparse discrete-return ALS it **collapses**.
+
+| site (native) | n_ref | recall | precision | F1 | understory recall |
+|---|--:|--:|--:|--:|--:|
+| SOAP | 232 | 0.086 | 0.594 | 0.151 | 0.000 |
+| SJER | 71 | 0.042 | 0.273 | 0.073 | 0.000 |
+| TEAK | 370 | 0.173 | 0.423 | 0.246 | 0.019 |
+
+SOAP density ladder — recall halves as the cloud thins:
+
+| rung | native | 8 | 4 | 2 | 1 |
+|---|--:|--:|--:|--:|--:|
+| recall | 0.086 | 0.050 | 0.052 | 0.030 | 0.037 |
+| F1 | 0.151 | 0.091 | 0.095 | 0.056 | 0.069 |
+
+Readings:
+
+- **The deep arms decisively beat the classical 3-D segmenter on ALS** — the
+  question #P5 was built to answer. SegmentAnyTree's native SOAP recall (0.642)
+  is **7.5×** Treeiso's (0.086); F1 0.464 vs 0.151. Treeiso's cut-pursuit needs
+  the visible stems and dense returns of TLS to separate trees; on ALS canopy it
+  **severely under-segments** (e.g. SOAP_031: 34 mapped core stems but only 36
+  instances over the whole 70k-point clip, 7 with an apex in core), merging
+  touching crowns it cannot cut apart without stem evidence.
+- **It contributes precision, not recall.** Precision is moderate (~0.4–0.6) — the
+  few instances it does isolate are usually real trees — and **understory recall
+  is ≈0** at every site and rung. As a fusion member it adds a small, decorrelated
+  high-precision set, not coverage.
+- **It degrades with density**, recall falling from 0.086 (native) to 0.037
+  (1 pt/m²) on SOAP, and is best on TEAK's taller, better-separated conifers
+  (0.173) and worst on open SJER (0.042). Default Treeiso parameters (TLS-tuned)
+  are used unchanged — the honest out-of-the-box classical baseline, not a
+  re-tuned arm.
+
 ## Caveats
 
 - The sparse rungs are decimated from the native cloud, so they remove returns

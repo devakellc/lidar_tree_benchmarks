@@ -63,6 +63,10 @@ in [`results/`](results/).
   cell from cheap structure features vs the oracle and fixed-best arm. The
   density crossover is real (oracle +0.06 F1) but a learned policy barely beats
   shipping multichm — fusion beats selection.
+- [`results/positional-uncertainty-results.md`](./results/positional-uncertainty-results.md)
+  — Monte-Carlo stem-position uncertainty (#V3): 5th/95th F1 bands per arm under
+  K=200 `pos_unc` draws. Fusion has the tightest bands (most stable); the
+  SAT-vs-multichm gap survives jitter only on SJER/TEAK, not SOAP.
 
 ### Headline findings
 
@@ -129,6 +133,7 @@ export CLAUDE_JOB_DIR=/path/to/workdir
 | `matcher_robustness.R` | Matcher hardening (#V4): re-scores the CHM-VWF detector on the frozen clips with size/uncertainty-scaled tolerance (`match_tol`), optimal Hungarian assignment (`optimal_match`, needs `clue`), and a soft 3-D cost vs the flat-4 m greedy baseline, plus a tol_xy x tol_z_up sensitivity grid and a false-positive over-seg-vs-isolated split. Writes `neon/<SITE>/matcher_robustness.csv` behind [`matcher-robustness-results.md`](results/matcher-robustness-results.md). |
 | `fuse_detectors.R` | Cross-arm fusion arm (#P1): materializes per-cell apexes for CHM-VWF, multichm, Li2012, SegmentAnyTree, ForestFormer3D on the frozen cells, clusters them across arms (`fuse_apexes`, height-gated single-linkage) into union/majority/layered operating points + the k-of-N Pareto, and scores each with `score_plot` (distance) + a Voronoi-on-apexes #V1 IoU/PQ proxy vs the best single arm. Writes `neon/<SITE>/fusion_results.csv` behind [`detector-fusion-results.md`](results/detector-fusion-results.md). |
 | `calibrate_confidence.R` | Per-detection confidence calibration (#P4): labels each arm's detections TP/FP, builds per-arm reliability + ECE, fits an isotonic calibrator (`stats::isoreg`) mapping raw score to empirical precision, and reports the held-out (5-fold CV) ECE and the pooled-ensemble precision gain at fixed recall. Exposes ForestFormer3D's native `ff3d_score`; proxies (crown point count, apex height) for the rest. Writes `neon/<SITE>/{confidence_calibration.csv,confidence_lookup.csv}` behind [`confidence-calibration-results.md`](./results/confidence-calibration-results.md). |
+| `mc_positional_uncertainty.R` | Monte-Carlo positional-uncertainty bands (#V3): materializes each arm's detections (incl. the #P1 fusion union/layered) once per cell, then re-scores under K stem-position draws (`perturb_positions`, σ=`pos_unc`) to put 5th/95th-percentile bands on recall/precision/F1 per arm. Reuses `score_plot`/`pool`; run `CORES=1` (lasR exec deadlocks under fork). Writes `neon/<SITE>/positional_uncertainty.csv` behind [`positional-uncertainty-results.md`](./results/positional-uncertainty-results.md). |
 | `analyze_sweep.R` / `compare_sites.R` | Pool the sweep (sum TP / sum n_ref) + figures; cross-site structure gradient SJER -> SOAP -> TEAK. |
 | `export_geojson.R` | Export benchmark geography as WGS84 GeoJSON: `sites` (convex-hull footprints), `plots` (scoring-box polygons with a `swept` flag + native density, null where unswept), `stems` (field points, `is_tree`); writes the tracked `data/{sites,plots,stems}.geojson`. |
 | `validate_heights.R` | Apex-vs-field height bias/RMSE at native density; `MEAS_YEAR=2021` writes a distinct `height_pairs_2021.csv` for the temporal cut. |

@@ -1,8 +1,7 @@
 # Coverage-gap crediting: de-biased precision/F1 (#V5)
 
-## V4 (`matcher_robustness.R`) found that ~94% of the benchmark's core false
-
-positives are **isolated** — not over-segmentation of a matched crown but
+The #V4 study (`matcher_robustness.R`) found that ~94% of the benchmark's core
+false positives are **isolated** — not over-segmentation of a matched crown but
 detections with no mapped stem anywhere near them, i.e. almost certainly real
 trees the NEON woody-veg map never recorded (the field protocol maps a subset
 of stems, not every tree). That makes **every precision, F1, and PQ number in
@@ -19,11 +18,14 @@ multichm), `pc` (ptrees, AMS3D, Li2012 ×2, lmf-pc, lasR-pc), `deep`
 (TreeisoNet, SegmentAnyTree, ForestFormer3D), `rgb` (DeepForest, Detectree2;
 SOAP only). Errors correlate within a family (all CHM maxima share surface
 artefacts; both RGB arms share the imagery), so independence is counted at the
-family level and the target's own family never testifies. Two guards keep the
+family level and the target's own family never testifies. Three guards keep the
 rule honest: **one credit per probable tree** (credited FPs within `CRED_R` of
 an already-counted credit are over-segmentation of the same unmapped tree and
-stay in the denominator), and witnesses must themselves be *isolated* FPs (a
-near-FP is over-seg of a mapped tree, not evidence of an unmapped one).
+stay in the denominator); witnesses must themselves be eligible FPs (a near-FP
+is over-seg of a mapped tree, not evidence of an unmapped one); and
+**eligibility is measured against every mapped stem, matched or not**
+(`fp_points`' `credit_eligible`) — an FP sitting on a stem the arm merely
+failed to match is already explained by the field map, so it never credits.
 Credited FPs leave the **precision denominator** (`pool()`'s
 `precision_cred`/`F1_cred`); raw precision stays alongside so the bias is
 visible, never hidden. Recall and TP are untouched — an unmapped tree can
@@ -36,10 +38,12 @@ New, unit-tested pieces (`tests/testthat/test-coverage-gap.R`):
 - `sweep_lib.R::co_detect_credit()` — the ≥ `min_fam`-distinct-families-within-
   `r` test.
 - `coverage_lib.R` — `FAMILY_MAP`/`arm_family`, `best_treetop_cache` readers
-  (pinned to `best_treetop_selection.csv`, glob fallback, multi-variant
-  warning), optical-box → detection conversion (apex z from the native frozen
-  CHM, floor 2 m, mirroring `detect_deepforest_sweep.R`), `credit_isolated`
-  (family strike + one-credit-per-tree dedup), `read_selection`.
+  (rung **and** `chm_res`/`vwf_a` pinned from `best_treetop_selection.csv` so a
+  stale parameter variant can never shadow the selected leaderboard cell; glob
+  fallback warns), optical-box → detection conversion (apex z from the native
+  frozen CHM, floor 2 m, mirroring `detect_deepforest_sweep.R`),
+  `credit_isolated` (family strike + eligibility + one-credit-per-tree dedup),
+  `read_selection`.
 - `model_bench_lib.R::pool()` — pools `fp_credited` by SUM and emits
   `precision_cred`/`F1_cred` (denominator floored at pooled TP).
 
@@ -54,7 +58,7 @@ Rscript scripts/coverage_gap.R SITE=TEAK CORES=1
 # -> work/neon/<SITE>/coverage_gap.csv (pool() -> precision_cred / F1_cred)
 ```
 
-### What this is
+## What this is
 
 Each arm testifies **at its best tested operating point**: detections come
 from the `best_treetop_cache` written by `export_best_treetops_geojson.R`
@@ -82,26 +86,26 @@ isolated core FPs.
 
 | arm | rung | recall | prec | F1 | prec' | F1' | ΔF1 | cred/iso |
 |---|---|--:|--:|--:|--:|--:|--:|--:|
-| chm_vwf | 4 | 0.366 | 0.482 | 0.416 | 0.853 | 0.513 | +0.096 | 73/81 |
-| lmfauto | 4 | 0.664 | 0.254 | 0.367 | 0.440 | 0.529 | +0.162 | 232/342 |
-| multichm | 2 | 0.647 | 0.367 | 0.468 | 0.606 | 0.626 | +0.157 | 147/199 |
-| ptrees | 4 | 0.504 | 0.339 | 0.405 | 0.601 | 0.548 | +0.143 | 138/181 |
-| ams3d | 2 | 0.677 | 0.353 | 0.464 | 0.528 | 0.593 | +0.129 | 134/190 |
-| li2012 | native | 0.595 | 0.257 | 0.359 | 0.477 | 0.530 | +0.171 | 227/321 |
-| lidr_li2012 | native | 0.595 | 0.257 | 0.359 | 0.477 | 0.530 | +0.171 | 227/321 |
-| lidr_lmf_pc | 8 | 0.487 | 0.271 | 0.349 | 0.510 | 0.498 | +0.150 | 181/258 |
-| lasr_lmax_pc | 8 | 0.487 | 0.271 | 0.349 | 0.510 | 0.498 | +0.150 | 181/258 |
-| treeisonet | 2 | 0.599 | 0.312 | 0.410 | 0.582 | 0.591 | +0.181 | 185/219 |
-| segmentanytree | native | 0.642 | 0.364 | 0.464 | 0.584 | 0.612 | +0.147 | 137/182 |
-| forestformer3d | 8 | 0.448 | 0.248 | 0.319 | 0.349 | 0.393 | +0.074 | 119/247 |
-| deepforest | rgb | 0.552 | 0.389 | 0.457 | 0.663 | 0.602 | +0.146 | 125/156 |
-| detectree2 | rgb | 0.168 | 0.369 | 0.231 | 0.691 | 0.270 | +0.039 | 48/61 |
+| chm_vwf | 4 | 0.366 | 0.482 | 0.416 | 0.835 | 0.509 | +0.093 | 71/74 |
+| lmfauto | 4 | 0.664 | 0.254 | 0.367 | 0.434 | 0.525 | +0.158 | 228/334 |
+| multichm | 2 | 0.647 | 0.367 | 0.468 | 0.585 | 0.614 | +0.146 | 139/184 |
+| ptrees | 4 | 0.504 | 0.339 | 0.405 | 0.594 | 0.546 | +0.141 | 136/171 |
+| ams3d | 2 | 0.677 | 0.353 | 0.464 | 0.522 | 0.589 | +0.125 | 131/187 |
+| li2012 | native | 0.595 | 0.257 | 0.359 | 0.465 | 0.522 | +0.163 | 220/308 |
+| lidr_li2012 | native | 0.595 | 0.257 | 0.359 | 0.465 | 0.522 | +0.163 | 220/308 |
+| lidr_lmf_pc | 8 | 0.487 | 0.271 | 0.349 | 0.498 | 0.492 | +0.144 | 176/248 |
+| lasr_lmax_pc | 8 | 0.487 | 0.271 | 0.349 | 0.498 | 0.492 | +0.144 | 176/248 |
+| treeisonet | 2 | 0.599 | 0.312 | 0.410 | 0.569 | 0.584 | +0.174 | 180/212 |
+| segmentanytree | native | 0.642 | 0.364 | 0.464 | 0.576 | 0.608 | +0.143 | 134/171 |
+| forestformer3d | 8 | 0.448 | 0.248 | 0.319 | 0.347 | 0.391 | +0.072 | 117/234 |
+| deepforest | rgb | 0.552 | 0.389 | 0.457 | 0.648 | 0.596 | +0.140 | 121/148 |
+| detectree2 | rgb | 0.168 | 0.369 | 0.231 | 0.667 | 0.269 | +0.038 | 46/58 |
 
-Credited ordering (identical on the 18-plot equal set): **multichm (0.626) >
-segmentanytree (0.612) > deepforest (0.602) > ams3d (0.593) > treeisonet
-(0.591)** — DeepForest climbs past ams3d, treeisonet passes ptrees, and
+Credited ordering (identical on the 18-plot equal set): **multichm (0.614) >
+segmentanytree (0.608) > deepforest (0.596) > ams3d (0.589) > treeisonet
+(0.584)** — DeepForest climbs past ams3d, treeisonet passes ptrees, and
 chm_vwf falls from 5th to 10th: its precision "lead" was under-detection (top
-corrected precision 0.85 but the lowest recall).
+corrected precision 0.84 but the lowest recall).
 
 #### SJER (n_ref 71; no rgb family)
 
@@ -115,8 +119,8 @@ corrected precision 0.85 but the lowest recall).
 | lidr_li2012 | native | 0.732 | 0.168 | 0.274 | 0.283 | 0.409 | +0.135 | 123/215 |
 | treeisonet | native | 0.789 | 0.178 | 0.291 | 0.321 | 0.457 | +0.166 | 135/207 |
 | segmentanytree | 2 | 0.507 | 0.298 | 0.376 | 0.486 | 0.496 | +0.121 | 44/69 |
-| lidr_lmf_pc | 8 | 0.662 | 0.198 | 0.305 | 0.400 | 0.499 | +0.194 | 105/147 |
-| lasr_lmax_pc | 8 | 0.662 | 0.198 | 0.305 | 0.400 | 0.499 | +0.194 | 105/147 |
+| lidr_lmf_pc | 8 | 0.662 | 0.198 | 0.305 | 0.400 | 0.499 | +0.194 | 102/147 |
+| lasr_lmax_pc | 8 | 0.662 | 0.198 | 0.305 | 0.400 | 0.499 | +0.194 | 102/147 |
 
 On the 7-plot equal set the credited ordering is **multichm > ptrees >
 chm_vwf > lmfauto > segmentanytree … > ams3d (last)**. In the open savanna the
@@ -127,16 +131,16 @@ i.e. genuinely low precision, while chm_vwf's 54/58 are.
 
 | arm | rung | recall | prec | F1 | prec' | F1' | ΔF1 | cred/iso |
 |---|---|--:|--:|--:|--:|--:|--:|--:|
-| chm_vwf | native | 0.394 | 0.421 | 0.407 | 0.746 | 0.515 | +0.108 | 130/162 |
-| lmfauto | 2 | 0.571 | 0.347 | 0.432 | 0.514 | 0.541 | +0.110 | 200/328 |
-| multichm | 8 | 0.523 | 0.378 | 0.439 | 0.593 | 0.555 | +0.116 | 168/253 |
-| ptrees | 8 | 0.336 | 0.340 | 0.338 | 0.626 | 0.437 | +0.099 | 157/207 |
-| ams3d | 4 | 0.535 | 0.337 | 0.414 | 0.492 | 0.513 | +0.099 | 181/306 |
-| lidr_li2012 | 8 | 0.422 | 0.358 | 0.387 | 0.630 | 0.505 | +0.118 | 181/235 |
-| lidr_lmf_pc | 8 | 0.336 | 0.367 | 0.351 | 0.717 | 0.457 | +0.107 | 158/193 |
-| lasr_lmax_pc | 8 | 0.336 | 0.367 | 0.351 | 0.717 | 0.457 | +0.107 | 158/193 |
-| treeisonet | native | 0.359 | 0.332 | 0.345 | 0.604 | 0.450 | +0.105 | 169/222 |
-| segmentanytree | native | 0.654 | 0.383 | 0.483 | 0.567 | 0.608 | +0.124 | 200/302 |
+| chm_vwf | native | 0.394 | 0.421 | 0.407 | 0.692 | 0.502 | +0.095 | 117/145 |
+| lmfauto | 2 | 0.571 | 0.347 | 0.432 | 0.504 | 0.535 | +0.104 | 191/314 |
+| multichm | 8 | 0.523 | 0.378 | 0.439 | 0.570 | 0.545 | +0.106 | 156/229 |
+| ptrees | 8 | 0.336 | 0.340 | 0.338 | 0.585 | 0.427 | +0.089 | 144/183 |
+| ams3d | 4 | 0.535 | 0.337 | 0.414 | 0.483 | 0.508 | +0.094 | 173/298 |
+| lidr_li2012 | 8 | 0.422 | 0.358 | 0.387 | 0.591 | 0.492 | +0.105 | 165/209 |
+| lidr_lmf_pc | 8 | 0.336 | 0.367 | 0.351 | 0.654 | 0.444 | +0.093 | 142/168 |
+| lasr_lmax_pc | 8 | 0.336 | 0.367 | 0.351 | 0.654 | 0.444 | +0.093 | 142/168 |
+| treeisonet | native | 0.359 | 0.332 | 0.345 | 0.553 | 0.435 | +0.090 | 150/187 |
+| segmentanytree | native | 0.654 | 0.383 | 0.483 | 0.559 | 0.603 | +0.120 | 194/286 |
 
 SegmentAnyTree leads raw **and** credited (F1' 0.608, equal-set confirmed);
 chm_vwf passes ams3d under crediting.
@@ -147,11 +151,11 @@ Pooled ΔF1 = F1' − F1 for the regenerated canonical CHM-VWF per rung:
 
 | rung | SOAP ΔF1 | SJER ΔF1 | TEAK ΔF1 |
 |---|--:|--:|--:|
-| native | +0.167 | +0.225 | +0.100 |
-| 8 | +0.092 | +0.199 | +0.070 |
-| 4 | +0.093 | +0.192 | +0.067 |
-| 2 | +0.091 | +0.171 | +0.063 |
-| 1 | +0.089 | +0.151 | +0.056 |
+| native | +0.158 | +0.225 | +0.085 |
+| 8 | +0.090 | +0.199 | +0.062 |
+| 4 | +0.090 | +0.192 | +0.060 |
+| 2 | +0.091 | +0.171 | +0.054 |
+| 1 | +0.089 | +0.151 | +0.049 |
 
 The bias **grows with density** on every site: denser data finds more of the
 real-but-unmapped trees, so raw precision punishes native hardest. Density
@@ -172,21 +176,22 @@ conservative middle.
 
 ### Readings
 
-- **The coverage gap is the dominant precision error.** 46–93% of isolated
-  core FPs are co-detected by ≥2 independent modality families. Corrected
-  pooled precision rises by +0.1 to +0.4 absolute; every arm's F1 was a lower
-  bound, exactly as #V4 predicted.
-- **The leaderboard reorders on every site** (equal-set confirmed). SOAP:
-  multichm holds #1 but the gap to SegmentAnyTree/DeepForest collapses to
-  0.01–0.02, and chm_vwf drops 5th → 10th. SJER: multichm/ptrees lead and
-  AMS3D falls to last — its savanna FPs are genuinely uncorroborated. TEAK:
-  SegmentAnyTree's #1 is confirmed and widens.
+- **The coverage gap is the dominant precision error.** 46–96% of
+  credit-eligible core FPs are co-detected by ≥2 independent modality
+  families. Corrected pooled precision rises by +0.1 to +0.4 absolute; every
+  arm's F1 was a lower bound, exactly as #V4 predicted.
+- **The leaderboard reorders on two of three sites** (equal-set confirmed).
+  SOAP: multichm holds #1 but the gap to SegmentAnyTree/DeepForest collapses
+  to 0.006–0.018, and chm_vwf drops 5th → 10th. SJER: multichm/ptrees lead and
+  AMS3D falls to last — its savanna FPs are genuinely uncorroborated. TEAK is
+  stable: SegmentAnyTree's #1 is confirmed and only chm_vwf/lidr_li2012 swap
+  on the equal set.
 - **The crediting discriminates rather than inflates**: credit rates range
-  from 33/72 (AMS3D SJER) and 119/247 (ForestFormer3D SOAP) to 54/58
-  (chm_vwf SJER) — arms with genuinely noisy detections keep low precision,
-  and the dedup guard stops over-segmentation of unmapped trees from
-  laundering (it cost lmfauto 20 and ForestFormer3D 28 credits on SOAP).
-- **Optical co-detection matters on SOAP**: DeepForest's credited F1' 0.602
+  from 33/72 (AMS3D SJER) and 117/234 (ForestFormer3D SOAP) to 71/74
+  (chm_vwf SOAP) — arms with genuinely noisy detections keep low precision.
+  Both honesty guards bite: dedup plus stem-adjacency eligibility cost ptrees
+  8 credits and ForestFormer3D 30 on SOAP versus the naive rule.
+- **Optical co-detection matters on SOAP**: DeepForest's credited F1' 0.596
   puts an RGB-only detector level with the best LiDAR arms, and the rgb family
   testifies for LiDAR arms where chm/pc/deep thin out — the #P7
   fusion-membership argument. Detectree2, honestly scored over all 18 plots

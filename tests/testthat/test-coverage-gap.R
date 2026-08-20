@@ -131,6 +131,69 @@ test_that("read_arm_cache reads plain and param-suffixed cache files", {
   expect_null(read_arm_cache(tmp, "li2012", "SOAP", "SOAP_002", "8"))
 })
 
+## ---- credit eligibility vs ANY mapped stem (#96 review) ----------------------
+test_that("fp_points flags FPs near any mapped stem as credit-ineligible", {
+  # Stem A is matched; stem B is unmatched (its only nearby detection fails the
+  # height gate). An FP 2.5 m from unmapped... from UNMATCHED stem B is
+  # `isolated` under the #V4 split (not near a MATCHED stem) but must NOT be
+  # credit-eligible: the field map has a stem right there.
+  stems <- data.frame(E = c(100, 115), N = c(100, 100), height = c(20, 15),
+                      crown_class = c("dominant", "codominant"))
+  det <- data.frame(x = c(100.5, 112.5, 140), y = c(100, 100, 130),
+                    z = c(19, 2.0, 10))      # det2 height-gated off stem B
+  fp <- fp_points(stems, det, tol_xy = 4, core_cx = 120, core_cy = 115,
+                  core_half = 50)
+  expect_equal(nrow(fp), 2L)                 # det2 + det3 are core FPs
+  expect_true(all(fp$isolated))              # neither is near a MATCHED stem
+  expect_equal(fp$credit_eligible[order(fp$x)], c(FALSE, TRUE))
+})
+
+test_that("credit_isolated honours credit_eligible on both target and witness sides", {
+  fps <- data.frame(x = c(0, 20), y = 0, z = 10, isolated = TRUE,
+                    credit_eligible = c(TRUE, FALSE))
+  wit <- data.frame(x = c(0.5, 0.5, 20.2, 20.4), y = 0,
+                    fam = c("pc", "rgb", "pc", "rgb"), isolated = TRUE,
+                    credit_eligible = c(TRUE, TRUE, TRUE, TRUE),
+                    stringsAsFactors = FALSE)
+  # target FP at x=20 is ineligible even though witnesses sit on it
+  expect_equal(credit_isolated(fps, wit, "chm", r = 2, min_fam = 2), 1L)
+  # ineligible witnesses never testify: strike the rgb witness at the eligible FP
+  wit2 <- wit; wit2$credit_eligible[2] <- FALSE
+  expect_equal(credit_isolated(fps, wit2, "chm", r = 2, min_fam = 2), 0L)
+})
+
+## ---- param-pinned cache reads (#96 review) -----------------------------------
+test_that("read_selection carries the chm_vwf parameter columns when present", {
+  tmp <- tempfile(fileext = ".csv")
+  on.exit(unlink(tmp), add = TRUE)
+  write.csv(data.frame(site = "SOAP", method = c("chm_vwf", "ams3d"),
+                       rung = c("4", "2"), chm_res = c(0.5, NA),
+                       vwf_a = c(0.05, NA)), tmp, row.names = FALSE)
+  sel <- read_selection(tmp, "SOAP")
+  expect_true(all(c("chm_res", "vwf_a") %in% names(sel)))
+  expect_equal(sel$chm_res[sel$method == "chm_vwf"], 0.5)
+})
+
+test_that("read_arm_cache prefers the exact param-pinned variant over the glob", {
+  tmp <- file.path(tempdir(), "btc_pin"); dir.create(tmp, showWarnings = FALSE)
+  on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+  write.csv(data.frame(x = 1, y = 2, z = 1),
+            file.path(tmp, "chm_vwf__SOAP__SOAP_001__4__res0.25__a0.1.csv"),
+            row.names = FALSE)
+  write.csv(data.frame(x = 1, y = 2, z = 99),
+            file.path(tmp, "chm_vwf__SOAP__SOAP_001__4__res0.5__a0.05.csv"),
+            row.names = FALSE)
+  det <- read_arm_cache(tmp, "chm_vwf", "SOAP", "SOAP_001", "4",
+                        params = c("res0.5", "a0.05"))
+  expect_equal(det$z, 99)                    # pinned, not glob-first (res0.25)
+  # pinned variant absent -> warning fallback to the glob
+  expect_warning(
+    d2 <- read_arm_cache(tmp, "chm_vwf", "SOAP", "SOAP_001", "4",
+                         params = c("res9", "a9")),
+    "variant")
+  expect_equal(nrow(d2), 1L)
+})
+
 ## ---- credit_isolated --------------------------------------------------------
 test_that("credit_isolated credits only isolated FPs, never from the target's own family", {
   fps <- data.frame(x = c(0, 10), y = c(0, 0), z = c(12, 9),

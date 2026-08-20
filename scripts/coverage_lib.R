@@ -26,16 +26,31 @@ arm_family <- function(arm) unname(FAMILY_MAP[as.character(arm)])
 # <arm>__<site>__<plot>__<rung>__<params...>.csv (chm_vwf / treeisonet / the
 # GPU arms). The arm name anchors the whole basename, so "li2012" can never
 # swallow a "lidr_li2012" file. NULL = no cache / unreadable / wrong schema.
-read_arm_cache <- function(dir, arm, site, plot, rung) {
+read_arm_cache <- function(dir, arm, site, plot, rung, params = NULL) {
   exact <- file.path(dir, sprintf("%s__%s__%s__%s.csv", arm, site, plot, rung))
-  hit <- if (file.exists(exact)) exact else {
+  hit <- if (file.exists(exact)) exact else NA_character_
+  # exact parameter pinning (selection manifest chm_res/vwf_a): never let a
+  # stale variant shadow the selected leaderboard cell.
+  if (is.na(hit) && !is.null(params) && length(params)) {
+    pinned <- file.path(dir, sprintf("%s__%s__%s__%s__%s.csv", arm, site, plot,
+                                     rung, paste(params, collapse = "__")))
+    if (file.exists(pinned)) hit <- pinned
+    else if (length(Sys.glob(file.path(dir, sprintf("%s__%s__%s__%s__*.csv",
+                                                    arm, site, plot, rung)))))
+      # only a real shadowing risk: the cell IS cached, just not at the pinned
+      # parameters. An uncached cell (no variants at all) is silently skipped.
+      warning(sprintf(
+        "read_arm_cache: pinned variant %s missing; falling back to glob",
+        basename(pinned)), call. = FALSE)
+  }
+  if (is.na(hit)) {
     g <- Sys.glob(file.path(dir, sprintf("%s__%s__%s__%s__*.csv",
                                          arm, site, plot, rung)))
     if (length(g) > 1)
       warning(sprintf(
         "read_arm_cache: %d parameter variants for %s__%s__%s__%s; using %s",
         length(g), arm, site, plot, rung, basename(g[1])), call. = FALSE)
-    if (length(g)) g[1] else NA_character_
+    hit <- if (length(g)) g[1] else NA_character_
   }
   if (is.na(hit)) return(NULL)
   det <- tryCatch(read.csv(hit, stringsAsFactors = FALSE), error = function(e) NULL)
@@ -50,9 +65,13 @@ read_arm_cache <- function(dir, arm, site, plot, rung) {
 # of a mapped tree, not evidence of an unmapped one) and the target arm's own
 # family is struck from the witness pool before co_detect_credit runs.
 credit_isolated <- function(fps, wit, target_fam, r = 2.0, min_fam = 2) {
-  iso <- fps[fps$isolated, , drop = FALSE]
+  # Prefer the hardened credit_eligible flag (isolated AND not near ANY mapped
+  # stem) on both sides when present; fall back to the #V4 isolated split.
+  et <- if (!is.null(fps$credit_eligible)) fps$credit_eligible else fps$isolated
+  iso <- fps[et, , drop = FALSE]
   if (!nrow(iso)) return(0L)
-  w <- wit[wit$isolated & wit$fam != target_fam, , drop = FALSE]
+  ew <- if (!is.null(wit$credit_eligible)) wit$credit_eligible else wit$isolated
+  w <- wit[ew & wit$fam != target_fam, , drop = FALSE]
   cr <- co_detect_credit(iso$x, iso$y, w$x, w$y, w$fam, r = r, min_fam = min_fam)
   if (!any(cr)) return(0L)
   # One credit per probable tree, not per duplicate detection: credited FPs
@@ -80,7 +99,8 @@ read_selection <- function(path, site) {
   if (!file.exists(path)) return(NULL)
   s <- tryCatch(read.csv(path, stringsAsFactors = FALSE), error = function(e) NULL)
   if (is.null(s) || !all(c("site", "method", "rung") %in% names(s))) return(NULL)
-  s <- s[s$site == site, c("site", "method", "rung"), drop = FALSE]
+  keep <- intersect(c("site", "method", "rung", "chm_res", "vwf_a"), names(s))
+  s <- s[s$site == site, keep, drop = FALSE]
   if (!nrow(s)) return(NULL)
   s$rung <- as.character(s$rung)
   s

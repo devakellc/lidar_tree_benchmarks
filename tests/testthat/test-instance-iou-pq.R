@@ -231,3 +231,40 @@ test_that("make_laz_loader round-trips a persisted classical instance cloud", {
   # wrong id field -> NULL (schema failure -> cell skipped)
   expect_null(make_laz_loader("nonesuch")(f))
 })
+
+## ---- print_tables rung handling (#97 round-2 review) -------------------------
+# Build a minimal accumulator frame the way run_plot does: score one synthetic
+# cell, then stamp the identifier columns.
+synth_iou_rows <- function(rungs, model = "segmentanytree",
+                           mask_source = "native") {
+  pred <- c(1L, 1L, 1L, 2L, 2L, NA)
+  ref  <- c(1L, 1L, 1L, 2L, 2L, 2L)
+  cell <- score_instance_cell(pred, ref,
+                              ref_class = c("1" = "dominant", "2" = "codominant"))
+  do.call(rbind, lapply(rungs, function(r) {
+    row <- cell
+    row$site <- "S"; row$plot <- "P"; row$rung <- r; row$model <- model
+    row$mask_source <- mask_source; row$n_stems <- 2L; row$n_fallback_radius <- 0L
+    row
+  }))
+}
+
+test_that("print_tables reports rungs outside the canonical vocabulary", {
+  src <- file.path("..", "..", "scripts")
+  source(file.path(src, "io_bridge.R"), local = TRUE)
+  source(file.path(src, "score_instances_iou.R"), local = TRUE)
+  out <- paste(capture.output(
+    print_tables(synth_iou_rows(c("native", "16")))), collapse = "\n")
+  expect_match(out, "rung native")
+  expect_match(out, "rung 16")            # must not be silently dropped
+})
+
+test_that("print_tables still emits a class table when no native rung was run", {
+  src <- file.path("..", "..", "scripts")
+  source(file.path(src, "io_bridge.R"), local = TRUE)
+  source(file.path(src, "score_instances_iou.R"), local = TRUE)
+  out <- paste(capture.output(
+    print_tables(synth_iou_rows(c("8", "4")))), collapse = "\n")
+  expect_match(out, "per crown class")
+  expect_match(out, "dominant")           # falls back to an available rung
+})

@@ -304,7 +304,12 @@ print_tables <- function(res) {
   # Per-rung sections: arms cover different rung subsets (li2012 native-only,
   # the proxy rows one cached rung each), so one table pooled across rungs
   # would mix denominators unequally across arms.
-  for (rung in intersect(c("native", "8", "4", "2", "1"), unique(res$rung))) {
+  # Canonical rungs first, then any out-of-vocabulary rung the caller passed via
+  # RUNGS= -- never silently dropped from the report (mirrors pool_crown_by_rung,
+  # which ranks unknown rungs last rather than discarding them).
+  rungs <- unique(as.character(res$rung))
+  rk <- match(rungs, RUNG_LEVELS); rk[is.na(rk)] <- length(RUNG_LEVELS) + 1L
+  for (rung in rungs[order(rk, rungs)]) {
     rr <- res[res$rung == rung, , drop = FALSE]
     key <- paste(rr$model, rr$mask_source, sep = "  ")
     cat(sprintf("\n----- rung %s -----\n", rung))
@@ -317,8 +322,12 @@ print_tables <- function(res) {
                   p$coverage, p$SQ, p$PQ))
     }
   }
-  cat("\n--- per crown class: recall@IoU0.5 / Coverage (pooled, native rung) ---\n")
-  nat <- res[res$rung == "native", , drop = FALSE]
+  # Class table is single-rung (arms cover rungs unequally): native when it was
+  # run, else the densest rung present -- an 8-only run must still get a table.
+  cls_rung <- if ("native" %in% rungs) "native" else rungs[order(rk, rungs)][1]
+  cat(sprintf("\n--- per crown class: recall@IoU0.5 / Coverage (pooled, %s rung) ---\n",
+              cls_rung))
+  nat <- res[res$rung == cls_rung, , drop = FALSE]
   key <- paste(nat$model, nat$mask_source, sep = "  ")
   cat(sprintf("%-30s %-12s %6s %6s %6s\n",
               "model  mask", "class", "nref", "recall", "Cov"))

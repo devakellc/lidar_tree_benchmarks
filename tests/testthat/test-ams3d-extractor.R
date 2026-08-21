@@ -38,3 +38,18 @@ test_that("det_ams3d returns a 0-row frame when the segmenter ran but found no c
   expect_identical(names(det), c("x", "y", "z"))
   expect_equal(nrow(det), 0L)
 })
+
+## ---- #V6 instance persistence ----------------------------------------------
+test_that("det_ams3d persists the per-point crown_id cloud when inst_path is set", {
+  testthat::skip_if_not_installed("crownsegmentr")
+  las <- synth_las_normalized()
+  f <- tempfile(fileext = ".laz")
+  on.exit(unlink(f), add = TRUE)
+  det <- det_ams3d(las, inst_path = f)
+  skip_if(is.null(det), "ams3d crashed on the synthetic clip")
+  expect_true(file.exists(f))
+  pts <- read_instance_points_laz(f, id_field = "crown_id")
+  redet <- instances_to_det(pts, id_field = "crown_id")
+  expect_equal(redet[order(redet$x), ], det[order(det$x), ],
+               ignore_attr = TRUE, tolerance = 1e-6)
+})

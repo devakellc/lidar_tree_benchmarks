@@ -75,6 +75,7 @@ d <- .job_dir()
 source(.find("sweep_lib.R"))           # plot_half, greedy_match (via lib)
 source(.find("model_bench_lib.R"))     # the #V1 scorer + pooler
 source(.find("io_bridge.R"))           # read_instance_points_laz
+source(.find("coverage_lib.R"))        # read_arm_cache (apex-Voronoi proxy, #V6)
 
 ## ---- args (KEY=VALUE positional, per repo convention) --------------------
 args  <- strsplit(commandArgs(TRUE), "=")
@@ -90,20 +91,36 @@ CANOPY_MIN <- as.numeric(if (is.null(A$CANOPY_MIN)) 2.0 else A$CANOPY_MIN)
 FALLBACK_RADIUS <- as.numeric(if (is.null(A$FALLBACK_RADIUS)) 2.0 else A$FALLBACK_RADIUS)
 MINTREES  <- as.integer(if (is.null(A$MINTREES)) 1 else A$MINTREES)
 SAT_ID_FIELD <- "PredInstance"
+# #V6: apex-Voronoi proxy rows for the cached best-config arms (mask_source =
+# "voronoi_apex"), alongside the native per-point masks. APEX_R mirrors the
+# fusion scorer's FUSE_R apex-Voronoi radius.
+APEX_PROXY <- is.null(A$APEX_PROXY) || A$APEX_PROXY != "0"
+APEX_R     <- as.numeric(if (is.null(A$APEX_R)) 4.0 else A$APEX_R)
+APEX_CACHE_ARMS <- c("chm_vwf", "lmfauto", "multichm", "ptrees", "ams3d",
+                     "li2012", "lidr_lmf_pc", "lidr_li2012", "lasr_lmax_pc",
+                     "treeisonet", "segmentanytree", "forestformer3d")
 
 ## ---- per-model loaders -> full labelled point cloud data.frame(X, Y, id) --
 # id = the model's per-point instance label (unassigned points dropped). NULL =
 # artefact absent / schema failure (skip the cell); 0-row = ran-but-empty.
 EMPTY_PTS <- data.frame(X = numeric(), Y = numeric(), id = integer())
 
-load_sat_points <- function(path) {
-  pts <- tryCatch(suppressWarnings(read_instance_points_laz(path, id_field = SAT_ID_FIELD)),
-                  error = function(e) NULL)
-  if (is.null(pts)) return(NULL)
-  pts <- pts[!is.na(pts$crown_id), , drop = FALSE]
-  if (!nrow(pts)) return(EMPTY_PTS)
-  data.frame(X = pts$X, Y = pts$Y, id = as.integer(pts$crown_id))
+# Generic loader for any persisted single-id-field instance LAZ (#V6): the
+# classical arms, treeiso, and SAT all reduce to read_instance_points_laz +
+# drop-unassigned. FF3D stays special (needs the block id for dedup_blocks).
+make_laz_loader <- function(id_field) {
+  force(id_field)
+  function(path) {
+    pts <- tryCatch(suppressWarnings(
+      read_instance_points_laz(path, id_field = id_field)),
+      error = function(e) NULL)
+    if (is.null(pts)) return(NULL)
+    pts <- pts[!is.na(pts$crown_id), , drop = FALSE]
+    if (!nrow(pts)) return(EMPTY_PTS)
+    data.frame(X = pts$X, Y = pts$Y, id = as.integer(pts$crown_id))
+  }
 }
+load_sat_points <- make_laz_loader(SAT_ID_FIELD)
 
 load_ff3d_points <- function(path) {
   las <- tryCatch(suppressWarnings(lidR::readLAS(path)), error = function(e) NULL)
@@ -121,7 +138,11 @@ load_ff3d_points <- function(path) {
 
 MODELS <- list(
   segmentanytree = list(dir = "segmentanytree_instances", load = load_sat_points),
-  forestformer3d = list(dir = "forestformer3d_instances", load = load_ff3d_points))
+  forestformer3d = list(dir = "forestformer3d_instances", load = load_ff3d_points),
+  ptrees         = list(dir = "ptrees_instances",  load = make_laz_loader("treeID")),
+  ams3d          = list(dir = "ams3d_instances",   load = make_laz_loader("crown_id")),
+  li2012         = list(dir = "li2012_instances",  load = make_laz_loader("treeID")),
+  treeiso        = list(dir = "treeiso_instances", load = make_laz_loader("treeiso")))
 
 ## ---- field crown diameter per site (cached vst rds; as crown_metrics_3d) ---
 field_crowns <- function(site) {
@@ -194,8 +215,32 @@ run_plot <- function(site, pid, pc, gt, nd) {
       pred <- transfer_labels(pp$X, pp$Y, pp$id, sx, sy, tol = XFER_TOL)
       row <- score_instance_cell(pred, ref, ref_class = ref_class, gate = IOU_GATE)
       row$site <- site; row$plot <- pid; row$rung <- rung; row$model <- mname
+      row$mask_source <- "native"
       row$n_stems <- nrow(stems); row$n_fallback_radius <- n_fallback
       rows[[length(rows) + 1]] <- row
+    }
+
+    # #V6 apex-Voronoi proxy rows: the cached best-config apex sets become
+    # masks by nearest-apex assignment within APEX_R on the same substrate --
+    # the fuse_detectors.R scoring proxy, symmetric with the Voronoi-on-stems
+    # reference. This puts the apex-only detectors (CHM-VWF, multichm, lmfauto,
+    # TreeisoNet, the pc twins) on the board, and double-scores the native-mask
+    # arms so proxy inflation is measurable per arm. Cells exist only at each
+    # arm's cached best rung (read_arm_cache -> NULL elsewhere).
+    if (APEX_PROXY) {
+      cache_dir <- file.path(nd, "best_treetop_cache")
+      for (arm in APEX_CACHE_ARMS) {
+        det <- suppressWarnings(read_arm_cache(cache_dir, arm, site, pid, rung))
+        if (is.null(det)) next
+        pred <- if (nrow(det))
+          assign_points_to_stems(sx, sy, det$x, det$y, rep(APEX_R, nrow(det))) else
+          rep(NA_integer_, length(sx))
+        row <- score_instance_cell(pred, ref, ref_class = ref_class, gate = IOU_GATE)
+        row$site <- site; row$plot <- pid; row$rung <- rung; row$model <- arm
+        row$mask_source <- "voronoi_apex"
+        row$n_stems <- nrow(stems); row$n_fallback_radius <- n_fallback
+        rows[[length(rows) + 1]] <- row
+      }
     }
   }
   if (!length(rows)) return(NULL)
@@ -242,7 +287,8 @@ run_site <- function(site) {
   if (is.null(res) || !nrow(res)) {
     cat(sprintf("[%s] no instance cells scored\n", site)); return(NULL) }
   # lead with the identifier columns, then the accumulators
-  idc <- c("site", "plot", "rung", "model", "n_stems", "n_fallback_radius")
+  idc <- c("site", "plot", "rung", "model", "mask_source",
+           "n_stems", "n_fallback_radius")
   res <- res[, c(idc, setdiff(names(res), idc)), drop = FALSE]
   o <- file.path(nd, "instance_iou_pq.csv")
   write.csv(res, o, row.names = FALSE)
@@ -254,23 +300,43 @@ run_site <- function(site) {
 print_tables <- function(res) {
   cat("\n===== POINT-SET IoU / COVERAGE / PANOPTIC QUALITY (pooled by SUM) =====\n")
   cat(sprintf("(IoU gate %.2f; reference = Voronoi-on-stems proxy)\n", IOU_GATE))
-  cat(sprintf("\n%-16s %5s %6s %6s %6s %6s %6s %6s %6s\n",
-              "model", "cells", "nref", "P", "R", "F1", "Cov", "SQ", "PQ"))
-  for (m in sort(unique(res$model))) {
-    p <- pool_pq(res[res$model == m, , drop = FALSE])
-    cat(sprintf("%-16s %5d %6d %6.3f %6.3f %6.3f %6.3f %6.3f %6.3f\n",
-                m, p$n_cells, p$n_ref, p$precision, p$recall, p$F1,
-                p$coverage, p$SQ, p$PQ))
+  if (is.null(res$mask_source)) res$mask_source <- "native"
+  # Per-rung sections: arms cover different rung subsets (li2012 native-only,
+  # the proxy rows one cached rung each), so one table pooled across rungs
+  # would mix denominators unequally across arms.
+  # Canonical rungs first, then any out-of-vocabulary rung the caller passed via
+  # RUNGS= -- never silently dropped from the report (mirrors pool_crown_by_rung,
+  # which ranks unknown rungs last rather than discarding them).
+  rungs <- unique(as.character(res$rung))
+  rk <- match(rungs, RUNG_LEVELS); rk[is.na(rk)] <- length(RUNG_LEVELS) + 1L
+  for (rung in rungs[order(rk, rungs)]) {
+    rr <- res[res$rung == rung, , drop = FALSE]
+    key <- paste(rr$model, rr$mask_source, sep = "  ")
+    cat(sprintf("\n----- rung %s -----\n", rung))
+    cat(sprintf("%-30s %5s %6s %6s %6s %6s %6s %6s %6s\n",
+                "model  mask", "cells", "nref", "P", "R", "F1", "Cov", "SQ", "PQ"))
+    for (k in sort(unique(key))) {
+      p <- pool_pq(rr[key == k, , drop = FALSE])
+      cat(sprintf("%-30s %5d %6d %6.3f %6.3f %6.3f %6.3f %6.3f %6.3f\n",
+                  k, p$n_cells, p$n_ref, p$precision, p$recall, p$F1,
+                  p$coverage, p$SQ, p$PQ))
+    }
   }
-  cat("\n--- per crown class: recall@IoU0.5 / Coverage (pooled) ---\n")
-  cat(sprintf("%-16s %-12s %6s %6s %6s\n",
-              "model", "class", "nref", "recall", "Cov"))
-  for (m in sort(unique(res$model))) {
-    p <- pool_pq(res[res$model == m, , drop = FALSE])
+  # Class table is single-rung (arms cover rungs unequally): native when it was
+  # run, else the densest rung present -- an 8-only run must still get a table.
+  cls_rung <- if ("native" %in% rungs) "native" else rungs[order(rk, rungs)][1]
+  cat(sprintf("\n--- per crown class: recall@IoU0.5 / Coverage (pooled, %s rung) ---\n",
+              cls_rung))
+  nat <- res[res$rung == cls_rung, , drop = FALSE]
+  key <- paste(nat$model, nat$mask_source, sep = "  ")
+  cat(sprintf("%-30s %-12s %6s %6s %6s\n",
+              "model  mask", "class", "nref", "recall", "Cov"))
+  for (k in sort(unique(key))) {
+    p <- pool_pq(nat[key == k, , drop = FALSE])
     for (cl in c(POOL_CLASSES, "understory")) {
       n <- p[[paste0("n_", cl)]]; rec <- p[[paste0("rec_", cl)]]
       cov <- p[[paste0("cov_", cl)]]
-      cat(sprintf("%-16s %-12s %6d %6.3f %6.3f\n", m, cl,
+      cat(sprintf("%-30s %-12s %6d %6.3f %6.3f\n", k, cl,
                   if (is.null(n)) 0L else n,
                   if (is.null(rec) || is.na(rec)) NA_real_ else rec,
                   if (is.null(cov) || is.na(cov)) NA_real_ else cov))

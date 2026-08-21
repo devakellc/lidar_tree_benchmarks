@@ -22,14 +22,14 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 # crowns) that point-set IoU/RQ should demote, while the true-mask arms
 # (SegmentAnyTree, ForestFormer3D) hold or rise.
 #
-# HONEST DATA LIMIT: only the deep arms persist per-point instance labels, so the
-# #V1 instance_iou_pq.csv scores ONLY segmentanytree + forestformer3d. The
-# classical/point arms (chm_vwf, multichm, lmfauto, ptrees, ams3d, li2012,
-# treeisonet) are marked `n/a (no masks)` for the IoU/Coverage columns -- exactly
-# the equal_set_guard honesty the issue requires. The over-crediting hypothesis
-# for ptrees/AMS3D therefore CANNOT be tested until their per-point labels are
-# materialized; what IS testable is whether the two mask arms reorder between
-# distance and IoU, and how far distance over-credits them (the #V1 collapse).
+# MASK COVERAGE (#V6): the classical segmenters now persist per-point labels
+# (ptrees/ams3d/li2012 via write_instances_laz; treeiso already did), so the
+# IoU/Coverage columns cover SIX native-mask arms and Kendall tau / Spearman rho
+# are defined. instance_iou_pq.csv also carries apex-Voronoi PROXY rows
+# (mask_source = "voronoi_apex") for the apex-only detectors; those are
+# EXCLUDED here -- ranking native masks against proxy masks would conflate
+# provenance with performance -- so chm_vwf/multichm/lmfauto/treeisonet remain
+# honestly `n/a (no masks)` on the mask board.
 #
 # Usage:  Rscript scripts/compare_matching_rules.R SITE=SOAP
 # Reads: the per-arm distance leaderboard CSVs (the union analyze_model_benchmark
@@ -49,7 +49,7 @@ nd   <- file.path(d, "neon", SITE)
 ## ---- distance leaderboard: pool each detector at the rung ------------------
 DIST_FILES <- c("lidrplugins_results.csv", "ams3d_results.csv", "li2012_results.csv",
                 "treeisonet_results.csv", "segmentanytree_results.csv",
-                "forestformer3d_results.csv")
+                "forestformer3d_results.csv", "treeiso_results.csv")
 read_dist <- function() {
   # Gather every distance arm's per-(site,plot,rung) cell rows into ONE frame so
   # the equal_set_guard can intersect them, then pool each arm over the SHARED
@@ -69,7 +69,7 @@ read_dist <- function() {
     cells[[length(cells) + 1]] <- df
   }
   if (!length(cells)) return(NULL)
-  all_cells <- do.call(.rbind_common, cells)         # union of compatible columns
+  all_cells <- .rbind_common(cells)                  # union of compatible columns
   arms <- unique(all_cells$detector)
   # Restrict every arm to the (site,plot,rung) cells scored by ALL arms.
   g <- equal_set_guard(all_cells, arms = arms)
@@ -104,12 +104,29 @@ read_iou <- function() {
   if (!file.exists(p)) return(NULL)
   iq <- as.data.table(read.csv(p, stringsAsFactors = FALSE))
   iq <- iq[as.character(rung) == RUNG]
+  # native masks only: apex-Voronoi proxy rows (#V6) must not enter the mask
+  # ranking, or provenance would masquerade as performance.
+  if ("mask_source" %in% names(iq)) iq <- iq[mask_source == "native"]
+  if (!nrow(iq)) return(NULL)
+  # Equal-set guard across the mask arms (mirrors read_dist): tau/rho compare
+  # this board against the guarded distance board, so every mask arm must pool
+  # over the IDENTICAL cell set (treeiso misses a few cells; unguarded pools
+  # would mix denominators into the correlation).
+  iq$detector <- iq$model
+  iq <- as.data.table(equal_set_guard(as.data.frame(iq),
+                                      arms = unique(iq$model)))
   if (!nrow(iq)) return(NULL)
   # instance_iou_pq.csv carries the score_instance_cell accumulators (#V1):
   # n_ref, TP, sum_iou, sum_maxiou -- pooled here by SUM (the #V1 rule).
+  # PQ = SQ x RQ from the same summed accumulators (pool_pq's rule), so the
+  # published PQ column and the tau/rho against it are reproducible from this
+  # script rather than derived by hand.
   iq[, .(iou_recall = sum(TP) / sum(n_ref),
          coverage   = sum(sum_maxiou) / sum(n_ref),
-         sq         = sum(sum_iou) / sum(TP)), by = .(arm = model)]
+         sq         = sum(sum_iou) / sum(TP),
+         pq         = (sum(sum_iou) / sum(TP)) *
+                      (sum(TP) / (sum(TP) + 0.5 * sum(FP) + 0.5 * sum(FN)))),
+     by = .(arm = model)]
 }
 
 run_main <- function() {
@@ -126,14 +143,17 @@ run_main <- function() {
   if (length(mk)) lb$rank_iou[mk] <- rank(-lb$iou_recall[mk], ties.method = "min")
   lb$rank_cov <- NA_integer_
   if (length(mk)) lb$rank_cov[mk] <- rank(-lb$coverage[mk], ties.method = "min")
+  lb$rank_pq <- NA_integer_
+  if (length(mk)) lb$rank_pq[mk] <- rank(-lb$pq[mk], ties.method = "min")
 
   cat(sprintf("\n===== MATCHING-RULE LEADERBOARD (%s, %s) =====\n", SITE, RUNG))
-  cat(sprintf("%-16s %8s %8s %8s | %9s %9s %7s\n",
-              "arm", "dist_R", "dist_F1", "rank", "iou_R@.5", "Coverage", "rank"))
+  cat(sprintf("%-16s %8s %8s %8s | %9s %9s %7s %7s\n",
+              "arm", "dist_R", "dist_F1", "rank", "iou_R@.5", "Coverage", "PQ", "rank"))
   for (i in seq_len(nrow(lb))) {
     r <- lb[i, ]
-    iou_s <- if (r$has_mask) sprintf("%9.3f %9.3f %7d", r$iou_recall, r$coverage, r$rank_iou)
-             else sprintf("%9s %9s %7s", "n/a", "n/a", "-")
+    iou_s <- if (r$has_mask)
+      sprintf("%9.3f %9.3f %7.3f %7d", r$iou_recall, r$coverage, r$pq, r$rank_iou)
+             else sprintf("%9s %9s %7s %7s", "n/a", "n/a", "n/a", "-")
     cat(sprintf("%-16s %8.3f %8.3f %8d | %s\n",
                 r$arm, r$dist_recall, r$dist_F1, r$rank_dist, iou_s))
   }
@@ -144,6 +164,10 @@ run_main <- function() {
     tau <- suppressWarnings(cor(cm$dist_F1, cm$iou_recall, method = "kendall"))
     rho <- suppressWarnings(cor(cm$dist_F1, cm$iou_recall, method = "spearman"))
     cat(sprintf("Kendall tau-b (dist_F1 vs iou_recall) = %.3f ; Spearman rho = %.3f\n", tau, rho))
+    tau_pq <- suppressWarnings(cor(cm$dist_F1, cm$pq, method = "kendall"))
+    rho_pq <- suppressWarnings(cor(cm$dist_F1, cm$pq, method = "spearman"))
+    cat(sprintf("Kendall tau-b (dist_F1 vs PQ)         = %.3f ; Spearman rho = %.3f\n",
+                tau_pq, rho_pq))
   } else {
     cat("Kendall tau / Spearman rho: UNDEFINED (need >=3 comparable arms; only the\n")
     cat("two deep arms persist masks). Reporting the pairwise order instead.\n")

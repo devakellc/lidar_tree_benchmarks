@@ -39,12 +39,20 @@ source(.swp)
                             file.path(getwd(), "scripts", "model_bench_lib.R")))
 if (is.null(.mbl)) stop("detect_ams3d_sweep.R: cannot locate scripts/model_bench_lib.R")
 source(.mbl)
+.iob <- Find(file.exists, c(file.path("scripts", "io_bridge.R"),
+                            file.path("..", "..", "scripts", "io_bridge.R"),
+                            file.path(getwd(), "scripts", "io_bridge.R")))
+if (is.null(.iob)) stop("detect_ams3d_sweep.R: cannot locate scripts/io_bridge.R")
+source(.iob)                        # write_instances_laz (#V6)
 
 ## ---- AMS3D apex extractor ------------------------------------------------
 # las: a NORMALIZED lidR::LAS (ground at 0). Returns data.frame(x,y,z) of
 # per-crown apexes (max-Z point of each crown_id). cd_ratio/cl_ratio are the
 # crown-diameter/length-to-tree-height allometric ratios (zero-shot knobs).
-det_ams3d <- function(las, cd_ratio = 0.4, cl_ratio = 0.8, min_above = 2) {
+# inst_path (#V6): when set, the segmented cloud is persisted (crown_id as an
+# integer extra dim, 0 = unassigned) BEFORE the apex collapse.
+det_ams3d <- function(las, cd_ratio = 0.4, cl_ratio = 0.8, min_above = 2,
+                      inst_path = NULL) {
   empty <- data.frame(x = numeric(), y = numeric(), z = numeric())
   if (is.empty(las) || npoints(las) < 5) return(empty)
   seg <- tryCatch(
@@ -57,6 +65,10 @@ det_ams3d <- function(las, cd_ratio = 0.4, cl_ratio = 0.8, min_above = 2) {
       crown_id_column_name          = "crown_id"),
     error = function(e) NULL)
   if (is.null(seg)) return(NULL)  # crash -> NULL; driver SKIPs cell. 0-row = ran-but-empty = legit recall=0.
+  if (!is.null(inst_path))
+    tryCatch(write_instances_laz(seg, inst_path, id_col = "crown_id"),
+             error = function(e) warning("instance persist failed: ",
+                                         conditionMessage(e), call. = FALSE))
   det <- reduce_instances(seg@data, id_col = "crown_id", x = "X", y = "Y", z = "Z")
   assert_detection_contract(det)
   det
@@ -106,7 +118,10 @@ run_main <- function() {
       else if (is.na(native_pdens) || rung >= native_pdens) next
       las <- tryCatch(readLAS(prep$normalized), error = function(e) NULL)
       if (!is.null(las) && !is.empty(las)) {
-        det <- det_ams3d(las, cd_ratio = CD, cl_ratio = CL, min_above = 2)
+        rlab <- ifelse(is.na(rung), "native", as.character(rung))
+        det <- det_ams3d(las, cd_ratio = CD, cl_ratio = CL, min_above = 2,
+                         inst_path = file.path(nd, "ams3d_instances",
+                                               paste0(pid, "_", rlab, ".laz")))
         if (!is.null(det)) {                           # NULL = segmenter crashed -> skip (equal-set guard drops it)
           sc <- tryCatch(score_plot(stems, det, tol_xy = TOL, core_cx = cx,
                                     core_cy = cy, core_half = ph),

@@ -17,8 +17,16 @@ Regenerate:
 
 ```sh
 export CLAUDE_JOB_DIR=$(pwd)/work
-Rscript scripts/score_instances_iou.R SITES=SOAP,SJER,TEAK CORES=4
-# -> work/neon/<SITE>/instance_iou_pq.csv (one row per plot x rung x model)
+# the classical arms' instance clouds first (#V6; re-runs also refresh the
+# results CSVs -- CORES=1 for the lidrplugins script, its chm_vwf arm runs
+# lasR exec, which drops dense cells under fork):
+Rscript scripts/detect_li2012_native.R SITE=SOAP CORES=6
+Rscript scripts/detect_ams3d_sweep.R SITE=SOAP CORES=6
+Rscript scripts/detect_lidrplugins_sweep.R SITE=SOAP CORES=1
+Rscript scripts/score_instances_iou.R SITES=SOAP,SJER,TEAK CORES=4 \
+    RUNGS=native,8,4,2,1
+# -> work/neon/<SITE>/instance_iou_pq.csv (one row per plot x rung x model x
+#    mask_source; APEX_PROXY=0 drops the apex-Voronoi proxy rows)
 ```
 
 ## What this is
@@ -55,15 +63,33 @@ in `pool()`. A small plot never dominates a site rate.
 
 ### Arms scored
 
+Native per-point masks (`mask_source = "native"`):
+
 - **SegmentAnyTree** (#M6) — `segmentanytree_instances/<plot>_<rung>.laz`, the
   `PredInstance` extra dim (0 = non-tree → dropped).
 - **ForestFormer3D** (#M8) — `forestformer3d_instances/<plot>_<rung>.laz`, with
   `UserData` (block) + `PointSourceID` (per-cylinder instance) run through
   `dedup_blocks()` to a globally consistent label per point (the block id is
   required, so `read_instance_points_laz` alone is insufficient).
-- **TreeisoNet** — deferred until `detect_treeisonet_crowns.R` persists its
-  per-point `treeOff` labels (today it writes only
-  `treeisonet_crown_metrics.csv`, and `detect_treeisonet_sweep.R` is apex-only).
+- **ptrees / AMS3D / Li2012** (#V6) — the classical segmenters always computed
+  per-point `treeID`/`crown_id` and threw it away before the apex collapse;
+  `io_bridge.R::write_instances_laz` now persists it (integer extra dim, 0 =
+  unassigned, the SAT layout) from `detect_lidrplugins_sweep.R`,
+  `detect_ams3d_sweep.R`, and `detect_li2012_native.R` to
+  `<arm>_instances/<plot>_<rung>.laz`. These clips are segmented from the
+  normalized frozen clouds, so Z is already AGL.
+- **Treeiso** (#P5) — `treeiso_instances/<plot>_<rung>.laz` (`treeiso` extra
+  dim), persisted by its own driver since #P5; now registered in `MODELS`.
+- **TreeisoNet** — still deferred (apex-only GPU results; no per-point labels).
+
+Apex-Voronoi proxy masks (`mask_source = "voronoi_apex"`, #V6): every cached
+best-configuration apex set (`best_treetop_cache`, 12 arms) additionally
+becomes a mask by nearest-apex assignment within `APEX_R` (4 m) on the same
+substrate — the `fuse_detectors.R` scoring proxy, symmetric with the
+Voronoi-on-stems reference. This puts the apex-only detectors (CHM-VWF,
+multichm, lmfauto, TreeisoNet, the pc twins) on the board at their best rung,
+and double-scores the native-mask arms so **proxy inflation is measurable**.
+Proxy rows never mix with native rows in rankings.
 
 ### The label projection
 
@@ -107,6 +133,44 @@ width and used the 2 m fallback radius.
 |---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
 | segmentanytree | 46 | 686 | 0.089 | 0.211 | 0.126 | 0.327 | 0.700 | 0.126 | 0.088 |
 | forestformer3d | 46 | 686 | 0.036 | 0.061 | 0.045 | 0.141 | 0.660 | 0.045 | 0.030 |
+
+### The completed native-mask board (#V6; all sites, native rung)
+
+The classical segmenters' persisted masks (re-run 2026-08-20; the regenerated
+results CSVs reproduce the shipped distance numbers exactly) complete the
+board:
+
+| model | cells | n_ref | P | R | F1 | Cov | SQ | PQ |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| segmentanytree | 46 | 686 | 0.089 | 0.211 | 0.126 | 0.327 | 0.700 | 0.088 |
+| li2012 | 46 | 686 | 0.069 | 0.157 | 0.096 | 0.269 | 0.686 | 0.066 |
+| ptrees | 46 | 686 | 0.038 | 0.175 | 0.063 | 0.303 | 0.689 | 0.043 |
+| ams3d | 46 | 686 | 0.027 | 0.173 | 0.047 | 0.289 | 0.680 | 0.032 |
+| treeiso | 43 | 661 | 0.070 | 0.035 | 0.046 | 0.110 | 0.677 | 0.031 |
+| forestformer3d | 46 | 686 | 0.036 | 0.061 | 0.045 | 0.141 | 0.660 | 0.030 |
+
+SegmentAnyTree keeps #1 on every mask metric. The crown-splitters hold decent
+mask **recall** (ptrees 0.175, AMS3D 0.173 — their splits still overlap the
+reference at ≥0.5 for matched trees) but collapse on mask **precision**
+(0.027–0.038): every split fragment is a false instance. Li2012 is the best
+classical mask (PQ 0.066).
+
+### Proxy inflation (same arm, same rung, native vs voronoi_apex)
+
+Where an arm's cached best rung is native, both mask sources exist for the
+same detections (SOAP shown; TEAK SAT +0.011 F1):
+
+| arm (SOAP) | F1 native | F1 proxy | inflation |
+|---|--:|--:|--:|
+| segmentanytree | 0.140 | 0.179 | +28 % |
+| li2012 | 0.095 | 0.111 | +17 % |
+
+The apex-Voronoi proxy **flatters mask quality** — most visibly on understory
+(SAT understory recall@IoU0.5 0.133 native vs 0.200 proxy, both pooled over the
+same 18 SOAP native-rung cells; the proxy rows only exist at an arm's cached
+best rung, so the comparison has to stay inside that rung). Fusion's IoU
+columns (built on this proxy) are therefore optimistic upper bounds; the
+native-mask board is the honest ranking.
 
 ### Per crown class, all sites combined
 
@@ -158,40 +222,56 @@ threshold-free Coverage (`scripts/compare_matching_rules.R` →
 under test: distance matching over-credits high-recall/low-precision point
 segmenters (ptrees, AMS3D — split crowns) that IoU/RQ should demote.
 
-| arm | dist recall | dist F1 | dist rank | IoU R@0.5 | Coverage | mask? |
-|---|--:|--:|--:|--:|--:|:--:|
-| segmentanytree | 0.642 | 0.464 | 1 | 0.216 | 0.342 | yes |
-| multichm | 0.629 | 0.439 | 2 | n/a | n/a | no |
-| treeisonet | 0.599 | 0.393 | 3 | n/a | n/a | no |
-| chm_vwf | 0.478 | 0.382 | 4 | n/a | n/a | no |
-| li2012 | 0.595 | 0.359 | 5 | n/a | n/a | no |
-| lmfauto | 0.509 | 0.337 | 6 | n/a | n/a | no |
-| forestformer3d | 0.409 | 0.262 | 7 | 0.061 | 0.171 | yes |
-| ptrees | 0.849 | 0.259 | 8 | n/a | n/a | no |
-| ams3d | 0.789 | 0.191 | 9 | n/a | n/a | no |
+| arm | dist recall | dist F1 | dist rank | IoU R@0.5 | Coverage | native PQ | mask? |
+|---|--:|--:|--:|--:|--:|--:|:--:|
+| segmentanytree | 0.642 | 0.464 | 1 | 0.216 | 0.342 | 0.101 | yes |
+| multichm | 0.629 | 0.439 | 2 | n/a | n/a | n/a | no |
+| treeisonet | 0.599 | 0.393 | 3 | n/a | n/a | n/a | no |
+| chm_vwf | 0.478 | 0.382 | 4 | n/a | n/a | n/a | no |
+| li2012 | 0.595 | 0.359 | 5 | 0.182 | 0.302 | 0.063 | yes |
+| lmfauto | 0.509 | 0.337 | 6 | n/a | n/a | n/a | no |
+| forestformer3d | 0.409 | 0.262 | 7 | 0.061 | 0.171 | 0.024 | yes |
+| ptrees | 0.849 | 0.259 | 8 | 0.212 | 0.360 | 0.041 | yes |
+| ams3d | 0.789 | 0.191 | 9 | 0.190 | 0.319 | 0.030 | yes |
+| treeiso | 0.086 | 0.151 | 10 | 0.035 | 0.100 | 0.033 | yes |
 
-Readings:
+Rank correlations over the **six** native-mask arms (dist F1 vs IoU recall@0.5,
+then vs native PQ), as printed by `compare_matching_rules.R SITE=<site>` — the
+`pq` column and both PQ correlations come out of the same guarded pool as the
+IoU ones and land in `matching_rule_ranks.csv`. Both boards are equal-set
+guarded — the IoU pools are restricted to the cells every mask arm scored
+(treeiso misses 3 TEAK cells), mirroring the distance side, so the correlations
+never mix denominators (guarding moves no rank):
 
-- **Only 2 of 9 arms can be ranked by IoU**, because just the deep arms persist
-  per-point masks (the classical/point arms write scored summaries only). So a
-  Kendall τ / Spearman ρ between the distance and IoU leaderboards is **undefined**
-  (needs ≥3 common arms). This is itself a result: **IoU/PQ cannot currently serve
-  as the router's ranking metric** — most arms are uncomparable under it — so #P2
-  must rank on distance F1 and use IoU/Coverage only as a tie-break among the mask
-  arms.
-- **No rank-flip among the mask arms, but the gap widens under IoU.**
-  SegmentAnyTree > ForestFormer3D under both rules, yet distance over-credits FF3D
-  far more (its recall is 6.8× its IoU≥0.5 recall, vs 3.0× for SAT), so the
-  SAT-over-FF3D margin is *larger* under IoU than under distance. Distance is loose
-  but order-preserving for these two; it just compresses the true gap.
-- **The over-crediting hypothesis is already caught by F1's precision term.** The
-  named culprits do show the predicted high recall — ptrees 0.849, AMS3D 0.789,
-  the highest of any arm — but they rank **8th and 9th by distance F1** because
-  splitting crowns destroys precision (F1 0.259 / 0.191). So apex-distance *F1*
-  already demotes the crown-splitters; IoU would demote them further but can't be
-  computed without their masks. The router is therefore safe to rank on F1 (not
-  recall) today; materializing ptrees/AMS3D masks (a #V1 follow-up) would let IoU
-  confirm the demotion directly.
+| site | τ (IoU R) | ρ (IoU R) | τ (PQ) | ρ (PQ) |
+|---|--:|--:|--:|--:|
+| SOAP | 0.467 | 0.543 | 0.467 | 0.600 |
+| SJER | 0.645 | 0.736 | 0.467 | 0.429 |
+| TEAK | 0.600 | 0.714 | 0.733 | 0.829 |
+
+Readings (updated for #V6 — the previous 2-of-9 data limit is closed):
+
+- **τ/ρ are now defined, and they say the boards genuinely disagree.**
+  Kendall τ 0.47–0.73 is a moderate, far-from-perfect agreement: the
+  distance leaderboard is not a safe stand-in for the mask leaderboard. The
+  router (#P2) can keep ranking on distance F1 for apex-counting, but any
+  mask-consuming decision (crown delineation, #P3 seeds) needs the native
+  IoU/PQ board.
+- **The over-crediting hypothesis resolves with a twist.** ptrees and AMS3D
+  hold their IoU **recall** (0.212/0.190 — ranks 2–3, their split fragments
+  still overlap the reference) but collapse on mask **precision** (0.035/0.025
+  native), so IoU-recall alone would *not* demote the crown-splitters — PQ and
+  IoU-F1 do (ptrees 0.061, AMS3D 0.044 vs SegmentAnyTree 0.140 on SOAP).
+  Distance F1's precision term and mask PQ agree on the demotion; metrics that
+  ignore false instances (plain recall, Coverage) are the ones a splitter can
+  game.
+- **No flip at the top.** SegmentAnyTree is #1 on distance F1, IoU recall,
+  Coverage, and PQ; its lead is metric-robust. Treeiso is last or near-last
+  everywhere (native PQ 0.031–0.036): its fusion membership rests on vote
+  diversity, not mask quality.
+- **Li2012 is the quiet winner among the classical masks** (PQ 0.066 pooled,
+  2nd overall behind SAT): the sub-canopy segmenter's masks are noticeably
+  better than the other classical arms' at native density.
 
 ## Caveats
 
@@ -209,7 +289,15 @@ Readings:
 - **Zero-shot on sparse ALS.** As elsewhere, these are zero-shot transfers of
   models trained on denser ULS/UAS/TLS to NEON discrete-return airborne LiDAR;
   the numbers measure that transfer, not ceiling performance.
-- **Native density only.** The persisted instance clouds exist at native
-  density for both arms (SegmentAnyTree also has the sparse rungs); the scorer
-  accepts a `RUNGS=` list and extends to the sparse ladder for free once those
-  clouds are present.
+- **The ladder is covered but the headline tables are native.** #V6 persists
+  the classical arms at every rung and the scorer ran `RUNGS=native,8,4,2,1`
+  (the per-rung rows live in `instance_iou_pq.csv`); the tables here pool the
+  native rung, where every arm has cells.
+- **Proxy rows are upper bounds, never rankings.** The `voronoi_apex` rows
+  measure the apex-Voronoi proxy (and its inflation vs native masks); they are
+  excluded from `compare_matching_rules.R` and should never be ranked against
+  native-mask rows.
+- **Fusion pool (#P1) now includes ptrees + AMS3D** from the persisted clouds
+  (SOAP native smoke: 7 single arms + modes + k1–k7 Pareto, best fused point
+  k5 F1 0.430 vs best single 0.464); the full cross-site fusion re-synthesis
+  on the extended pool is future work.

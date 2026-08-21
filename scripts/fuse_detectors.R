@@ -32,6 +32,8 @@ source(bs[1]); rm(bs, .bs_ofile, .bs_file)
 #   chm_vwf       -- detect_lasr on the frozen normalized clip (density res, a=0.10)
 #   multichm      -- lidRplugins::multichm on the same clip
 #   li2012        -- lidR li2012 on the same clip (NATIVE only; meaningless sparse)
+#   ptrees/ams3d  -- persisted <arm>_instances/<plot>_<rung>.laz (#V6; treeID /
+#                    crown_id) -> read_instances_laz (already AGL, no DTM step)
 #   segmentanytree-- persisted segmentanytree_instances/<plot>_<rung>.laz
 #                    (PredInstance) -> reduce_instances -> det_to_agl(frozen DTM)
 #   forestformer3d-- persisted forestformer3d_instances/<plot>_<rung>.laz
@@ -109,6 +111,15 @@ materialize <- function(las, clip, dtm, frdens, res, nd, site, pid, rung) {
     else { seg <- lidR::segment_trees(las, lidR::li2012(dt1 = 1.5, dt2 = 2, R = 2, hmin = 2))
       reduce_instances(seg@data, id_col = "treeID", x = "X", y = "Y", z = "Z") }
   }, error = function(e) NULL)
+  # #V6: the classical segmenters' persisted instance clouds join the pool.
+  # These were segmented from the SAME normalized frozen clips, so apex z is
+  # already AGL -- no DTM conversion (unlike the absolute-Z deep arms below).
+  pt <- inst_path(file.path(nd, "ptrees_instances"), pid, rung)
+  if (!is.na(pt)) out$ptrees <- tryCatch(
+    read_instances_laz(pt, id_field = "treeID"), error = function(e) NULL)
+  am <- inst_path(file.path(nd, "ams3d_instances"), pid, rung)
+  if (!is.na(am)) out$ams3d <- tryCatch(
+    read_instances_laz(am, id_field = "crown_id"), error = function(e) NULL)
   # deep arms: persisted absolute-Z instance clouds -> AGL via the frozen DTM
   if (file.exists(dtm)) {
     sat <- inst_path(file.path(nd, "segmentanytree_instances"), pid, rung)
@@ -222,7 +233,8 @@ run_site <- function(site) {
 }
 
 ## ---- pooled report (fusion vs best single arm; Pareto) --------------------
-ARMS_ALL <- c("chm_vwf", "multichm", "li2012", "segmentanytree", "forestformer3d")
+ARMS_ALL <- c("chm_vwf", "multichm", "li2012", "ptrees", "ams3d",
+              "segmentanytree", "forestformer3d")
 print_report <- function(res) {
   iou_pool <- function(sub) {                       # pooled IoU recall@.5 / cov / PQ
     TP <- sum(sub$iou_TP); FN <- sum(sub$iou_FN); FP <- sum(sub$iou_FP)

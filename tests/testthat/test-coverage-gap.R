@@ -148,6 +148,23 @@ test_that("fp_points flags FPs near any mapped stem as credit-ineligible", {
   expect_equal(fp$credit_eligible[order(fp$x)], c(FALSE, TRUE))
 })
 
+test_that("fp_points eligibility sees mapped stems outside the scored core", {
+  # NEON maps stems whose reconstructed position lands just outside the plot
+  # core (15-47 per site here). They never enter n_ref, but a core FP sitting on
+  # one is still explained by the field map, so it may not be credited.
+  stems <- data.frame(E = 100, N = 100, height = 20, crown_class = "dominant")
+  outside <- data.frame(E = 121, N = 100, height = 12, crown_class = "codominant")
+  det <- data.frame(x = c(100.5, 119), y = c(100, 100), z = c(19, 11))
+  args <- list(det = det, tol_xy = 4, core_cx = 100, core_cy = 100, core_half = 20)
+  core_only <- do.call(fp_points, c(list(stems = stems), args))
+  expect_equal(nrow(core_only), 1L)                    # the x=119 detection
+  expect_true(core_only$credit_eligible)               # blind to the outside stem
+  with_ring <- do.call(fp_points, c(list(stems = stems), args,
+                                    list(elig_stems = rbind(stems, outside))))
+  expect_true(with_ring$isolated)                      # score_plot split unchanged
+  expect_false(with_ring$credit_eligible)              # ... but never creditable
+})
+
 test_that("credit_isolated honours credit_eligible on both target and witness sides", {
   fps <- data.frame(x = c(0, 20), y = 0, z = 10, isolated = TRUE,
                     credit_eligible = c(TRUE, FALSE))

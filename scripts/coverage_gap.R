@@ -109,8 +109,9 @@ site_deepforest_boxes <- function(nd) {
 run_plot <- function(site, pid, pc, gt, nd, df_boxes, sel) {
   ci <- pc[pc$plotID == pid, ][1, ]
   cx <- ci$easting; cy <- ci$northing; ph <- plot_half(ci$plotType)
-  stems <- gt[gt$plotID == pid &
-              abs(gt$E - cx) <= ph & abs(gt$N - cy) <= ph, , drop = FALSE]
+  pstems <- gt[gt$plotID == pid, , drop = FALSE]
+  stems <- pstems[abs(pstems$E - cx) <= ph &
+                  abs(pstems$N - cy) <= ph, , drop = FALSE]
   if (nrow(stems) < MINTREES) return(NULL)
 
   ## 1. cells: every arm's cached best-configuration detections (+ optical).
@@ -159,9 +160,14 @@ run_plot <- function(site, pid, pc, gt, nd, df_boxes, sel) {
   if (!length(cells)) return(NULL)
 
   ## 2. witness pool: every cell's core FPs, tagged with its modality family
+  ## Eligibility is measured against the plot's FULL mapped stem set (pstems),
+  ## not just the scored core: a stem whose position lands outside the core is
+  ## still mapped, so a core FP sitting on it is explained by the field map.
+  ## Scoring/`isolated` stay on the core stems (score_plot parity, n_ref).
   for (i in seq_along(cells))
     cells[[i]]$fps <- fp_points(stems, cells[[i]]$det, tol_xy = TOL,
-                                core_cx = cx, core_cy = cy, core_half = ph)
+                                core_cx = cx, core_cy = cy, core_half = ph,
+                                elig_stems = pstems)
   wit <- rbindlist(lapply(cells, function(cl)
     if (nrow(cl$fps)) data.table(cl$fps, fam = arm_family(cl$arm)) else NULL),
     fill = TRUE)
@@ -207,7 +213,7 @@ run_plot <- function(site, pid, pc, gt, nd, df_boxes, sel) {
       det <- tryCatch(detect_lasr(clip, res, VWF_A, frdens), error = function(e) NULL)
       if (is.null(det)) next
       fps <- fp_points(stems, det, tol_xy = TOL, core_cx = cx, core_cy = cy,
-                       core_half = ph)
+                       core_half = ph, elig_stems = pstems)
       rows[[length(rows) + 1]] <- score_cell("chm_vwf_ladder", rung, det, fps)
     }
   }

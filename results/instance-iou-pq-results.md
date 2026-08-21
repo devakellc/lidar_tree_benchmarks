@@ -166,7 +166,9 @@ same detections (SOAP shown; TEAK SAT +0.011 F1):
 | li2012 | 0.095 | 0.111 | +17 % |
 
 The apex-Voronoi proxy **flatters mask quality** — most visibly on understory
-(SAT understory recall 0.067 native vs 0.200 proxy on SOAP). Fusion's IoU
+(SAT understory recall@IoU0.5 0.133 native vs 0.200 proxy, both pooled over the
+same 18 SOAP native-rung cells; the proxy rows only exist at an arm's cached
+best rung, so the comparison has to stay inside that rung). Fusion's IoU
 columns (built on this proxy) are therefore optimistic upper bounds; the
 native-mask board is the honest ranking.
 
@@ -234,10 +236,12 @@ segmenters (ptrees, AMS3D — split crowns) that IoU/RQ should demote.
 | treeiso | 0.086 | 0.151 | 10 | 0.035 | 0.100 | 0.033 | yes |
 
 Rank correlations over the **six** native-mask arms (dist F1 vs IoU recall@0.5,
-then vs native PQ). Both boards are equal-set guarded — the IoU pools are
-restricted to the cells every mask arm scored (treeiso misses 3 TEAK cells),
-mirroring the distance side, so the correlations never mix denominators
-(guarding moves no rank):
+then vs native PQ), as printed by `compare_matching_rules.R SITE=<site>` — the
+`pq` column and both PQ correlations come out of the same guarded pool as the
+IoU ones and land in `matching_rule_ranks.csv`. Both boards are equal-set
+guarded — the IoU pools are restricted to the cells every mask arm scored
+(treeiso misses 3 TEAK cells), mirroring the distance side, so the correlations
+never mix denominators (guarding moves no rank):
 
 | site | τ (IoU R) | ρ (IoU R) | τ (PQ) | ρ (PQ) |
 |---|--:|--:|--:|--:|

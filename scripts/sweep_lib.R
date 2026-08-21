@@ -163,7 +163,8 @@ fp_structure <- function(fpx, fpy, mstemx, mstemy, near_tol = 4.0) {
 # coordinates to ask other modalities whether an isolated FP is a real tree
 # the field map never recorded.
 fp_points <- function(stems, det, tol_xy = 4.0, core_cx, core_cy,
-                      core_half = PLOT_HALF, tol_z_up = 8, near_tol = 4.0) {
+                      core_half = PLOT_HALF, tol_z_up = 8, near_tol = 4.0,
+                      elig_stems = stems) {
   empty <- data.frame(x = numeric(), y = numeric(), z = numeric(),
                       isolated = logical(), credit_eligible = logical())
   if (is.null(det) || !nrow(det)) return(empty)
@@ -185,10 +186,15 @@ fp_points <- function(stems, det, tol_xy = 4.0, core_cx, core_cy,
   # credit_eligible (#V5, hardened per review): an FP within near_tol of ANY
   # mapped stem -- matched or not -- is explained by the field map (a missed or
   # height-gated known stem, not an unmapped tree), so it may never be credited.
+  # `elig_stems` defaults to the scored stems but takes the plot's FULL mapped
+  # set: NEON stems whose reconstructed position lands just OUTSIDE the scored
+  # core (15-47 per site) are still mapped, and a core FP sitting on one of them
+  # is explained by the map even though it never enters n_ref.
   # `isolated` keeps the #V4 matched-stems-only semantics for fp_near/fp_isolated.
-  near_any <- if (!nrow(stems)) rep(FALSE, length(fp_idx)) else
+  near_any <- if (!nrow(elig_stems)) rep(FALSE, length(fp_idx)) else
     vapply(fp_idx, function(i)
-      any(sqrt((stems$E - detr$x[i])^2 + (stems$N - detr$y[i])^2) <= near_tol),
+      any(sqrt((elig_stems$E - detr$x[i])^2 +
+               (elig_stems$N - detr$y[i])^2) <= near_tol),
       logical(1))
   data.frame(x = detr$x[fp_idx], y = detr$y[fp_idx], z = detr$z[fp_idx],
              isolated = !near, credit_eligible = !near_any)

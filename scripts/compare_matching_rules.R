@@ -118,9 +118,15 @@ read_iou <- function() {
   if (!nrow(iq)) return(NULL)
   # instance_iou_pq.csv carries the score_instance_cell accumulators (#V1):
   # n_ref, TP, sum_iou, sum_maxiou -- pooled here by SUM (the #V1 rule).
+  # PQ = SQ x RQ from the same summed accumulators (pool_pq's rule), so the
+  # published PQ column and the tau/rho against it are reproducible from this
+  # script rather than derived by hand.
   iq[, .(iou_recall = sum(TP) / sum(n_ref),
          coverage   = sum(sum_maxiou) / sum(n_ref),
-         sq         = sum(sum_iou) / sum(TP)), by = .(arm = model)]
+         sq         = sum(sum_iou) / sum(TP),
+         pq         = (sum(sum_iou) / sum(TP)) *
+                      (sum(TP) / (sum(TP) + 0.5 * sum(FP) + 0.5 * sum(FN)))),
+     by = .(arm = model)]
 }
 
 run_main <- function() {
@@ -137,14 +143,17 @@ run_main <- function() {
   if (length(mk)) lb$rank_iou[mk] <- rank(-lb$iou_recall[mk], ties.method = "min")
   lb$rank_cov <- NA_integer_
   if (length(mk)) lb$rank_cov[mk] <- rank(-lb$coverage[mk], ties.method = "min")
+  lb$rank_pq <- NA_integer_
+  if (length(mk)) lb$rank_pq[mk] <- rank(-lb$pq[mk], ties.method = "min")
 
   cat(sprintf("\n===== MATCHING-RULE LEADERBOARD (%s, %s) =====\n", SITE, RUNG))
-  cat(sprintf("%-16s %8s %8s %8s | %9s %9s %7s\n",
-              "arm", "dist_R", "dist_F1", "rank", "iou_R@.5", "Coverage", "rank"))
+  cat(sprintf("%-16s %8s %8s %8s | %9s %9s %7s %7s\n",
+              "arm", "dist_R", "dist_F1", "rank", "iou_R@.5", "Coverage", "PQ", "rank"))
   for (i in seq_len(nrow(lb))) {
     r <- lb[i, ]
-    iou_s <- if (r$has_mask) sprintf("%9.3f %9.3f %7d", r$iou_recall, r$coverage, r$rank_iou)
-             else sprintf("%9s %9s %7s", "n/a", "n/a", "-")
+    iou_s <- if (r$has_mask)
+      sprintf("%9.3f %9.3f %7.3f %7d", r$iou_recall, r$coverage, r$pq, r$rank_iou)
+             else sprintf("%9s %9s %7s %7s", "n/a", "n/a", "n/a", "-")
     cat(sprintf("%-16s %8.3f %8.3f %8d | %s\n",
                 r$arm, r$dist_recall, r$dist_F1, r$rank_dist, iou_s))
   }
@@ -155,6 +164,10 @@ run_main <- function() {
     tau <- suppressWarnings(cor(cm$dist_F1, cm$iou_recall, method = "kendall"))
     rho <- suppressWarnings(cor(cm$dist_F1, cm$iou_recall, method = "spearman"))
     cat(sprintf("Kendall tau-b (dist_F1 vs iou_recall) = %.3f ; Spearman rho = %.3f\n", tau, rho))
+    tau_pq <- suppressWarnings(cor(cm$dist_F1, cm$pq, method = "kendall"))
+    rho_pq <- suppressWarnings(cor(cm$dist_F1, cm$pq, method = "spearman"))
+    cat(sprintf("Kendall tau-b (dist_F1 vs PQ)         = %.3f ; Spearman rho = %.3f\n",
+                tau_pq, rho_pq))
   } else {
     cat("Kendall tau / Spearman rho: UNDEFINED (need >=3 comparable arms; only the\n")
     cat("two deep arms persist masks). Reporting the pairwise order instead.\n")

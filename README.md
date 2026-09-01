@@ -1,287 +1,295 @@
-# lidar_tree_benchmarks
+# LiDAR Tree Benchmarks
 
-Tree-top detection and crown segmentation from airborne LiDAR, with a
-density-first workflow and a reproducible **lasR vs lidR** comparison on both a
-bundled toy tile and a real USGS 3DEP AOI.
+> Reproducible benchmarks for individual-tree detection and crown delineation
+> from airborne LiDAR, tested across point densities, forest structures, and
+> model families.
 
-## Documents
+This research repository compares density-aware tree-top detection and crown
+segmentation workflows. It starts with a small bundled LiDAR tile, extends to a
+USGS 3DEP area of interest, and evaluates the principal methods on
+field-mapped NEON stems at SJER, SOAP, and TEAK.
 
-Methodology and planning live in [`docs/`](docs/); every results write-up lives
-in [`results/`](results/).
+The central rule is simple: **measure density first, then derive the canopy
+height model (CHM), detection-window, and smoothing parameters from it.** Do
+not carry fixed settings from one acquisition into another.
 
-- [`docs/treetop-detection-approach.md`](docs/treetop-detection-approach.md)
-  — the recommended, density-driven pipeline (pit-free CHM -> variable-window
-  local-maximum -> segmentation), tooling, accuracy expectations, and pitfalls.
-- [`docs/neon-lidar-sites.md`](docs/neon-lidar-sites.md)
-  — NEON benchmark sites (SJER, SOAP, TEAK): field-ground-truth counts, NEON AOP
-  LiDAR acquisition dates, and USGS 3DEP EPT cross-check projects.
-- [`results/treetop-lasr-vs-lidr-comparison.md`](results/treetop-lasr-vs-lidr-comparison.md)
-  — implementation and head-to-head results: toy tile, real 25 ha 3DEP AOI, a
-  controlled same-CHM test, a CHM-vs-point-cloud test at high density, crown
-  segmentation/metrics (Steps 6-7), and a multi-tile streaming demo.
-- [`results/density-ladder-sweep-results.md`](results/density-ladder-sweep-results.md)
-  — the NEON density-ladder parameter sweep: detection accuracy vs point
-  density, stratified by crown class, on three structure-gradient sites.
-- [`results/calibration-validation-results.md`](results/calibration-validation-results.md)
-  — held-out calibration/validation split of that sweep: out-of-sample F1 for
-  the per-rung best `(chm_res, vwf_a)` (issue #3).
-- [`results/native-ql2-crosscheck-results.md`](results/native-ql2-crosscheck-results.md)
-  — native USGS 3DEP cross-check of the decimation-as-simulation caveat, by
-  crown class (issue #4).
-- [`results/temporal-sensitivity-results.md`](results/temporal-sensitivity-results.md)
-  — how much the +/-4 yr field-to-LiDAR temporal slack moves recall/precision
-  and apex-height bias (exact-2021 re-score; issue #5).
-- [`results/pointcloud-detector-results.md`](results/pointcloud-detector-results.md)
-  — point-cloud detectors (Li 2012 / lmf) vs CHM-VWF at native density:
-  understory-recall deltas and the occlusion floor (issue #6).
-- [`results/crown-segmentation-results.md`](results/crown-segmentation-results.md)
-  — five CHM crown segmenters scored on crown-diameter RMSE vs NEON field widths,
-  plus a SOAP-only TreeisoNet `treeOff` crown arm unioned by
-  `analyze_crown_metrics.R` (issue #7 / #20).
-- [`results/ept-acquisition-sweep-results.md`](results/ept-acquisition-sweep-results.md)
-  — lasR remote-EPT acquisition parameter sweep on USGS 3DEP (throughput, not
-  detection accuracy).
-- [`results/model-benchmark-results.md`](results/model-benchmark-results.md)
-  — cross-model density-ladder synthesis (#R10): AMS3D, lmfauto/multichm/ptrees,
-  CHM-VWF, TreeisoNet, SegmentAnyTree, native Li 2012, and the native+8
-  ForestFormer3D comparison on shared frozen clips, by crown class and height
-  band, with head-to-head deltas vs CHM-VWF.
-- [`results/matcher-robustness-results.md`](results/matcher-robustness-results.md)
-  — matcher hardening (#V4): size/uncertainty-scaled tolerance + optimal
-  Hungarian assignment + soft 3-D cost vs the flat-4 m greedy baseline, a tol
-  sensitivity grid, and the false-positive over-seg-vs-isolated split.
-- [`results/detector-fusion-results.md`](results/detector-fusion-results.md)
-  — cross-arm fusion (#P1): union / majority / height-layered consensus of five
-  detector arms + the k-of-N recall–precision Pareto, scored vs the best single
-  arm. Union lifts understory recall +0.15 but F1 is coverage-limited.
-- [`results/confidence-calibration-results.md`](./results/confidence-calibration-results.md)
-  — per-detection confidence calibration (#P4): per-arm reliability + ECE and an
-  isotonic calibrator that makes scores cross-arm-comparable, so ranking the
-  pooled ensemble by calibrated score lifts precision at fixed recall.
-- [`results/detector-routing-results.md`](./results/detector-routing-results.md)
-  — per-cell detector routing (#P2): an `rpart` router that selects an arm per
-  cell from cheap structure features vs the oracle and fixed-best arm. The
-  density crossover is real (oracle +0.06 F1) but a learned policy barely beats
-  shipping multichm — fusion beats selection.
-- [`results/positional-uncertainty-results.md`](./results/positional-uncertainty-results.md)
-  — Monte-Carlo stem-position uncertainty (#V3): 5th/95th F1 bands per arm under
-  K=200 `pos_unc` draws. Fusion has the tightest bands (most stable); the
-  SAT-vs-multichm gap survives jitter only on SJER/TEAK, not SOAP.
-- [`results/crown-allometry-results.md`](./results/crown-allometry-results.md)
-  — crown-width + height → DBH / biomass (#S1): how well each segmenter's crowns
-  predict field DBH (per class, per rung) + derived AGB. Height dominates DBH;
-  crown skill is decoupled from detection F1 (AMS3D best despite worst F1).
-- [`results/sam2point-promptable-refine-results.md`](./results/sam2point-promptable-refine-results.md)
-  — seed→refine (#P3): CHM-VWF tops prompt the SAM2Point promptable 3-D
-  segmenter (verified on Blackwell sm_120). The refiner buys precision
-  (0.73 vs 0.41) not recall; cost-bounded 2-plot proof-of-concept.
-- [`results/coverage-gap-results.md`](./results/coverage-gap-results.md)
-  — coverage-gap crediting (#V5): isolated core FPs co-detected by ≥2 other
-  modality families are probable real unmapped trees; corrected precision/F1
-  re-grade the leaderboard (order changes on all three sites) and the bias
-  grows with density.
-- [`results/rgb-lidar-fusion-results.md`](./results/rgb-lidar-fusion-results.md)
-  — DeepForest RGB arm (#X1): the density-INVARIANT optical anchor (flat F1 0.37)
-  that SegmentAnyTree falls below at ≤2 pts/m²; RGB also catches understory the
-  CHM misses. Plus Detectree2 (#X3), a second optical (Mask R-CNN) detector whose
-  tropical weights transfer poorly to CA conifer (F1 0.26) — diversity + crown
-  width, not standalone accuracy.
+![Overstory and understory recall across the three NEON benchmark
+sites.](results/figures/structure_gradient.png)
 
-### Headline findings
+*CHM-VWF recall across the NEON structure gradient. Solid lines show
+overstory recall; dashed lines show understory recall. See the
+[density-ladder results](results/density-ladder-sweep-results.md).*
 
-- Given the **same CHM**, lasR and lidR local-maximum detectors are effectively
-  **identical** (Jaccard 0.95–1.0); the CHM construction drives almost all of
-  the end-to-end difference, not the maxima search.
-- The CHM resolution, **detection window, and Step-5 smoothing** should all be
-  **derived from measured density** (Step 0), not hardcoded. The density-tiered
-  3x3 mean smooth before LM (only when density < 8) cuts the toy lasR count by
-  ~40% because the underlying `pit_fill` CHM is bumpier than `pitfree`.
-- **Crowns (Steps 6-7)** are produced as GPKG polygons: lasR
-  `region_growing` + `terra::as.polygons()` for area / apex height; lidR
-  `dalponte2016` + `crown_metrics(.stdtreemetrics)` for convex-hull crowns.
-- At high density (~14 first-returns/m²) point-cloud **segmentation** (Li 2012)
-  recovers ~25% more trees than a CHM — almost all sub-dominant/regen (< 5 m)
-  that a 2.5D CHM cannot represent. lasR has point-cloud `local_maximum` but
-  no point-cloud segmenter, so that step is lidR/PDAL-only.
-- **Multi-tile streaming demo:** lasR auto-buffering reproduces the
-  single-file AOI tree count **exactly** across 9 retiled chunks (6,809 =
-  6,809), while the lidR LAScatalog path **over-counts by ~13%** at the same
-  `opt_chunk_buffer = 20 m`. Prefer lasR streaming for wall-to-wall work.
+## Start here
 
-### Scripts
+Read the [methodology](docs/treetop-detection-approach.md) for the workflow and
+its assumptions. Then run the bundled toy comparison; it needs no download:
 
-Most entry points live under [`scripts/`](scripts/); GPU prerequisites and tests
-are listed where they belong. The analysis scripts expect an environment
-variable `CLAUDE_JOB_DIR` pointing at a **working directory** (where `aoi.laz`
-lives and outputs are written) — set it to any folder:
+~~~sh
+export CLAUDE_JOB_DIR="$PWD/work"
+mkdir -p "$CLAUDE_JOB_DIR"
 
-```sh
-export CLAUDE_JOB_DIR=/path/to/workdir
-```
-
-| Script | What it does |
-|--------|--------------|
-| `detect_lasr.R` / `detect_lidr.R` | Density-first detection on the bundled `MixedConifer.las` (toy). |
-| `compare.R` | Spatial matching between two treetop CSVs. |
-| `shared_chm.R` | Controlled test: both detectors on one shared CHM. |
-| `sweep.R` | Parameter sweep vs the bundled `treeID` reference. |
-| `segment_lasr.R` / `segment_lidr.R` | Steps 6-7 on the toy: region-growing / dalponte2016 + crown polygons + metrics. |
-| `compare_crowns.R` | Spatial matching + per-pair IoU between two crown GPKGs. |
-| `crown_metrics_sweep.R` | Issue #7: seed 5 crown segmenters (dalponte2016, silva2016, marker-free watershed, lasR region_growing, random walker) from shared NEON tree-tops; score crown-diameter RMSE vs field `maxCrownDiameter`/`ninetyCrownDiameter` by crown class. Issue #33 adds the `RUNGS=native,8,4,2,1` density ladder on the same frozen clips (`rung` column + RMSE/bias-vs-density PNGs). |
-| `detect_treeisonet_crowns.R` + `analyze_crown_metrics.R` | TreeisoNet `treeOff` crown arm (#20): the GPU offset net (`gpu/run_treeisonet_crowns.py`) per SOAP plot → per-point instances → `crown_diameter_table` → matched-tree crown-diameter RMSE; `analyze_crown_metrics.R` unions it (SOAP-only) with the #7 CHM segmenters into [`crown-segmentation-results.md`](results/crown-segmentation-results.md). |
-| `crown_allometry.R` + `allometry_lib.R` | Crown → DBH / biomass allometry (#S1): joins each matched crown's `d_eq` + field height to field `stemDiameter`/`taxonID`, fits crown-geometry → DBH models per segmenter/class/rung (R²/RMSE/bias), and derives AGB (Jenkins 2003 generic). Pure helpers (`functional_type`, `agb_from_dbh`, `fit_stats`) in `allometry_lib.R`. Writes `neon/<SITE>/crown_allometry.csv` behind [`crown-allometry-results.md`](./results/crown-allometry-results.md). |
-| `extract.json` | PDAL pipeline: clip the AOI from the public EPT, reproject 3857 -> UTM 10N, write `aoi.laz`. |
-| `detect_lasr_ept_aoi.R` | lasR-native remote EPT AOI pipeline (acquire + process directly in lasR). |
-| `detect_lasr_aoi.R` / `detect_lidr_aoi.R` | Full approach on the real 3DEP AOI after PDAL extraction. |
-| `shared_chm_aoi.R` | Same-CHM controlled test on the AOI. |
-| `segment_lasr_aoi.R` / `segment_lidr_aoi.R` | Steps 6-7 on the AOI: crown polygons + metrics. |
-| `pc_vs_chm.R` | CHM-lmf vs point-cloud lmf vs Li 2012 on a sub-clip. |
-| `tile_aoi.R` | Retile `aoi.laz` into a tile grid under `tiles/` for the catalog demo. |
-| `detect_lasr_catalog.R` / `detect_lidr_catalog.R` | Multi-tile streaming demo (lasR auto-buffering vs `opt_chunk_buffer`). |
-| `density_cost.R` | The three detectors vs density: counts + runtime scaling. |
-| `extract_big.json` | PDAL: pull a larger ~56 ha block from the EPT (reprojected). |
-| `li2012_16core.R` | Retile + 16-core Li 2012 throughput; extrapolates to 10k acres. |
-| `calval_split.R` + `calval_lib.R` | Calibration/validation split (issue #3): tune `(chm_res, vwf_a)` per density rung on a stratified calibration subset, report held-out F1; multi-seed robustness. `calval_lib.R` holds the shared split (`plot_table`, `assign_split`) reused by the multichm arm. |
-| `calval_multichm.R` | multichm cal/val (issue #39): on the SAME stratified split as `calval_split.R`, pool multichm vs CHM-VWF (matched-discipline + calib-tuned) on held-out plots per rung; paired complete-case, multi-seed win-fraction; verdict on whether multichm's SOAP/TEAK advantage survives out-of-sample. Reads cached `multichm_sweep_results.csv` + `sweep_results.csv`. |
-| `ept_discovery.R` | Find public USGS 3DEP EPT projects covering each NEON site (point-in-polygon vs the entwine boundary index); writes `neon/<SITE>/ql2/ept_candidates.csv`. |
-| `neon_download_lidar.R` | Fetch NEON DP1.30003.001 LiDAR tiles overlapping a site/plot set; populates `neon/<SITE>/lidar/` for the density-ladder runs. |
-| `neon_download_aop.R` | Fetch NEON DP3.30010.001 RGB camera mosaics overlapping a site's stems (`byTileAOP`, `YEAR=2021` to match the LiDAR epoch); populates `neon/<SITE>/rgb/` for the DeepForest arm (#X1). |
-| `detect_deepforest_sweep.R` + `gpu/run_deepforest.py` | DeepForest RGB arm (#X1): runs the NEON-pretrained crown model (`predict_tile`, CPU) on each RGB tile, georeferences the boxes to UTM, samples an apex Z from the frozen-clip CHM, and scores `neon/<SITE>/deepforest_results.csv` (detector `deepforest`, rung `rgb`) — the density-invariant optical anchor. Needs the `deepforest` conda env. Behind [`rgb-lidar-fusion-results.md`](./results/rgb-lidar-fusion-results.md). |
-| `detect_detectree2_sweep.R` + `gpu/run_detectree2.py` | Detectree2 RGB arm (#X3): a second optical detector (Detectron2 Mask R-CNN crown polygons) for ensemble diversity + an RGB crown-width (`d_eq`) product. Runs on per-plot RGB crops (CPU; Detectron2 built CPU-only against torch 2.12, no Blackwell wheels). Tropical-trained weights transfer poorly to CA conifer (F1 0.26). Needs the `detectree2` conda env + a model-garden `.pth`. Writes `neon/<SITE>/detectree2_results.csv`. |
-| `verify_geolocation.R` | Audit stem coordinates by re-deriving NEON plot/stem offsets from the API and comparing them with `ground_truth_stems.csv`. |
-| `native_ql2_crosscheck.R` | Pull the native 3DEP cloud per NEON plot via PDAL (reproject 3857 -> UTM 11N), run BOTH the CHM-VWF and multichm pipelines (issues #4, #39), and compare each detector's native (+ decimated-to-2) detection to its OWN cached decimated-2 rung by crown class. |
-| `bench_lasr_ept_acquisition.R` / `sweep_lasr_ept_params.R` / `sweep_lasr_ept_partitions.R` | EPT acquisition benchmarks for lasR remote reads: throughput, chunking, and partition-parameter sensitivity. |
-| `neon_ground_truth.R` | Build NEON field-stem ground truth (`DP1.10098.001`); writes `ground_truth_stems.csv` with `meas_year`/`dist21` for exact-year filtering. |
-| `run_sweep.R` + `sweep_lib.R` | NEON density-ladder sweep: per plot x rung x `chm_res` x `vwf_a`, scored vs stems. `MEAS_YEAR=2021` restricts to exact-year stems (issue #5); use a distinct `OUT=` to keep the +/-4 yr baseline. |
-| `matcher_robustness.R` | Matcher hardening (#V4): re-scores the CHM-VWF detector on the frozen clips with size/uncertainty-scaled tolerance (`match_tol`), optimal Hungarian assignment (`optimal_match`, needs `clue`), and a soft 3-D cost vs the flat-4 m greedy baseline, plus a tol_xy x tol_z_up sensitivity grid and a false-positive over-seg-vs-isolated split. Writes `neon/<SITE>/matcher_robustness.csv` behind [`matcher-robustness-results.md`](results/matcher-robustness-results.md). |
-| `fuse_detectors.R` | Cross-arm fusion arm (#P1): materializes per-cell apexes for CHM-VWF, multichm, Li2012, ptrees + AMS3D (persisted `<arm>_instances/` clouds, #V6), SegmentAnyTree, ForestFormer3D on the frozen cells, clusters them across arms (`fuse_apexes`, height-gated single-linkage) into union/majority/layered operating points + the k-of-N Pareto, and scores each with `score_plot` (distance) + a Voronoi-on-apexes #V1 IoU/PQ proxy vs the best single arm. Writes `neon/<SITE>/fusion_results.csv` behind [`detector-fusion-results.md`](results/detector-fusion-results.md). |
-| `calibrate_confidence.R` | Per-detection confidence calibration (#P4): labels each arm's detections TP/FP, builds per-arm reliability + ECE, fits an isotonic calibrator (`stats::isoreg`) mapping raw score to empirical precision, and reports the held-out (5-fold CV) ECE and the pooled-ensemble precision gain at fixed recall. Exposes ForestFormer3D's native `ff3d_score`; proxies (crown point count, apex height) for the rest. Writes `neon/<SITE>/{confidence_calibration.csv,confidence_lookup.csv}` behind [`confidence-calibration-results.md`](./results/confidence-calibration-results.md). |
-| `mc_positional_uncertainty.R` | Monte-Carlo positional-uncertainty bands (#V3): materializes each arm's detections (incl. the #P1 fusion union/layered) once per cell, then re-scores under K stem-position draws (`perturb_positions`, σ=`pos_unc`) to put 5th/95th-percentile bands on recall/precision/F1 per arm. Reuses `score_plot`/`pool`; run `CORES=1` (lasR exec deadlocks under fork). Writes `neon/<SITE>/positional_uncertainty.csv` behind [`positional-uncertainty-results.md`](./results/positional-uncertainty-results.md). |
-| `analyze_sweep.R` / `compare_sites.R` | Pool the sweep (sum TP / sum n_ref) + figures; cross-site structure gradient SJER -> SOAP -> TEAK. |
-| `export_geojson.R` | Export benchmark geography as WGS84 GeoJSON: `sites` (convex-hull footprints), `plots` (scoring-box polygons with a `swept` flag + native density, null where unswept), `stems` (field points, `is_tree`); writes the tracked `data/{sites,plots,stems}.geojson`. |
-| `validate_heights.R` | Apex-vs-field height bias/RMSE at native density; `MEAS_YEAR=2021` writes a distinct `height_pairs_2021.csv` for the temporal cut. |
-| `temporal_sensitivity.R` | Pool baseline (+/-4 yr) vs exact-2021 sweeps at modal params per rung; recall/precision/F1/height deltas + height-bias comparison (issue #5). |
-| `detect_pc_sweep.R` + `pc_detect_lib.R` | Issue #6: point-cloud detectors (lidR lmf-on-points, Li 2012, lasR point `local_maximum`) vs the CHM-VWF baseline at native density, scored on field stems by crown class; quantifies understory-recall deltas and the occlusion floor. The three point-cloud apex extractors live in `pc_detect_lib.R` (shared with `detect_pc_ladder.R`). Writes `neon/<SITE>/pc_detect_results.csv`. |
-| `detect_pc_ladder.R` | Issue #38: the point-cloud-detector **density ladder** — the same four arms as #6 (`chm_vwf`, `lidr_lmf_pc`, `lidr_li2012`, `lasr_lmax_pc`) at the **native + 8 pts/m²** rungs only on SJER + SOAP + TEAK (4/2/1 out of scope: point segmenters are noise below ~3 first-ret/m²). Uses the seeded `frozen_clip` provider so all arms score identical bytes per (plot, rung); pools by rung with the canonical `pool`/`equal_set_guard`. Writes `neon/<SITE>/pc_detect_ladder_results.csv` + `neon/pc_detect_ladder_pooled.csv` (the pooled CSV carries `cores` + `n_dropped_cells` provenance). Defaults to `CORES=1` for reproducible pooling — lasR `exec` can transiently drop the odd dense-native cell under fork at `CORES>1`, which the equal-set guard then drops for all arms. |
-| `model_bench_lib.R` | Shared bridge for the model benchmark (#B2): reduce_instances, crown_diameter_table, seed_for/frozen_clip, pool/equal_set_guard, assert_detection_contract; plus the #V1 point-set IoU suite (`point_set_iou`/`iou_match`/`coverage_table`/`panoptic_quality`, `assign_points_to_stems`/`transfer_labels`, `score_instance_cell`/`pool_pq`). |
-| `detect_ams3d_sweep.R` | AMS3D (crownsegmentr) arm (#B1): adaptive mean-shift crowns over the density ladder, reduced to detections and scored by crown class. #V6: persists the per-point `crown_id` cloud to `neon/<SITE>/ams3d_instances/<plot>_<rung>.laz` before the apex collapse. |
-| `detect_lidrplugins_sweep.R` | lidRplugins competitor arm (#C9): lmfauto/multichm (locate_trees) + ptrees (segment_trees) vs the CHM-VWF baseline over the density ladder. #V6: persists ptrees' per-point `treeID` cloud to `neon/<SITE>/ptrees_instances/<plot>_<rung>.laz`. |
-| `detect_multichm_sweep.R` | multichm treetop arm on the canonical 3-site density ladder (#37): `lidRplugins::multichm` on the SAME `prepare_clip` lasR path as the cached CHM-VWF `sweep_results.csv` (density-derived `res`, `ws_factory(0.10)`), scored by `score_plot`. Writes `neon/<SITE>/multichm_sweep_results.csv` (one row per plot x rung). Needs only lidR + lidRplugins (CRAN lasR is fine). |
-| `analyze_multichm_sweep.R` | Pool the multichm arm and put it head-to-head vs the cached CHM-VWF `sweep_results.csv` on the common (plot, rung) set (same res-rule + `a=0.10`); per-rung + crown-class + height-band tables, Δ of pooled rates, a figure, and the `density-ladder-sweep-results.md` §8 addendum fragment. |
-| `detect_li2012_native.R` | Native-only Li 2012 arm (#R10): lidR `li2012` point segmenter on the native frozen clip, reduced to detections via the bridge; the point-segmenter leg of the head-to-head. Writes `neon/<SITE>/li2012_results.csv`; #V6 persists `li2012_instances/<plot>_native.laz`. |
-| `detect_treeisonet_sweep.R` | TreeisoNet deep-model arm (#M7): runs the headless GPU driver (`gpu/run_treeisonet.py`, cu128/sm_120) on the normalized frozen clip per plot x rung, serially (one GPU), apex-only with a local-canopy-max z-snap, at the calibrated zero-shot `CONF=0.22` default. `VOXEL` accepts either a scalar isotropic override or an anisotropic `x,y,z` vector. Writes `neon/<SITE>/treeisonet_results.csv`. See `docs/superpowers/plans/2026-06-08-gpu-arm-infra-m7-first.md`. |
-| `detect_sam2point_sweep.R` | Seed→refine arm (#P3): feeds `detect_lasr` CHM-VWF apexes as 3-D point prompts to the SAM2Point promptable segmenter (`gpu/sam2point-sm120/`, Apache-2.0, Blackwell sm_120) via `run_sam2point_arm.py`, persists per-point `sam2point_instances/`, and scores the seeded crowns vs the bare seeds. Each prompt is a 3-axis SAM2 video segmentation (~10 s), so it caps prompts + accepts `PLOTS=` for a cost-bounded run. Writes `neon/<SITE>/sam2point_results.csv` behind [`sam2point-promptable-refine-results.md`](./results/sam2point-promptable-refine-results.md). |
-| `detect_segmentanytree_sweep.R` | SegmentAnyTree deep-model arm (#M6): runs the rebuilt sm_120 Docker image on raw-with-ground frozen clips per plot x rung, reduces `PredInstance` labels to apexes, converts absolute Z to AGL with each clip DTM, and writes checkpointed `neon/<SITE>/segmentanytree_results.csv` rows. `CORES=2` is the tested RTX 5090 throughput setting. See `gpu/segmentanytree-sm120/README.md`. |
-| `detect_treeiso_sweep.R` | Classical Treeiso arm (#P5): runs the vendored cut-pursuit Treeiso (`external/treeiso/`, MIT, CPU subprocess) on the raw-with-ground frozen clips per plot x rung, persists per-point instances to `treeiso_instances/`, reduces to AGL apexes, and scores `neon/<SITE>/treeiso_results.csv` (detector `treeiso`). The non-learned 3-D baseline for the #P1 consensus pool; collapses on sparse ALS (recall ~0.09 vs SegmentAnyTree 0.64). Needs the `treeiso` conda env — see `external/treeiso/README.md`. |
-| `analyze_model_benchmark.R` | Cross-model synthesis (#R10): unions every arm on the shared frozen clips, equal-set-guards across arms, pools per (detector, rung) by crown class + height band, and writes the density-robustness figures + table fragment behind [`model-benchmark-results.md`](results/model-benchmark-results.md). |
-| `score_instances_iou.R` | Mask-aware scorer (#V1/#V6): grades every persisted per-point instance cloud — SegmentAnyTree, ForestFormer3D, ptrees, AMS3D, Li2012, Treeiso — plus apex-Voronoi proxy rows (`mask_source=voronoi_apex`, `APEX_PROXY=0` to drop) for the cached best-config apex arms, on each frozen normalized clip with point-set IoU≥0.5 (P/R/F1), Coverage, and Panoptic Quality, alongside the apex-distance scoring. Reference instances are a Voronoi-on-stems proxy (`maxCrownDiameter`); pools by SUMMING the panoptic accumulators per crown class. Writes `neon/<SITE>/instance_iou_pq.csv` behind [`instance-iou-pq-results.md`](results/instance-iou-pq-results.md). |
-| `compare_matching_rules.R` | Arm-ranking sensitivity (#V2): recomputes the SOAP leaderboard under apex-distance F1 vs point-set IoU≥0.5 vs Coverage and flags rank-flips. Six native-mask arms make Kendall τ / Spearman ρ defined (#V6); apex-only arms stay honestly `n/a`, and apex-Voronoi proxy rows are excluded from the mask ranking. Writes `neon/<SITE>/matching_rule_ranks.csv` and appends the "Matching-rule sensitivity" section to [`instance-iou-pq-results.md`](results/instance-iou-pq-results.md). |
-| `compare_model_sites.R` | Cross-site structure gradient for the classical model-benchmark arms (#E11): pools per-site ams3d + lidRplugins results across SJER → SOAP → TEAK, writes `model_cross_site_summary.csv` + per-arm structure-gradient figures. |
-| `route_detectors.R` + `route_lib.R` | Per-cell detector routing study (#P2): assembles the per-arm laddered F1, computes deploy-time structure features (`rumple_index`, cover, height CV, gap, density) per frozen clip, labels each cell with its argmax-F1 arm, and fits a leave-one-plot-out `rpart` router scored against the oracle and fixed-best arm with `pool`/`equal_set_guard`. Pure helpers (`oracle_pick`, `select_policy_rows`) live in `route_lib.R`. Writes `neon/<SITE>/router_policy.csv` behind [`detector-routing-results.md`](./results/detector-routing-results.md). |
-| `coverage_gap.R` + `coverage_lib.R` | Coverage-gap crediting study (#V5): re-scores every arm's `best_treetop_cache` cells (+ the persisted RGB boxes) with the baseline matcher, splits core FPs near/isolated (`fp_points`), and credits an isolated FP as probable-real when ≥`MIN_FAM` other modality families (`FAMILY_MAP`: chm/pc/deep/rgb) co-detect it within `CRED_R` m (`co_detect_credit`/`credit_isolated`). `pool()` turns the summed `fp_credited` into `precision_cred`/`F1_cred`; `LADDER=1` regenerates CHM-VWF per frozen rung for the bias-vs-density curve. Writes `neon/<SITE>/coverage_gap.csv` behind [`coverage-gap-results.md`](./results/coverage-gap-results.md). |
-| `gpu/setup_treeisonet_env.sh` + `gpu/mirror_weights.sh` | GPU arm prerequisites: create the pinned TreeisoNet venv, mirror weights/configs, and verify the tracked checksum manifest. |
-| `tests/run_tests.R` | Unit-test harness for benchmark library code, model runners, extractors, I/O helpers, pooling guards, and synthesis helpers. |
-
-### Reproduce
-
-Requirements: R with `lasR` (>= 0.21, dev/`pre-devel` build with EPT parallel
-acquisition and variable-window `ws`) and `lidR`; PDAL (>= 2.9) for the EPT
-extraction.
-
-The model-benchmark arms add two more: **crownsegmentr** (CRAN,
-`install.packages("crownsegmentr")`) for the AMS3D arm; and **lidRplugins**
-for the competitor arm — its CRAN-archived `rgeos`/`rgdal` and Bioconductor
-`EBImage` are declared but unused by the detectors we call, so install from a
-source clone with those stripped from DESCRIPTION (see
-`docs/superpowers/plans/2026-06-07-lidrplugins-competitor-arm.md`, Task 1).
-
-```sh
-export CLAUDE_JOB_DIR=$(pwd)/work && mkdir -p "$CLAUDE_JOB_DIR"
-
-# Model benchmark — classical arms per site (SOAP + SJER + TEAK)
-Rscript scripts/detect_ams3d_sweep.R       SITE=SOAP PLOTS=ALL CORES=12
-Rscript scripts/detect_lidrplugins_sweep.R SITE=SOAP PLOTS=ALL CORES=12
-Rscript scripts/detect_ams3d_sweep.R       SITE=SJER PLOTS=ALL CORES=12
-Rscript scripts/detect_lidrplugins_sweep.R SITE=SJER PLOTS=ALL CORES=12
-Rscript scripts/detect_ams3d_sweep.R       SITE=TEAK PLOTS=ALL CORES=12
-Rscript scripts/detect_lidrplugins_sweep.R SITE=TEAK PLOTS=ALL CORES=12
-# Synthesize per site, then cross-site
-Rscript scripts/analyze_model_benchmark.R  SITE=SOAP
-Rscript scripts/analyze_model_benchmark.R  SITE=SJER
-Rscript scripts/analyze_model_benchmark.R  SITE=TEAK
-Rscript scripts/compare_model_sites.R
-# Native-only Li 2012 head-to-head (SOAP)
-Rscript scripts/detect_li2012_native.R     SITE=SOAP PLOTS=ALL CORES=12
-# Deep GPU arms per site; TreeisoNet CONF defaults to calibrated 0.22
-for SITE in SOAP SJER TEAK; do
-  Rscript scripts/detect_treeisonet_sweep.R        SITE=$SITE PLOTS=ALL VOXEL=0.8,0.8,2.0
-  Rscript scripts/detect_segmentanytree_sweep.R    SITE=$SITE PLOTS=ALL IMAGE=sat-sm120-test CORES=4
-  Rscript scripts/detect_forestformer3d_sweep.R    SITE=$SITE PLOTS=ALL REPO=<FF3D repo>
-  Rscript scripts/analyze_model_benchmark.R        SITE=$SITE
-done
-
-# multichm arm on the canonical 3-site density ladder (#37): same prepare_clip
-# lasR path as run_sweep.R; head-to-head vs the cached CHM-VWF sweep_results.csv
-Rscript scripts/detect_multichm_sweep.R  SITE=SOAP PLOTS=ALL CORES=12
-Rscript scripts/detect_multichm_sweep.R  SITE=SJER PLOTS=ALL CORES=12
-Rscript scripts/detect_multichm_sweep.R  SITE=TEAK PLOTS=ALL CORES=12
-Rscript scripts/analyze_multichm_sweep.R SITES=SJER,SOAP,TEAK
-
-# Point-cloud-detector density ladder (#38): native + 8 pts/m^2 only, 3 sites.
-# CORES=1 keeps the pooling reproducible (no transient lasR fork-drops); the
-# script writes the per-site CSVs and prints + writes the pooled rung table.
-Rscript scripts/detect_pc_ladder.R       SITES=SJER,SOAP,TEAK CORES=1
-
-# Toy tile (no data download needed; uses lasR's bundled MixedConifer.las)
 Rscript scripts/detect_lasr.R
 Rscript scripts/detect_lidr.R
-Rscript scripts/compare.R "$CLAUDE_JOB_DIR/tops_lasr.csv" "$CLAUDE_JOB_DIR/tops_lidr.csv"
-Rscript scripts/shared_chm.R                 # same-CHM controlled test
-Rscript scripts/sweep.R                      # parameter sweep vs reference
-Rscript scripts/segment_lasr.R               # Step 6/7 crowns
+Rscript scripts/compare.R \
+  "$CLAUDE_JOB_DIR/tops_lasr.csv" \
+  "$CLAUDE_JOB_DIR/tops_lidr.csv"
+Rscript scripts/shared_chm.R
+~~~
+
+This produces density-derived lasR and lidR detections, compares their
+locations, and then repeats the local-maximum test on one shared CHM. The
+shared-CHM run is the right way to compare the maxima implementations.
+
+| If you want to... | Start with |
+| --- | --- |
+| Understand the density-first method | [Methodology](docs/treetop-detection-approach.md) |
+| Compare lasR and lidR on a known small tile | [Toy workflow](#bundled-toy-tile) |
+| Process a real USGS 3DEP AOI | [USGS 3DEP workflow](#usgs-3dep-aoi) |
+| Reproduce field-ground-truth accuracy curves | [NEON density ladder](#neon-density-ladder) |
+| Compare detector, model, or fusion arms | [Model benchmark](results/model-benchmark-results.md) |
+| Find every runnable entry point | [Script reference](#script-reference) |
+
+## What this repository benchmarks
+
+| Area | Methods and outputs |
+| --- | --- |
+| Tree-top detection | CHM variable-window filtering, point-cloud local maxima, Li 2012, multichm, and learned detector arms |
+| Crown delineation | CHM region growing, Dalponte, Silva, watershed, random-walker, and point/instance segmentation approaches |
+| Data sources | A bundled lasR tile, a reprojected USGS 3DEP EPT AOI, and 2021 NEON airborne LiDAR with field stems |
+| Density robustness | Native data plus 8, 4, 2, and 1 pts/m² density rungs where an arm is meaningful |
+| Evaluation | One-to-one apex matching, crown-diameter error, calibrated confidence, uncertainty bands, and point-set IoU, Coverage, and PQ proxy metrics |
+| Scale and transfer | Streaming/catalog tests, native-QL2 cross-checks, temporal sensitivity, RGB fusion, and cross-site comparisons |
+
+The model benchmark includes classical CHM and point-cloud methods as well as
+AMS3D, Treeiso, TreeisoNet, SegmentAnyTree, ForestFormer3D, DeepForest,
+Detectree2, and SAM2Point where their required environments are available.
+
+## Evidence at a glance
+
+These are experiment-specific findings, not universal deployment guarantees.
+Follow the linked result documents for datasets, protocols, and caveats.
+
+| Question | Current finding |
+| --- | --- |
+| Does the engine choose different tops? | Given the same CHM, lasR and lidR local-maximum results nearly agree (Jaccard 0.95); CHM construction drives the larger end-to-end difference. |
+| Does density matter? | At SOAP, CHM-VWF F1 remains about 0.35–0.42 over a 15× density range, but recall and precision exchange places and understory detection stays severely occlusion-limited. |
+| When do point/instance methods help? | At native SOAP density, SegmentAnyTree improves F1 and understory recall over CHM-VWF, then becomes less competitive at the 2 and 1 pts/m² rungs. |
+| Can sparse runs be simulated by decimation? | The native-QL2 cross-check measures that limitation directly rather than assuming decimation is a perfect acquisition surrogate. |
+| Which tool streams an AOI cleanly? | In the nine-tile demonstration, lasR reproduced the single-file count exactly; inspect the catalog result before generalizing that result to another tiling scheme. |
+
+- [lasR vs lidR comparison](results/treetop-lasr-vs-lidr-comparison.md)
+- [Density-ladder benchmark](results/density-ladder-sweep-results.md)
+- [Cross-model benchmark](results/model-benchmark-results.md)
+- [Native USGS 3DEP cross-check](results/native-ql2-crosscheck-results.md)
+- [EPT acquisition and streaming results](results/ept-acquisition-sweep-results.md)
+
+## Reproduce a workflow
+
+All scripts use CLAUDE_JOB_DIR for their working directory. It defaults to
+work below the current directory, but setting it explicitly keeps inputs and
+generated outputs separate from the checkout. Scripts accept KEY=VALUE
+positional arguments rather than command-line flags.
+
+### Bundled toy tile
+
+The [quick-start commands](#start-here) run the two density-first detection
+paths. Run the remaining steps to sweep parameters and create crown products:
+
+~~~sh
+Rscript scripts/sweep.R
+Rscript scripts/segment_lasr.R
 Rscript scripts/segment_lidr.R
-Rscript scripts/compare_crowns.R "$CLAUDE_JOB_DIR/crowns_lasr.gpkg" "$CLAUDE_JOB_DIR/crowns_lidr.gpkg"
+Rscript scripts/compare_crowns.R \
+  "$CLAUDE_JOB_DIR/crowns_lasr.gpkg" \
+  "$CLAUDE_JOB_DIR/crowns_lidr.gpkg"
+~~~
 
-# Real AOI with lasR-only EPT acquisition (pre-devel; auto-partitions into ~32 chunks)
-Rscript scripts/detect_lasr_ept_aoi.R
+The bundled MixedConifer.las file is provided by the lasR installation; it is
+not a field-ground-truth benchmark. It is intended for fast, reproducible
+pipeline and engine checks.
 
-# Real AOI: fetch + reproject ~25 ha with PDAL, then run the full pipeline
-(cd "$CLAUDE_JOB_DIR" && pdal pipeline "$OLDPWD/scripts/extract.json")
+### USGS 3DEP AOI
+
+The PDAL extraction clips the public EPT and reprojects it from Web Mercator to
+UTM before metric-sensitive processing. From the repository root:
+
+~~~sh
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+(cd "$CLAUDE_JOB_DIR" && pdal pipeline "$REPO_ROOT/scripts/extract.json")
+
 Rscript scripts/detect_lasr_aoi.R
 Rscript scripts/detect_lidr_aoi.R
 Rscript scripts/shared_chm_aoi.R
 Rscript scripts/pc_vs_chm.R
-Rscript scripts/segment_lasr_aoi.R           # AOI crowns
+Rscript scripts/segment_lasr_aoi.R
 Rscript scripts/segment_lidr_aoi.R
-Rscript scripts/compare_crowns.R             # defaults to crowns_*_aoi.gpkg
+~~~
 
-# Multi-tile streaming demo (approach §3 edge handling)
-Rscript scripts/tile_aoi.R                   # retile aoi.laz under work/tiles/
-Rscript scripts/detect_lasr_catalog.R
-Rscript scripts/detect_lidr_catalog.R
-```
+For a native lasR remote-EPT acquisition path, run
+scripts/detect_lasr_ept_aoi.R instead. That path remains in EPSG:3857 and is
+best used for acquisition/streaming experiments, not metric-faithful parameter
+selection. See the [AOI comparison](results/treetop-lasr-vs-lidr-comparison.md).
 
-Run the library tests with `Rscript tests/run_tests.R`. The GPU arms need their
-own prerequisites before the first run: TreeisoNet uses
-`gpu/setup_treeisonet_env.sh` plus `gpu/mirror_weights.sh`, SegmentAnyTree uses
-the Docker image from `gpu/segmentanytree-sm120/`, and ForestFormer3D uses the
-ported runtime described under `gpu/forestformer3d-sm120/`.
+### NEON density ladder
 
-Data (`*.laz`, `*.tif`, `*.csv`, `*.gpkg`, and `tiles/`) is gitignored —
-regenerate it with the steps above.
+This is the primary field-ground-truth benchmark. It downloads the needed NEON
+field and LiDAR data, creates density rungs, and scores detections in the
+mapped plot cores. A full three-site run needs network access, several GB of
+working storage, and meaningful compute time.
 
-### Notes
+~~~sh
+for SITE in SJER SOAP TEAK; do
+  Rscript scripts/neon_ground_truth.R SITE="$SITE"
+  Rscript scripts/neon_download_lidar.R SITE="$SITE" YEAR=2021
+  Rscript scripts/run_sweep.R SITE="$SITE" PLOTS=ALL CORES=8
+  Rscript scripts/analyze_sweep.R SITE="$SITE"
+done
+Rscript scripts/compare_sites.R
+~~~
 
-- The EPT is in EPSG:3857 (Web Mercator); distances there are inflated ~1.32x at
-  this latitude. The lasR-only EPT script keeps processing in 3857 for a fully
-  native acquisition path; for metric-faithful parameterization, prefer the PDAL
-  reproject-to-UTM path before detection.
-- Runtimes in the comparison are **not** an engine benchmark (single small
-  tiles, and EPT reads from a non-AWS machine are network-bound). lasR's real
-  advantage is large-area (>= 100 km²) streaming throughput and low memory.
-- The NEON ground-truth builder (`neon_ground_truth.R`) now carries two field
-  crown-width columns from `vst_apparentindividual` —
-  `maxCrownDiameter` (widest axis) and `ninetyCrownDiameter` (equivalent width)
-  — in `ground_truth_stems.csv`. `crown_metrics_sweep.R` scores delineated crown
-  diameter against these; see [`crown-segmentation-results.md`](results/crown-segmentation-results.md)
-  (issue #7).
+Use a distinct OUT value when running an exact-year temporal subset so that it
+does not replace the default ±4-year ground-truth baseline:
+
+~~~sh
+Rscript scripts/run_sweep.R SITE=SOAP MEAS_YEAR=2021 \
+  OUT="$CLAUDE_JOB_DIR/neon/SOAP/sweep_results_2021.csv"
+~~~
+
+## Requirements
+
+| Scope | Requirements |
+| --- | --- |
+| Core toy and AOI workflows | R with lasR, lidR, terra, sf, and data.table |
+| Required lasR build | r-lidar/lasR pre-devel; the released 0.21.0 build rejects the variable-window function used by the detection scripts |
+| NEON workflows | neonUtilities and jsonlite, plus network access for public NEON products |
+| EPT extraction | PDAL 2.9 or later |
+| Optional analyses | clue, rpart, crownsegmentr, and lidRplugins as required by the corresponding arm |
+| GPU/vision arms | The documented container or conda environment under [gpu](gpu/) for that specific model |
+| Tests | testthat |
+
+The [density-ladder setup notes](results/density-ladder-sweep-results.md)
+document the pre-development lasR requirement and the feature check behind it.
+The model-specific setup instructions live alongside each runtime under
+[gpu](gpu/) and in the linked result documents.
+
+There is an important engine distinction: lasR uses a TIN plus post-hoc
+pit_fill step, while lidR uses its Khosravipour pitfree method. They should not
+be described as the same CHM algorithm.
+
+## Data and reproducibility
+
+- Tracked geographic context lives in [data](data) as GeoJSON site, plot, stem,
+  and AOI layers.
+- Downloaded LiDAR, rasters, tables, GeoPackages, model weights, and working
+  files are intentionally gitignored. Regenerate them in CLAUDE_JOB_DIR.
+- The NEON scorer pools counts before calculating rates; it does not average
+  plot-level recall or precision. This prevents small plots from dominating a
+  site result.
+- Field stems support an apex/detection benchmark. The point-set instance
+  metrics use a clearly labeled Voronoi-on-stems crown proxy, not hand-drawn
+  crown masks.
+
+## Script reference
+
+Run the driver scripts below directly. Supporting libraries are listed last;
+they are sourced by drivers and covered by tests rather than run as standalone
+workflows.
+
+### Core detection and crown workflows
+
+| Scripts | Purpose |
+| --- | --- |
+| detect_lasr.R / detect_lidr.R | Density-first detection on the bundled tile |
+| compare.R / shared_chm.R / sweep.R | Compare top locations, isolate the same-CHM test, and sweep toy parameters |
+| segment_lasr.R / segment_lidr.R / compare_crowns.R | Delineate toy crowns, calculate metrics, and compare polygons |
+| detect_lasr_aoi.R / detect_lidr_aoi.R / shared_chm_aoi.R | Run and fairly compare the corresponding USGS AOI paths |
+| segment_lasr_aoi.R / segment_lidr_aoi.R / pc_vs_chm.R | AOI crown products and high-density CHM-versus-point-cloud comparison |
+| extract.json / extract_big.json | PDAL EPT clip and reproject pipelines |
+| detect_lasr_ept_aoi.R | lasR-native remote-EPT acquisition and detection |
+| tile_aoi.R / detect_lasr_catalog.R / detect_lidr_catalog.R | Retile an AOI and test multi-tile streaming behavior |
+| density_cost.R / li2012_16core.R | Detection density/cost and multi-core Li 2012 throughput studies |
+| bench_lasr_ept_acquisition.R / sweep_lasr_ept_params.R / sweep_lasr_ept_partitions.R | EPT throughput, parameter, and partition studies |
+
+### NEON data and density studies
+
+| Scripts | Purpose |
+| --- | --- |
+| neon_ground_truth.R / verify_geolocation.R | Build and audit field-stem ground truth |
+| neon_download_lidar.R / neon_download_aop.R | Download the NEON LiDAR and RGB inputs needed by a selected arm |
+| run_sweep.R / analyze_sweep.R / compare_sites.R | Run, pool, and compare the CHM-VWF density ladder |
+| calval_split.R / calval_multichm.R | Held-out parameter calibration/validation |
+| ept_discovery.R / native_ql2_crosscheck.R | Find covering 3DEP projects and test native-versus-decimated performance |
+| validate_heights.R / temporal_sensitivity.R | Height validation and field-to-LiDAR temporal sensitivity |
+| detect_pc_sweep.R / detect_pc_ladder.R | Point-cloud detector comparison at native and selected sparse rungs |
+| matcher_robustness.R / mc_positional_uncertainty.R | Matching-rule and stem-position-uncertainty sensitivity |
+
+### Model, fusion, and crown analyses
+
+| Scripts | Purpose |
+| --- | --- |
+| detect_ams3d_sweep.R | Adaptive mean-shift crown segmentation arm |
+| detect_lidrplugins_sweep.R / detect_multichm_sweep.R / analyze_multichm_sweep.R | lmfauto, ptrees, and multichm arms and their paired analysis |
+| detect_li2012_native.R / detect_treeiso_sweep.R | Native point-cloud segmentation baselines |
+| detect_treeisonet_sweep.R / detect_treeisonet_crowns.R | TreeisoNet apex and tree-offset crown arms |
+| detect_segmentanytree_sweep.R / detect_forestformer3d_sweep.R | GPU point/instance segmentation arms |
+| detect_deepforest_sweep.R / detect_detectree2_sweep.R | RGB detector and crown-width arms |
+| detect_sam2point_sweep.R | Promptable seed-to-refine point-cloud arm |
+| analyze_model_benchmark.R / compare_model_sites.R | Equal-set-guarded model synthesis and cross-site results |
+| score_instances_iou.R / compare_matching_rules.R | Point-set IoU, Coverage, PQ, and metric-ranking sensitivity |
+| fuse_detectors.R / calibrate_confidence.R / route_detectors.R | Detector fusion, score calibration, and per-cell routing |
+| coverage_gap.R | Re-grade isolated likely-real false positives using cross-family agreement |
+| crown_metrics_sweep.R / analyze_crown_metrics.R | Field crown-diameter benchmark and analysis |
+| crown_allometry.R | Crown width and height to DBH/biomass analysis |
+
+### Exports and supporting libraries
+
+| Scripts | Purpose |
+| --- | --- |
+| export_geojson.R / export_stems_ground_truth_geojson.R / export_best_treetops_geojson.R | Export benchmark geography, field stems, and best detections as GeoJSON |
+| bootstrap.R / repo_paths.R | Locate the repository and working directory consistently |
+| sweep_lib.R / calval_lib.R / pc_detect_lib.R | Shared density-ladder, split, and point-cloud detection helpers |
+| model_bench_lib.R / model_runner.R / io_bridge.R | Shared model scoring, runtime, and point-instance I/O helpers |
+| route_lib.R / coverage_lib.R / allometry_lib.R | Pure helpers for routing, coverage credit, and allometry |
+| crown_metrics_3d.R / crown_metrics_deepmodel.R | Shared crown-metric helpers |
+
+## Documentation and result index
+
+| Read this | For |
+| --- | --- |
+| [Tree-top detection approach](docs/treetop-detection-approach.md) | Method, parameter rules, tooling, and pitfalls |
+| [NEON LiDAR sites](docs/neon-lidar-sites.md) | Site, field-stem, LiDAR, and 3DEP context |
+| [Dataset and sweep plan](docs/dataset-research-and-sweep-plan.md) | Benchmark design and evaluation rationale |
+| [lasR vs lidR comparison](results/treetop-lasr-vs-lidr-comparison.md) | Toy tile, AOI, same-CHM, crowns, and streaming results |
+| [Density-ladder results](results/density-ladder-sweep-results.md) | Cross-density, crown-class, and site results |
+| [Model benchmark](results/model-benchmark-results.md) | Classical and deep detector comparison |
+| [Crown-segmentation results](results/crown-segmentation-results.md) | Field crown-width error for delineation methods |
+| [Point-cloud detector results](results/pointcloud-detector-results.md) | Native-density CHM and point-cloud detector comparison |
+| [Instance IoU, Coverage, and PQ](results/instance-iou-pq-results.md) | Mask-aware proxy evaluation |
+| [RGB–LiDAR fusion](results/rgb-lidar-fusion-results.md) | DeepForest and Detectree2 results |
+
+Additional targeted analyses:
+
+- [Calibration/validation](results/calibration-validation-results.md),
+  [native QL2](results/native-ql2-crosscheck-results.md), and
+  [temporal sensitivity](results/temporal-sensitivity-results.md)
+- [Detector fusion](results/detector-fusion-results.md),
+  [confidence calibration](results/confidence-calibration-results.md), and
+  [detector routing](results/detector-routing-results.md)
+- [Matcher robustness](results/matcher-robustness-results.md),
+  [positional uncertainty](results/positional-uncertainty-results.md), and
+  [coverage-gap crediting](results/coverage-gap-results.md)
+- [Crown allometry](results/crown-allometry-results.md) and
+  [SAM2Point seed-to-refine](results/sam2point-promptable-refine-results.md)
+
+## Tests
+
+Run the library test suite from the repository root:
+
+~~~sh
+Rscript tests/run_tests.R
+~~~
+
+The tests cover the shared scoring, pooling, detector-extractor, instance-I/O,
+model-runner, routing, allometry, and uncertainty helpers. They do not require
+the large generated LiDAR working set.

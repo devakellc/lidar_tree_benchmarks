@@ -1,29 +1,96 @@
 # LiDAR Tree Benchmarks
 
-> Reproducible benchmarks for individual-tree detection and crown delineation
-> from airborne LiDAR, tested across point densities, forest structures, and
-> model families.
+> Reproducible comparisons of individual-tree detection and crown-delineation
+> methods from airborne LiDAR.
 
-This research repository compares density-aware tree-top detection and crown
-segmentation workflows. It starts with a small bundled LiDAR tile, extends to a
-USGS 3DEP area of interest, and evaluates the principal methods on
-field-mapped NEON stems at SJER, SOAP, and TEAK.
+This research repository evaluates tree-top detectors and crown delineators
+from classical CHM methods through point-cloud, deep-learning, and RGB arms.
+It starts with a bundled LiDAR tile, extends to a USGS 3DEP area of interest,
+and evaluates the methods against field-mapped NEON stems at SJER, SOAP, and
+TEAK.
 
-The central rule is simple: **measure density first, then derive the canopy
-height model (CHM), detection-window, and smoothing parameters from it.** Do
-not carry fixed settings from one acquisition into another.
+## Methods and results
 
-![Overstory and understory recall across the three NEON benchmark
-sites.](results/figures/structure_gradient.png)
+### Tree-top detection
 
-*CHM-VWF recall across the NEON structure gradient. Solid lines show
-overstory recall; dashed lines show understory recall. See the
-[density-ladder results](results/density-ladder-sweep-results.md).*
+Detection metrics use one-to-one matching against mapped field stems. Values
+below are pooled benchmark results; their site, density, and matched-set scope
+are stated so that unlike comparisons are not implied.
+
+| Method family | Implementations in this repository | Headline result | Best fit |
+| --- | --- | --- | --- |
+| CHM local maxima | lasR and lidR variable-window filtering (CHM-VWF) | With the same CHM, the engines agree closely (Jaccard 0.95). At native density, CHM-VWF reaches F1 0.365 over 699 stems. | Transparent, reproducible baseline and large-area CHM workflows. |
+| Multi-layer CHM | multichm and lmfauto | multichm reaches native F1 0.412 over the same three-site population and is the most stable LiDAR arm across sparse rungs. | A robust classical default, especially when point density is modest. |
+| Point-cloud detectors | lidR point LMF, Li 2012, and lasR point local maximum | Li 2012 raises understory recall to 0.257 versus 0.200 for CHM-VWF, but pooled F1 is 0.346. | Recovering additional sub-canopy trees when precision trade-off is acceptable. |
+| Point/instance models | SegmentAnyTree, TreeisoNet, ForestFormer3D, AMS3D, ptrees, and Treeiso | SegmentAnyTree is the strongest native single arm in the pooled comparison: F1 0.443 and understory recall 0.448. | High-density ALS where compute and model setup are available. |
+| RGB detection | DeepForest and Detectree2 | DeepForest achieves F1 0.368 and understory recall 0.348 at SOAP; Detectree2 transfers poorly without domain-matched weights (F1 0.255). | An optical complement or low-density fallback, not the best standalone LiDAR replacement. |
+| Multi-detector fusion | Union, majority, layered, and k-of-N consensus | Union lifts pooled recall to 0.764 and understory recall to 0.600, but F1 falls to 0.349 because the stem reference is incomplete for many isolated detections. | Recall-oriented inventories and a calibrated operating-point frontier. |
+
+### Crown delineation
+
+The crown benchmark compares predicted crown diameter with NEON field diameter.
+Equivalent-circle diameter (d_eq) is compared with ninetyCrownDiameter, while
+max-caliper diameter is compared with maxCrownDiameter. Those are different
+geometric targets, so their RMSE values should not be mixed.
+
+| Method | Crown representation | Headline result | Interpretation |
+| --- | --- | --- | --- |
+| Random walker with per-crown stop rule | CHM regions stopped at a fraction of seed height | Lowest pooled RMSE in the shared-seed classical test: 2.42 m for d_eq and 3.57 m for max-caliper. | Current best classical diameter fit when its Matrix-based workflow is available. |
+| lasR region growing | CHM regions converted to polygons | 2.62 m d_eq RMSE and 3.72 m max-caliper RMSE over 225 matched stems. | A strong, compact, engine-native CHM baseline. |
+| Dalponte and Silva | Seeded CHM segmenters | Dalponte: 2.70 m d_eq RMSE; Silva: 2.79 m. | Competitive alternatives; seed source and diameter definition matter. |
+| AMS3D and ptrees | 3-D point-instance crowns | d_eq RMSE 2.97 m and 3.03 m, respectively; they match 1.4–2.1× more stems than the CHM controls. | Better sub-canopy reach, with different matched populations and a modest RMSE trade-off. |
+| Li 2012 | 3-D point-cloud segments | 5.23 m d_eq RMSE and substantial positive diameter bias. | Useful for detection coverage, not the current crown-width choice. |
+
+The [crown-segmentation results](results/crown-segmentation-results.md) include
+matched-tree counts, bias, MAE, R², density sensitivity, and the full
+three-dimensional comparison. Crown methods should be chosen on that crown
+metric, not on the F1 of the detector that supplied their seeds.
+
+### Choosing a method
+
+| Goal | Recommended starting point | Why |
+| --- | --- |
+| Simple, inspectable tree-top baseline | CHM-VWF | The lasR/lidR same-CHM test shows the peak finder is not the material engine difference. |
+| Reliable classical detector at varied density | multichm | It is the strongest stable classical LiDAR arm in the benchmark. |
+| Maximum high-density detection F1 | SegmentAnyTree | Best pooled native F1 and understory recall among the evaluated single arms. |
+| More understory trees | SegmentAnyTree, Li 2012, or a fusion operating point | These methods raise coverage; choose the precision/recall point explicitly. |
+| Optical or sparse-LiDAR complement | DeepForest | It supplies density-independent RGB coverage and a different failure mode. |
+| Best classical crown diameter | Random walker with the per-crown stop rule | It has the lowest pooled crown-diameter RMSE in the shared-seed test. |
+| Straightforward CHM crown product | lasR region growing or Dalponte | They are close in diameter accuracy and easier to inspect and reproduce. |
+
+Detailed evidence:
+
+- [Cross-model detection benchmark](results/model-benchmark-results.md)
+- [Classical and 3-D crown benchmark](results/crown-segmentation-results.md)
+- [Point-cloud detector comparison](results/pointcloud-detector-results.md)
+- [RGB detector results](results/rgb-lidar-fusion-results.md)
+- [Detector-fusion results](results/detector-fusion-results.md)
+- [lasR versus lidR implementation comparison](results/treetop-lasr-vs-lidr-comparison.md)
+
+## Benchmark design
+
+The methods are evaluated on a bundled tile, a USGS 3DEP AOI, and 2021 NEON
+LiDAR paired with field-mapped stems from three contrasting forest structures.
+The NEON experiment holds data preparation and matching rules constant, then
+tests methods over native, 8, 4, 2, and 1 pts/m² rungs where a method remains
+meaningful. Density is therefore an evaluation condition, not the subject of
+the repository.
+
+- CHM resolution, local-maximum window, and smoothing are derived from measured
+  density rather than copied as fixed parameters between acquisitions.
+- Detection uses one-to-one apex matching; crown delineation uses field crown
+  widths; instance metrics use a clearly labelled Voronoi-on-stems proxy rather
+  than hand-drawn reference masks.
+- Results pool counts or error sums before calculating rates and RMSE, so small
+  plots do not dominate a site-level result.
+
+Read the [methodology](docs/treetop-detection-approach.md) for the parameter
+rules and [NEON site notes](docs/neon-lidar-sites.md) for the data context.
 
 ## Start here
 
-Read the [methodology](docs/treetop-detection-approach.md) for the workflow and
-its assumptions. Then run the bundled toy comparison; it needs no download:
+Run the bundled comparison to inspect the two CHM local-maximum implementations.
+It needs no data download:
 
 ~~~sh
 export CLAUDE_JOB_DIR="$PWD/work"
@@ -37,52 +104,13 @@ Rscript scripts/compare.R \
 Rscript scripts/shared_chm.R
 ~~~
 
-This produces density-derived lasR and lidR detections, compares their
-locations, and then repeats the local-maximum test on one shared CHM. The
-shared-CHM run is the right way to compare the maxima implementations.
-
 | If you want to... | Start with |
 | --- | --- |
-| Understand the density-first method | [Methodology](docs/treetop-detection-approach.md) |
-| Compare lasR and lidR on a known small tile | [Toy workflow](#bundled-toy-tile) |
+| Compare detector families and results | [Methods and results](#methods-and-results) |
+| Reproduce crown-diameter metrics | [Crown workflow](#bundled-toy-tile) and [crown benchmark](results/crown-segmentation-results.md) |
 | Process a real USGS 3DEP AOI | [USGS 3DEP workflow](#usgs-3dep-aoi) |
-| Reproduce field-ground-truth accuracy curves | [NEON density ladder](#neon-density-ladder) |
-| Compare detector, model, or fusion arms | [Model benchmark](results/model-benchmark-results.md) |
+| Reproduce the field benchmark | [NEON method benchmark](#neon-method-benchmark) |
 | Find every runnable entry point | [Script reference](#script-reference) |
-
-## What this repository benchmarks
-
-| Area | Methods and outputs |
-| --- | --- |
-| Tree-top detection | CHM variable-window filtering, point-cloud local maxima, Li 2012, multichm, and learned detector arms |
-| Crown delineation | CHM region growing, Dalponte, Silva, watershed, random-walker, and point/instance segmentation approaches |
-| Data sources | A bundled lasR tile, a reprojected USGS 3DEP EPT AOI, and 2021 NEON airborne LiDAR with field stems |
-| Density robustness | Native data plus 8, 4, 2, and 1 pts/m² density rungs where an arm is meaningful |
-| Evaluation | One-to-one apex matching, crown-diameter error, calibrated confidence, uncertainty bands, and point-set IoU, Coverage, and PQ proxy metrics |
-| Scale and transfer | Streaming/catalog tests, native-QL2 cross-checks, temporal sensitivity, RGB fusion, and cross-site comparisons |
-
-The model benchmark includes classical CHM and point-cloud methods as well as
-AMS3D, Treeiso, TreeisoNet, SegmentAnyTree, ForestFormer3D, DeepForest,
-Detectree2, and SAM2Point where their required environments are available.
-
-## Evidence at a glance
-
-These are experiment-specific findings, not universal deployment guarantees.
-Follow the linked result documents for datasets, protocols, and caveats.
-
-| Question | Current finding |
-| --- | --- |
-| Does the engine choose different tops? | Given the same CHM, lasR and lidR local-maximum results nearly agree (Jaccard 0.95); CHM construction drives the larger end-to-end difference. |
-| Does density matter? | At SOAP, CHM-VWF F1 remains about 0.35–0.42 over a 15× density range, but recall and precision exchange places and understory detection stays severely occlusion-limited. |
-| When do point/instance methods help? | At native SOAP density, SegmentAnyTree improves F1 and understory recall over CHM-VWF, then becomes less competitive at the 2 and 1 pts/m² rungs. |
-| Can sparse runs be simulated by decimation? | The native-QL2 cross-check measures that limitation directly rather than assuming decimation is a perfect acquisition surrogate. |
-| Which tool streams an AOI cleanly? | In the nine-tile demonstration, lasR reproduced the single-file count exactly; inspect the catalog result before generalizing that result to another tiling scheme. |
-
-- [lasR vs lidR comparison](results/treetop-lasr-vs-lidr-comparison.md)
-- [Density-ladder benchmark](results/density-ladder-sweep-results.md)
-- [Cross-model benchmark](results/model-benchmark-results.md)
-- [Native USGS 3DEP cross-check](results/native-ql2-crosscheck-results.md)
-- [EPT acquisition and streaming results](results/ept-acquisition-sweep-results.md)
 
 ## Reproduce a workflow
 
@@ -131,12 +159,13 @@ scripts/detect_lasr_ept_aoi.R instead. That path remains in EPSG:3857 and is
 best used for acquisition/streaming experiments, not metric-faithful parameter
 selection. See the [AOI comparison](results/treetop-lasr-vs-lidr-comparison.md).
 
-### NEON density ladder
+### NEON method benchmark
 
 This is the primary field-ground-truth benchmark. It downloads the needed NEON
-field and LiDAR data, creates density rungs, and scores detections in the
-mapped plot cores. A full three-site run needs network access, several GB of
-working storage, and meaningful compute time.
+field and LiDAR data, evaluates the CHM-VWF detector over density rungs, and
+creates the data products consumed by the other method arms. A full three-site
+run needs network access, several GB of working storage, and meaningful
+compute time.
 
 ~~~sh
 for SITE in SJER SOAP TEAK; do
@@ -168,8 +197,8 @@ Rscript scripts/run_sweep.R SITE=SOAP MEAS_YEAR=2021 \
 | GPU/vision arms | The documented container or conda environment under [gpu](gpu/) for that specific model |
 | Tests | testthat |
 
-The [density-ladder setup notes](results/density-ladder-sweep-results.md)
-document the pre-development lasR requirement and the feature check behind it.
+The [lasR setup notes](results/density-ladder-sweep-results.md) document the
+pre-development build requirement and the feature check behind it.
 The model-specific setup instructions live alongside each runtime under
 [gpu](gpu/) and in the linked result documents.
 
@@ -211,13 +240,13 @@ workflows.
 | density_cost.R / li2012_16core.R | Detection density/cost and multi-core Li 2012 throughput studies |
 | bench_lasr_ept_acquisition.R / sweep_lasr_ept_params.R / sweep_lasr_ept_partitions.R | EPT throughput, parameter, and partition studies |
 
-### NEON data and density studies
+### Field data and validation studies
 
 | Scripts | Purpose |
 | --- | --- |
 | neon_ground_truth.R / verify_geolocation.R | Build and audit field-stem ground truth |
 | neon_download_lidar.R / neon_download_aop.R | Download the NEON LiDAR and RGB inputs needed by a selected arm |
-| run_sweep.R / analyze_sweep.R / compare_sites.R | Run, pool, and compare the CHM-VWF density ladder |
+| run_sweep.R / analyze_sweep.R / compare_sites.R | Run, pool, and compare the core CHM-VWF field benchmark |
 | calval_split.R / calval_multichm.R | Held-out parameter calibration/validation |
 | ept_discovery.R / native_ql2_crosscheck.R | Find covering 3DEP projects and test native-versus-decimated performance |
 | validate_heights.R / temporal_sensitivity.R | Height validation and field-to-LiDAR temporal sensitivity |

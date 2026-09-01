@@ -49,7 +49,7 @@ metric, not on the F1 of the detector that supplied their seeds.
 ### Choosing a method
 
 | Goal | Recommended starting point | Why |
-| --- | --- |
+| --- | --- | --- |
 | Simple, inspectable tree-top baseline | CHM-VWF | The lasR/lidR same-CHM test shows the peak finder is not the material engine difference. |
 | Reliable classical detector at varied density | multichm | It is the strongest stable classical LiDAR arm in the benchmark. |
 | Maximum high-density detection F1 | SegmentAnyTree | Best pooled native F1 and understory recall among the evaluated single arms. |

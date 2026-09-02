@@ -1,13 +1,35 @@
 # LiDAR Tree Benchmarks
 
-> Reproducible comparisons of individual-tree detection and crown-delineation
-> methods from airborne LiDAR.
+<p align="center">
+  <img src="assets/intelifore-promo-lidar.gif"
+       alt="Animated LiDAR point-cloud forest scene"
+       width="720">
+</p>
 
-This research repository evaluates tree-top detectors and crown delineators
-from classical CHM methods through point-cloud, deep-learning, and RGB arms.
-It starts with a bundled LiDAR tile, extends to a USGS 3DEP area of interest,
-and evaluates the methods against field-mapped NEON stems at SJER, SOAP, and
-TEAK.
+<p align="center">
+  <strong>Benchmarking individual-tree detection and crown delineation from
+  airborne LiDAR.</strong><br>
+  Classical CHM methods · Point-cloud segmentation · Deep models · RGB · Fusion
+</p>
+
+<p align="center">
+  <a href="#methods-and-results">Methods &amp; results</a> ·
+  <a href="#start-here">Quick start</a> ·
+  <a href="#reproduce-a-workflow">Reproduce</a> ·
+  <a href="paper.tex">Paper</a> ·
+  <a href="#script-reference">Scripts</a>
+</p>
+
+---
+
+This is a field-grounded comparison of tree-top detectors and crown
+delineators: a bundled LiDAR tile for fast checks, a USGS 3DEP area of interest
+for production-scale processing, and field-mapped NEON stems at SJER, SOAP, and
+TEAK for method evaluation.
+
+| 🌲 Tree detection | 🧩 Crown delineation | 📏 Evaluation |
+| --- | --- | --- |
+| CHM local maxima, point-cloud detectors, deep models, RGB, and fusion | Region growing, Dalponte, Silva, watershed, random walker, and 3-D instances | Apex matching, crown-diameter error, uncertainty, IoU, Coverage, and PQ proxy metrics |
 
 ## Methods and results
 
@@ -296,6 +318,7 @@ workflows.
 | [Point-cloud detector results](results/pointcloud-detector-results.md) | Native-density CHM and point-cloud detector comparison |
 | [Instance IoU, Coverage, and PQ](results/instance-iou-pq-results.md) | Mask-aware proxy evaluation |
 | [RGB–LiDAR fusion](results/rgb-lidar-fusion-results.md) | DeepForest and Detectree2 results |
+| [Overleaf manuscript](paper.tex) | Research-paper draft and reproducible method summary |
 
 Additional targeted analyses:
 
